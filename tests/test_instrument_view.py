@@ -174,12 +174,16 @@ def test_every_back_end_can_say_what_it_lets_you_set():
         assert all(isinstance(s, Setting) for s in backends.settings(name))
 
 
-def test_channel_b_is_switched_off_with_a_tick(window, monkeypatch, app):
+def test_either_channel_is_switched_off_with_a_tick(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
     window.instrument_view.controls["enabled_b"].click()
     window.instrument_bar.run.setChecked(True)
     assert [c.key for c in window.instrument.channels()] == ["A"]
+    window.instrument_view.controls["enabled_b"].click()
+    window.instrument_view.controls["enabled_a"].click()
+    assert [c.key for c in window.instrument.channels()] == ["B"]
+    assert set(window.capture.records) == {"B"}
     window.stop()
 
 

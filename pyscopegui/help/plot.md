@@ -39,8 +39,16 @@ the axis takes the largest, since they share it.
 
 ## How much is kept
 
-The last minute of every channel, up to eight million samples a channel: a minute at
-100 kS/s, sixteen seconds at 500 kS/s and eight at 1 MS/s. Past that the oldest are dropped.
+The last ten seconds of every channel, to begin with. Past that the oldest are dropped.
+*Tools > Settings > History* chooses how much: from one second to ten minutes. A change
+starts the instrument again.
+
+It is all held in memory, so a long history at a high rate is a great deal of it: four bytes
+a sample for an analog channel and one for a digital one, and half as much again. Ten seconds
+of two channels at 1 MS/s is about 120 MB; ten minutes of them is about 7 GB. The
+[Event Log](event-log.md) says how much the history chosen comes to each time the instrument
+is run, and if there is not room for it the instrument is not started.
+
 **Clear history** throws away what is held and counts time from zero again. The status bar
 says how many seconds are held.
 

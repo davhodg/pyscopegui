@@ -29,7 +29,7 @@ from pyscopegui.backends.base import Setting
 NOTHING = "This instrument has nothing to set."
 RESTARTS = (
     "A change here starts the instrument again, from an empty plot, unless it is "
-    "to the signal generator, which changes at once."
+    "to the signal generator, which changes as it runs."
 )
 
 

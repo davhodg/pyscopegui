@@ -70,6 +70,34 @@ def test_missing_samples_are_held_as_a_gap_and_later_ones_keep_their_time():
     assert capture.newest() == 0.8
 
 
+def test_a_pause_the_instrument_took_is_a_gap_without_a_warning():
+    capture = Capture(history_s=10.0)
+    capture.set_channels([Channel("A", "A")], rate=10.0)
+    gaps = []
+    capture.gap.connect(gaps.append)
+    samples = {"A": np.ones(3, dtype=np.float32)}
+    capture.add(Block(0, 10.0, samples))
+    capture.add(Block(5, 10.0, samples, after_pause=True))
+    assert gaps == []
+    assert np.isnan(capture.records["A"].view()[3:5]).all()
+    assert capture.newest() == 0.8
+
+
+def test_the_history_is_how_many_seconds_each_record_holds():
+    capture = Capture(history_s=2.0)
+    capture.set_channels([Channel("A", "A"), Channel("D0", "D0", DIGITAL, "")], rate=1000.0)
+    assert {r.capacity for r in capture.records.values()} == {2000}
+    capture.add(Block(0, 1000.0, {"A": np.zeros(5000, dtype=np.float32)}))
+    assert capture.records["A"].count == 2000
+    assert capture.oldest() == 3.0 and capture.newest() == 5.0
+
+
+def test_memory_is_half_as_much_again_as_the_samples_held():
+    capture = Capture(history_s=1.0)
+    capture.set_channels([Channel("A", "A"), Channel("D0", "D0", DIGITAL, "")], rate=1000.0)
+    assert capture.memory_bytes() == 1500 * 4 + 1500 * 1
+
+
 def test_clearing_counts_from_zero_again():
     capture = Capture(history_s=1.0)
     capture.set_channels([Channel("A", "A")], rate=10.0)

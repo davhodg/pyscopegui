@@ -18,7 +18,7 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 
 - **Channels and Plot**: analog channels on one plot and digital channels in lanes under it, on the same time axis. Drag or zoom either and both move.
 - **Auto Y**, on to start with, fits the voltage axis to the signal; unticked, the axis is the range the channels are set to, as on a scope's screen.
-- **Deep captures stay quick**: the last minute of every channel is held, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
+- **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes if you ask, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.
@@ -33,9 +33,9 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 
-The **Instrument** pane sets the scope up: sample rate, each channel's range and coupling, and channel B on or off. A change to any of those starts the scope again from an empty plot.
+The **Instrument** pane sets the scope up: sample rate, and each channel's range, coupling and whether it is read at all. A change to any of those starts the scope again from an empty plot.
 
-The pane also drives the scope's **signal generator** output: off, sine, square or triangle, with frequency, peak-to-peak amplitude and offset. It is off until you choose a waveform, and changes take effect at once without restarting.
+The pane also drives the scope's **signal generator** output: off, sine, square or triangle, with frequency, peak-to-peak amplitude and offset. It is off until you choose a waveform, and changes take effect while the scope runs, with a short gap in the plot while it is set.
 
 ## Installing
 

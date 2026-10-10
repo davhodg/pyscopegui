@@ -31,6 +31,7 @@ class FakeLibrary:
         self.refused_ranges = set()
         self.streams = True
         self.generates = True
+        self.streaming = False
         self.overrun = False
 
     def ps2000_open_unit(self):
@@ -52,6 +53,7 @@ class FakeLibrary:
 
     def ps2000_run_streaming_ns(self, handle, interval, units, most, auto_stop, per, overview):
         self.calls.append(("stream", interval, units, most, auto_stop, per, overview))
+        self.streaming = bool(self.streams)
         return 1 if self.streams else 0
 
     def ps2000_get_streaming_last_values(self, handle, callback):
@@ -81,10 +83,12 @@ class FakeLibrary:
         self, handle, offset, pk_to_pk, wave, start, stop, increment, dwell, sweep, sweeps
     ):
         self.calls.append(("generator", offset, pk_to_pk, wave, start, stop))
-        return 1 if self.generates else 0
+        # As a 2204A was seen to: it takes no new output while it is streaming.
+        return 1 if self.generates and not self.streaming else 0
 
     def ps2000_stop(self, handle):
         self.calls.append(("stop",))
+        self.streaming = False
         return 1
 
     def ps2000_close_unit(self, handle):
@@ -131,8 +135,27 @@ def test_a_range_nobody_has_heard_of_is_the_default():
     assert pico.Settings({"range_a": "3V", "range_b": "200mV"}).ranges == {"A": "5V", "B": "200mV"}
 
 
-def test_channel_b_can_be_switched_off():
+def test_either_channel_can_be_switched_off():
     assert pico.Settings({"enabled_b": False}).keys() == ["A"]
+    assert pico.Settings({"enabled_a": False}).keys() == ["B"]
+
+
+def test_channel_b_alone_is_read_and_a_is_told_to_be_off():
+    library = FakeLibrary()
+    reading = stream(library, {"enabled_a": False, "range_b": "1V"})
+    reading.open()
+    assert ("channel", pico.CHANNEL_A, False, True, 8) in library.calls
+    library.waiting.append((None, [pico.MAX_VALUE, 0]))
+    block = reading.poll()
+    assert set(block.data) == {"B"}
+    assert block.data["B"].tolist() == pytest.approx([1.0, 0.0])
+
+
+def test_both_channels_off_is_said_before_the_scope_is_touched():
+    library = FakeLibrary()
+    with pytest.raises(pico.ScopeError, match="Both channels are switched off"):
+        stream(library, {"enabled_a": False, "enabled_b": False}).open()
+    assert library.calls == []
 
 
 # --- opening ---------------------------------------------------------------------------------
@@ -322,7 +345,13 @@ def test_a_generator_asked_for_is_set_as_the_scope_opens_in_microvolts():
     )
 
 
-def test_a_generator_change_while_running_is_made_between_two_polls():
+STREAM = ("stream", 2000, pico.TIME_UNITS_NS, pico.DRIVER_SAMPLES, 0, 1, pico.OVERVIEW_SAMPLES)
+
+
+def test_a_generator_change_while_running_stops_the_stream_for_it_and_starts_it_again():
+    """The scope takes no new output while it is streaming -- found on a
+    2204A, where the change was refused until the scope was stopped and run
+    again -- so the stream is stopped for it, with the scope left open."""
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
@@ -331,11 +360,51 @@ def test_a_generator_change_while_running_is_made_between_two_polls():
     reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
     reading.poll()
     reading.poll()
-    assert library.calls == [("generator", 0, 2_000_000, pico.WAVES["sine"], 1000.0, 1000.0)]
+    assert library.calls == [
+        ("stop",),
+        ("generator", 0, 2_000_000, pico.WAVES["sine"], 1000.0, 1000.0),
+        STREAM,
+    ]
+    assert reading.notes == [
+        ("Signal generator: sine, 1000 Hz, 2 V peak to peak, 0 V offset.", False)
+    ]
     reading.wanted_generator = ("off", 1000.0, 2.0, 0.0)
     reading.poll()
-    assert library.calls[-1] == ("generator", 0, 0, pico.WAVES["off"], 1000.0, 1000.0)
+    assert library.calls[-2] == ("generator", 0, 0, pico.WAVES["off"], 1000.0, 1000.0)
     assert [text for text, _ in reading.notes][-1] == "Signal generator: off."
+    assert ("open",) not in library.calls and ("close",) not in library.calls
+
+
+def test_the_time_a_generator_change_took_is_a_gap_and_not_lost_samples():
+    library, clock = FakeLibrary(), Clock()
+    reading = stream(library, clock=clock)
+    reading.open()
+    library.waiting.append(([1] * 100, [1] * 100))
+    assert reading.poll().after_pause is False
+
+    def takes_a_while(handle):
+        clock.now += 0.04  # the forty milliseconds the scope was not reading
+        return 1
+
+    library.ps2000_stop = takes_a_while
+    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    library.waiting.append(([2] * 50, [2] * 50))
+    after = reading.poll()
+    assert after.after_pause is True
+    assert after.first == 100 + round(0.04 * pico.DEFAULT_RATE)
+    library.waiting.append(([3] * 10, [3] * 10))
+    following = reading.poll()
+    assert following.after_pause is False and following.first == after.first + 50
+
+
+def test_a_stream_that_will_not_start_again_after_the_generator_is_said():
+    library = FakeLibrary()
+    reading = stream(library)
+    reading.open()
+    library.streams = False
+    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    with pytest.raises(pico.ScopeError, match="would not stream"):
+        reading.poll()
 
 
 def test_a_scope_with_no_generator_warns_only_when_one_is_asked_for():
@@ -359,7 +428,8 @@ def test_the_running_instrument_passes_a_generator_setting_to_its_thread(app, mo
     run_for(app, instrument, lambda: states == [True])
     instrument.set("gen_wave", "triangle")
     wanted = ("generator", 0, 2_000_000, pico.WAVES["triangle"], 1000.0, 1000.0)
-    run_for(app, instrument, lambda: wanted in library.calls)
+    run_for(app, instrument, lambda: wanted in library.calls and library.streaming)
+    assert library.calls.count(("open",)) == 1, "the scope is not opened again for it"
     instrument.stop()
     run_for(app, instrument, lambda: states == [True, False])
 

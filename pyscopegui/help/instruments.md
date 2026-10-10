@@ -29,8 +29,8 @@ There are two kinds of setting, and the pane says so at the bottom:
 - **How the instrument is set up** -- a sample rate, a range. Changing one while the
   instrument is running starts it again, from an empty plot; changed while it is stopped, it
   is used at the next Run.
-- **What takes effect at once** -- a signal generator. These change while the instrument
-  runs, without starting it again.
+- **What changes as it runs** -- a signal generator. These take effect without starting
+  the instrument again.
 
 A list picks one of several; a tick box is on or off; a number is typed, or stepped with its
 arrows, and takes effect when you press Enter or move on, not at every digit.

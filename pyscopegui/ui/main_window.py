@@ -7,6 +7,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QDesktopServices,
     QFont,
     QKeySequence,
@@ -26,7 +27,7 @@ from PySide6.QtWidgets import (
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
 from pyscopegui.core import shortcut
-from pyscopegui.core.capture import Capture
+from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
@@ -56,6 +57,29 @@ DEFAULT_WIDTH = 1400
 DEFAULT_HEIGHT = 900
 
 STATUS_MS = 500
+
+HISTORY_KEY = "capture.history_s"
+HISTORY_TIP = (
+    "How much of each channel is kept, for the plot to go back over. Past it the\n"
+    "oldest samples are dropped. It is all held in memory: four bytes a sample\n"
+    "for an analog channel and one for a digital one, and half as much again,\n"
+    "so ten minutes of two channels at 1 MS/s is about 7 GB.\n"
+    "A change starts the instrument again."
+)
+
+
+def short_time(seconds: float) -> str:
+    """600 -> "10 min": a length of time as it is said."""
+    if seconds >= 60:
+        return f"{seconds / 60:g} min"
+    return f"{seconds:g} s"
+
+
+def short_bytes(count: int) -> str:
+    for unit, size in (("GB", 1e9), ("MB", 1e6)):
+        if count >= size:
+            return f"{count / size:.3g} {unit}"
+    return f"{count / 1e3:.3g} kB"
 
 
 def short_rate(rate: float) -> str:
@@ -95,7 +119,7 @@ class MainWindow(QMainWindow):
         self.exceptions.install()
 
         # --- the instrument, and what it has sent ------------------------------
-        self.capture = Capture(parent=self)
+        self.capture = Capture(history_s=self._saved_history(), parent=self)
         self.capture.gap.connect(self._on_gap)
         #: Whichever back end was last run, kept so that Run again reuses it.
         self.instrument: Instrument | None = None
@@ -151,6 +175,8 @@ class MainWindow(QMainWindow):
         tools_menu.addMenu(settings_menu)
         self.theme_menu = theme.menu(self)
         settings_menu.addMenu(self.theme_menu)
+        self.history_menu = self._history_menu()
+        settings_menu.addMenu(self.history_menu)
         if shortcut.launcher() is not None:
             # Only for a source folder: the installer makes its own entry.
             settings_menu.addSeparator()
@@ -189,7 +215,20 @@ class MainWindow(QMainWindow):
             instrument.note.connect(self.events.information)
             instrument.warning.connect(self.events.warning)
             self.instrument, self._instrument_name = instrument, name
-        self.capture.set_channels(self.instrument.channels(), self.instrument.rate)
+        try:
+            self.capture.set_channels(self.instrument.channels(), self.instrument.rate)
+        except MemoryError:
+            self.events.error(
+                f"There is not enough memory to keep {short_time(self.capture.history_s)} of "
+                f"every channel at {short_rate(self.instrument.rate)}. Choose a shorter "
+                "history under Tools > Settings > History, or a lower sample rate."
+            )
+            self.instrument_bar.set_running(False)
+            return
+        self.events.information(
+            f"Keeping the last {short_time(self.capture.history_s)} of each channel: up to "
+            f"{short_bytes(self.capture.memory_bytes())} of memory at this rate."
+        )
         self.instrument.start()
         # Now, and not when it says so: a scope takes seconds to open, and
         # the button has to offer Stop for all of them.
@@ -461,6 +500,41 @@ class MainWindow(QMainWindow):
         self.help_menu.shutdown()
         self.exceptions.remove()
         super().closeEvent(event)
+
+    # --- how much is kept ----------------------------------------------------------------
+    def _saved_history(self) -> float:
+        """The history chosen, or the default for anything that is not one of the choices."""
+        saved = self.ctx.settings.get(HISTORY_KEY, HISTORY_S)
+        return float(saved) if saved in HISTORIES else HISTORY_S
+
+    def _history_menu(self) -> QMenu:
+        """*Tools > Settings > History*: how long a stretch of each channel is kept."""
+        menu = QMenu("History", self)
+        menu.setToolTipsVisible(True)
+        menu.menuAction().setToolTip(HISTORY_TIP)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for seconds in HISTORIES:
+            action = QAction(short_time(seconds), menu, checkable=True)
+            action.setChecked(seconds == self.capture.history_s)
+            action.setToolTip(HISTORY_TIP)
+            action.triggered.connect(lambda _on=False, s=seconds: self.set_history(s))
+            group.addAction(action)
+            menu.addAction(action)
+        return menu
+
+    def set_history(self, seconds: float) -> None:
+        """Keep this much of each channel from now on.
+
+        The records are made at the size they will need, so an instrument
+        that is running is started again, as for any change to how it is set up.
+        """
+        if seconds == self.capture.history_s:
+            return
+        self.capture.history_s = seconds
+        self.ctx.settings.set(HISTORY_KEY, seconds)
+        if self.instrument is not None and self.instrument.running:
+            self.run(self._instrument_name)
 
     # --- settings ------------------------------------------------------------------------
     def _add_shortcut(self) -> None:

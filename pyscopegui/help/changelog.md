@@ -21,8 +21,10 @@ Nothing has been released yet. This is what the first version will have.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its
   back end says it has.
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels
-  streamed at up to 1 MS/s, with range, coupling and sample rate, and the scope's signal
-  generator.
+  streamed at up to 1 MS/s, with range, coupling and sample rate, either channel switched
+  off, and the scope's signal generator.
+- *Tools > Settings > History*: how much of each channel is kept, from a second to ten
+  minutes.
 - **Demo signals**: two analog and four digital channels, with no hardware.
 - Panes that dock, float, detach into windows of their own and pin on top, with the
   arrangement remembered, and more than one plot at once.

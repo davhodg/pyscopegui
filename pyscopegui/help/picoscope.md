@@ -37,7 +37,7 @@ In the [Instrument](instruments.md) pane.
 | Sample rate | Samples a second on each channel, from 10 kS/s to 1 MS/s |
 | Range | The most the input can measure, either side of zero: ±50 mV to ±20 V |
 | Coupling | DC, or AC to remove a steady voltage and look at what is on top of it |
-| Enabled (channel B) | Whether channel B is read at all |
+| Enabled | Whether the channel is read at all. One of the two has to be |
 
 Choose the smallest range the signal fits in. The scope's converter has 8 bits, so a ±1 V
 signal on the ±10 V range is measured in about twenty-six steps and looks like a staircase;
@@ -47,8 +47,10 @@ Changing any of these starts the scope again, which is its few seconds of openin
 
 ## Signal generator
 
-The scope's signal generator output is set from the same pane, and changes at once without
-starting the scope again.
+The scope's signal generator output is set from the same pane, and changes while the scope
+runs. The scope will not take a new output while it is streaming, so reading stops for a
+moment while it is set -- a few tens of milliseconds, drawn as a gap in the plot -- and the
+scope is not opened again.
 
 | Setting | What it does |
 |---------|--------------|
@@ -71,6 +73,7 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
 - *Pico's driver failed while opening the scope* --- the scope left the USB bus part way
   through. Unplug it, plug it in again and press Run.
 - *The scope would not set channel A to ...* --- this model does not have that range.
+- *Both channels are switched off* --- tick **Enabled** for one of them.
 - *The scope is delivering ... samples a second where ... were asked for* --- it cannot keep
   to that rate, and the times on the plot are out by that ratio. Choose a lower rate.
 - *The driver's buffer filled before it was read* --- the computer did not keep up, and

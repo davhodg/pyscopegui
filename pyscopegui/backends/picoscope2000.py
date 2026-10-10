@@ -149,6 +149,13 @@ SETTINGS = (
         group="Sampling",
         tip="Samples a second on each channel.",
     ),
+    Setting(
+        "enabled_a",
+        "Enabled",
+        True,
+        group="Channel A",
+        tip="Whether channel A is read at all.",
+    ),
     Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A"),
     Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A"),
     Setting(
@@ -287,7 +294,10 @@ class Settings:
             "A": options.get("coupling_a", "DC") != "AC",
             "B": options.get("coupling_b", "DC") != "AC",
         }
-        self.enabled = {"A": True, "B": bool(options.get("enabled_b", True))}
+        self.enabled = {
+            "A": bool(options.get("enabled_a", True)),
+            "B": bool(options.get("enabled_b", True)),
+        }
         wave = options.get("gen_wave", "off")
         #: Waveform, frequency in hertz, volts peak to peak, volts of offset.
         self.generator: tuple[str, float, float, float] = (
@@ -336,6 +346,8 @@ class Stream:
         self._sent = 0
         self._started = 0.0
         self._rate_checked = False
+        #: True until the next block: reading stopped for a moment, on purpose.
+        self._paused = False
         #: Whether the generator has been set to anything but off.
         self._generating = False
         #: A generator setting waiting to be applied by the next poll, or None.
@@ -352,6 +364,8 @@ class Stream:
     def open(self) -> None:
         """Open the scope, set it up and start it streaming. ScopeError if it will not."""
         library, settings = self._library, self.settings
+        if not settings.keys():
+            raise ScopeError("Both channels are switched off, so there is nothing to read.")
         try:
             handle = library.ps2000_open_unit()
         except OSError as exc:
@@ -381,16 +395,42 @@ class Stream:
         self.set_generator(settings.generator)
         # No trigger: streaming is everything, from the moment it starts.
         library.ps2000_set_trigger(handle, NO_TRIGGER, 0, 0, 0, 0)
-        started = library.ps2000_run_streaming_ns(
-            handle, settings.interval_ns, TIME_UNITS_NS, DRIVER_SAMPLES, 0, 1, OVERVIEW_SAMPLES
+        self._start_streaming()
+        self._sent = 0
+        self._started = self._clock()
+
+    def _start_streaming(self) -> None:
+        settings = self.settings
+        started = self._library.ps2000_run_streaming_ns(
+            self._handle,
+            settings.interval_ns,
+            TIME_UNITS_NS,
+            DRIVER_SAMPLES,
+            0,
+            1,
+            OVERVIEW_SAMPLES,
         )
         if not started:
             raise ScopeError(
                 f"The scope would not stream at one sample every {settings.interval_ns} ns. "
                 "Try a lower rate."
             )
-        self._sent = 0
-        self._started = self._clock()
+
+    def _change_generator(self, generator: tuple[str, float, float, float]) -> None:
+        """Set the generator while streaming, which means not streaming for a moment.
+
+        The scope refuses its generator a new output while it is streaming,
+        so the stream is stopped, the output set and the stream started
+        again, with the scope left open. The time that took is counted as
+        samples not taken, so what comes after is drawn where it belongs and
+        the pause is a gap.
+        """
+        paused_at = self._clock()
+        self._library.ps2000_stop(self._handle)
+        self.set_generator(generator)
+        self._start_streaming()
+        self._sent += round((self._clock() - paused_at) * self.settings.rate)
+        self._paused = True
 
     def set_generator(self, generator: tuple[str, float, float, float]) -> None:
         """Set the signal generator output: a fixed frequency, no sweep."""
@@ -459,7 +499,7 @@ class Stream:
         # Taken and cleared in one step: it is set from the GUI thread.
         wanted, self.wanted_generator = self.wanted_generator, None
         if wanted is not None:
-            self.set_generator(wanted)
+            self._change_generator(wanted)
         self._arrived = {}
         self._library.ps2000_get_streaming_last_values(self._handle, self._callback)
         if not self._arrived:
@@ -471,7 +511,8 @@ class Stream:
             scaled = raw[:count].astype(np.float32) * np.float32(volts / MAX_VALUE)
             scaled[raw[:count] == LOST_DATA] = np.nan
             data[key] = scaled
-        block = Block(self._sent, self.settings.rate, data)
+        block = Block(self._sent, self.settings.rate, data, after_pause=self._paused)
+        self._paused = False
         self._sent += count
         self._check_overrun()
         self._check_rate()
@@ -579,6 +620,7 @@ class PicoScope2000(Instrument):
         if self.running and self._stream is not None:
             # Handed to the thread that owns the scope, which sets it between
             # two polls: the driver is not called from two threads at once.
+            # Reading stops for a moment while it does; see _change_generator.
             self._stream.wanted_generator = self.settings.generator
 
     def channels(self) -> list[Channel]:

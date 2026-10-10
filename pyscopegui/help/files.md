@@ -11,8 +11,8 @@ pyscopegui keeps two files of yours, in one folder:
 
 *Tools > Open settings folder* opens it.
 
-- **`settings.json`** --- what you chose: the instrument, its settings, which channels each
-  plot shows, how long a stretch of time Follow keeps in view. It is plain text with one key
+- **`settings.json`** --- what you chose: the instrument, its settings, how much history is
+  kept, which channels each plot shows, how long a stretch of time Follow keeps in view. It is plain text with one key
   to a line, so it can be read, edited by hand or kept in version control. Anything in it
   that pyscopegui cannot make sense of is treated as not being there, so a mistake made by
   hand costs that one setting and nothing else.

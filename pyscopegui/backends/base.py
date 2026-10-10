@@ -79,6 +79,10 @@ class Block:
     #: Channel key -> samples: float32 in the channel's unit for an analog
     #: channel, uint8 holding 0 or 1 for a digital one.
     data: dict[str, np.ndarray]
+    #: The samples before this one were not taken, on purpose: the instrument
+    #: stopped reading for a moment to do something else. Drawn as a gap like
+    #: any other, and not reported as samples lost.
+    after_pause: bool = False
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))

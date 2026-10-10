@@ -14,21 +14,25 @@ from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block, Channel
 
-#: How much of each channel is kept, in seconds, before the oldest is dropped.
-HISTORY_S = 60.0
-#: And the most, in samples, whatever the rate. A record is twice this many
-#: values long, so at four bytes each this is 64 MB a channel: a minute at
-#: 100 kS/s, and sixteen seconds at 500 kS/s.
-MOST_SAMPLES = 8_000_000
+#: How much of each channel is kept, in seconds, before the oldest is dropped,
+#: unless Tools > Settings > History says otherwise.
+HISTORY_S = 10.0
+#: What History offers, in seconds.
+HISTORIES = (1.0, 10.0, 30.0, 60.0, 300.0, 600.0)
+#: How much longer than its capacity a record's array is. The newest samples
+#: are copied back to the start each time this much has been written past
+#: them, so less of it means more copying and more of it means more memory.
+SLACK = 0.5
 
 
 class Record:
     """The newest samples of one channel, as one contiguous array.
 
-    Twice the capacity is allocated and samples are written on at the end;
-    when the end is reached the newest half is copied back to the start. So
-    what is held is always one slice, never two to be joined, and the copy is
-    paid once per ``capacity`` samples rather than once per block.
+    Half as much again as the capacity is allocated and samples are written
+    on at the end; when the end is reached the newest are copied back to the
+    start. So what is held is always one slice, never two to be joined, and
+    the copy is paid once per half a capacity of samples rather than once per
+    block.
     """
 
     def __init__(self, channel: Channel, rate: float, capacity: int) -> None:
@@ -36,11 +40,15 @@ class Record:
         self.rate = rate
         self.capacity = max(1, int(capacity))
         dtype = np.float32 if channel.kind == ANALOG else np.uint8
-        self._buffer = np.zeros(2 * self.capacity, dtype=dtype)
+        self._buffer = np.zeros(self.capacity + max(1, int(self.capacity * SLACK)), dtype=dtype)
         self._end = 0
         #: Samples ever written, which is the number of the next one.
         self.total = 0
         self.count = 0
+
+    @property
+    def memory_bytes(self) -> int:
+        return self._buffer.nbytes
 
     @property
     def first(self) -> int:
@@ -96,10 +104,21 @@ class Capture(QObject):
         self.records: dict[str, Record] = {}
 
     def set_channels(self, channels: list[Channel], rate: float) -> None:
-        """Start again, empty, for these channels at this rate."""
-        capacity = min(int(rate * self.history_s), MOST_SAMPLES)
-        self.records = {c.key: Record(c, rate, capacity) for c in channels}
-        self.channels_changed.emit()
+        """Start again, empty, for these channels at this rate.
+
+        MemoryError if the history asked for is more than there is room for;
+        what was held before is gone either way.
+        """
+        self.records = {}
+        capacity = int(rate * self.history_s)
+        try:
+            self.records = {c.key: Record(c, rate, capacity) for c in channels}
+        finally:
+            self.channels_changed.emit()
+
+    def memory_bytes(self) -> int:
+        """What the records take when they are full."""
+        return sum(record.memory_bytes for record in self.records.values())
 
     def clear(self) -> None:
         """Throw away what is held, and count samples from zero again."""
@@ -115,7 +134,9 @@ class Capture(QObject):
                 missing = block.first - record.total
                 record.skip(missing)
             record.append(samples)
-        if missing:
+        # A pause the instrument took on purpose is a gap on the plot and
+        # nothing to warn about.
+        if missing and not block.after_pause:
             self.gap.emit(missing)
 
     def newest(self) -> float | None:
