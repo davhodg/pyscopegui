@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from pyscopegui.backends.base import Block, Channel, Instrument
+from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
@@ -65,6 +65,13 @@ ERRORS = {
     6: "the scope's configuration is corrupt or missing",
     7: "this operating system is not supported by the driver",
 }
+
+#: Waveform name -> the driver's code. Off is a steady zero volts, which is
+#: the nearest thing the driver has to switching the output off.
+WAVES = {"off": 5, "sine": 0, "square": 1, "triangle": 2}
+#: What the generator is allowed here: within two volts of zero.
+GENERATOR_VOLTS = 2.0
+GENERATOR_HZ = 100_000.0
 
 # --- how it is read ----------------------------------------------------------------------
 #: Samples a second on each channel, unless the settings say otherwise. Half
@@ -111,7 +118,82 @@ PROTOTYPES = {
     "ps2000_get_streaming_last_values": (_INT16, [_INT16, OverviewCallback]),
     "ps2000_overview_buffer_status": (_INT16, [_INT16, ctypes.POINTER(_INT16)]),
     "ps2000_stop": (_INT16, [_INT16]),
+    "ps2000_set_sig_gen_built_in": (
+        _INT16,
+        [_INT16, _INT32, _UINT32, _INT32, *[ctypes.c_float] * 4, _INT32, _UINT32],
+    ),
 }
+
+#: The 2204A starts at 50 mV. settings.json can still ask for 20 mV.
+_RANGE_CHOICES = tuple(
+    (name, f"±{name[:-2]} mV" if name.endswith("mV") else f"±{name[:-1]} V")
+    for name in RANGES
+    if name != "20mV"
+)
+_COUPLING = (("DC", "DC"), ("AC", "AC"))
+_GENERATOR = {"group": "Signal generator", "live": True}
+SETTINGS = (
+    Setting(
+        "rate",
+        "Sample rate",
+        500_000,
+        choices=(
+            (1_000_000, "1 MS/s"),
+            (500_000, "500 kS/s"),
+            (200_000, "200 kS/s"),
+            (100_000, "100 kS/s"),
+            (50_000, "50 kS/s"),
+            (20_000, "20 kS/s"),
+            (10_000, "10 kS/s"),
+        ),
+        group="Sampling",
+        tip="Samples a second on each channel.",
+    ),
+    Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A"),
+    Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A"),
+    Setting(
+        "enabled_b", "Channel", True, choices=((True, "On"), (False, "Off")), group="Channel B"
+    ),
+    Setting("range_b", "Range", "5V", choices=_RANGE_CHOICES, group="Channel B"),
+    Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B"),
+    Setting(
+        "gen_wave",
+        "Output",
+        "off",
+        choices=(("off", "Off"), ("sine", "Sine"), ("square", "Square"), ("triangle", "Triangle")),
+        tip="What the scope's signal generator output puts out. Off is zero volts.",
+        **_GENERATOR,
+    ),
+    Setting(
+        "gen_frequency",
+        "Frequency",
+        1000.0,
+        minimum=1.0,
+        maximum=GENERATOR_HZ,
+        unit="Hz",
+        **_GENERATOR,
+    ),
+    Setting(
+        "gen_amplitude",
+        "Amplitude",
+        2.0,
+        maximum=2 * GENERATOR_VOLTS,
+        decimals=2,
+        unit="V",
+        tip="Peak to peak.",
+        **_GENERATOR,
+    ),
+    Setting(
+        "gen_offset",
+        "Offset",
+        0.0,
+        minimum=-GENERATOR_VOLTS,
+        maximum=GENERATOR_VOLTS,
+        decimals=2,
+        unit="V",
+        **_GENERATOR,
+    ),
+)
 
 
 class ScopeError(Exception):
@@ -197,8 +279,29 @@ class Settings:
             "A": self._range(options.get("range_a")),
             "B": self._range(options.get("range_b")),
         }
-        self.dc = {"A": bool(options.get("dc_a", True)), "B": bool(options.get("dc_b", True))}
+        self.dc = {
+            "A": options.get("coupling_a", "DC") != "AC",
+            "B": options.get("coupling_b", "DC") != "AC",
+        }
         self.enabled = {"A": True, "B": bool(options.get("enabled_b", True))}
+        wave = options.get("gen_wave", "off")
+        #: Waveform, frequency in hertz, volts peak to peak, volts of offset.
+        self.generator: tuple[str, float, float, float] = (
+            wave if wave in WAVES else "off",
+            min(max(self._number(options.get("gen_frequency"), 1000.0), 1.0), GENERATOR_HZ),
+            min(max(self._number(options.get("gen_amplitude"), 2.0), 0.0), 2 * GENERATOR_VOLTS),
+            min(
+                max(self._number(options.get("gen_offset"), 0.0), -GENERATOR_VOLTS),
+                GENERATOR_VOLTS,
+            ),
+        )
+
+    @staticmethod
+    def _number(value, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def _range(name) -> str:
@@ -229,6 +332,10 @@ class Stream:
         self._sent = 0
         self._started = 0.0
         self._rate_checked = False
+        #: Whether the generator has been set to anything but off.
+        self._generating = False
+        #: A generator setting waiting to be applied by the next poll, or None.
+        self.wanted_generator: tuple[str, float, float, float] | None = None
         #: What the callback copied out during the poll in progress.
         self._arrived: dict[str, np.ndarray] = {}
         # Kept for as long as the driver may call it: ctypes does not, and a
@@ -267,6 +374,7 @@ class Stream:
                     f"The scope would not set channel {key} to ±{settings.ranges[key]}: "
                     "not every model has every range."
                 )
+        self.set_generator(settings.generator)
         # No trigger: streaming is everything, from the moment it starts.
         library.ps2000_set_trigger(handle, NO_TRIGGER, 0, 0, 0, 0)
         started = library.ps2000_run_streaming_ns(
@@ -279,6 +387,40 @@ class Stream:
             )
         self._sent = 0
         self._started = self._clock()
+
+    def set_generator(self, generator: tuple[str, float, float, float]) -> None:
+        """Set the signal generator output: a fixed frequency, no sweep."""
+        wave, frequency, amplitude, offset = generator
+        off = wave == "off"
+        done = self._library.ps2000_set_sig_gen_built_in(
+            self._handle,
+            0 if off else round(offset * 1e6),
+            0 if off else round(amplitude * 1e6),
+            WAVES[wave],
+            frequency,
+            frequency,
+            0.0,
+            0.0,
+            0,
+            0,
+        )
+        # Not every scope on this driver has a generator, and switching off
+        # one that is not there is no failure.
+        if not done and not off:
+            self.notes.append(
+                ("The scope would not set its signal generator to that output.", True)
+            )
+        elif not off:
+            self.notes.append(
+                (
+                    f"Signal generator: {wave}, {frequency:g} Hz, {amplitude:g} V peak to peak, "
+                    f"{offset:g} V offset.",
+                    False,
+                )
+            )
+        elif self._generating:
+            self.notes.append(("Signal generator: off.", False))
+        self._generating = bool(done) and not off
 
     def _info(self, line: int) -> str:
         text = ctypes.create_string_buffer(64)
@@ -310,6 +452,10 @@ class Stream:
 
     def poll(self) -> Block | None:
         """Whatever has arrived since the last poll, or None if nothing has."""
+        # Taken and cleared in one step: it is set from the GUI thread.
+        wanted, self.wanted_generator = self.wanted_generator, None
+        if wanted is not None:
+            self.set_generator(wanted)
         self._arrived = {}
         self._library.ps2000_get_streaming_last_values(self._handle, self._callback)
         if not self._arrived:
@@ -410,6 +556,8 @@ class _Reader(QThread):
 
 
 class PicoScope2000(Instrument):
+    SETTINGS = SETTINGS
+
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
         self.settings = Settings(options)
@@ -417,6 +565,17 @@ class PicoScope2000(Instrument):
         #: when the instrument is chosen and in the same words as any other.
         self._library = load_library()
         self._reader: _Reader | None = None
+        self._stream: Stream | None = None
+        self._options = dict(options) if isinstance(options, dict) else {}
+
+    def set(self, key: str, value: object) -> None:
+        """A signal generator setting, changed while running or before."""
+        self._options[key] = value
+        self.settings = Settings(self._options)
+        if self.running and self._stream is not None:
+            # Handed to the thread that owns the scope, which sets it between
+            # two polls: the driver is not called from two threads at once.
+            self._stream.wanted_generator = self.settings.generator
 
     def channels(self) -> list[Channel]:
         return [
@@ -434,7 +593,8 @@ class PicoScope2000(Instrument):
     def start(self) -> None:
         if self.running:
             return
-        reader = _Reader(Stream(self._library, self.settings), self)
+        self._stream = Stream(self._library, self.settings)
+        reader = _Reader(self._stream, self)
         reader.block.connect(self.block)
         reader.note.connect(self.note)
         reader.warning.connect(self.warning)

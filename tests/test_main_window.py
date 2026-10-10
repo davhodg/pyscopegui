@@ -13,14 +13,14 @@ def feed(window, seconds=0.05):
     window.instrument._tick()
 
 
-def test_it_opens_with_the_plot_and_the_log(window):
+def test_it_opens_with_the_settings_the_plot_and_the_log(window):
     assert set(window.panes.names()) == set(DEFAULT_VISIBLE)
     assert all(window.panes.on_screen(name) for name in DEFAULT_VISIBLE)
 
 
 def test_the_view_menu_lists_every_pane_ticked(window):
     window._build_view_menu()
-    assert list(window._view_actions) == ["scope", "log"]
+    assert list(window._view_actions) == ["instrument", "scope", "log"]
     assert all(action.isChecked() for action in window._view_actions.values())
 
 

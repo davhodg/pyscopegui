@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -120,7 +120,7 @@ class ScopeView(QWidget):
         saved = ctx.settings.get(f"{key}.hidden") if ctx is not None else None
         self._hidden: set[str] = {str(k) for k in saved} if isinstance(saved, list) else set()
 
-        pg.setConfigOptions(antialias=False, background="w", foreground="k")
+        pg.setConfigOptions(antialias=False)
         self.analog = pg.PlotWidget()
         self.analog.showGrid(x=True, y=True, alpha=0.3)
         self.digital = pg.PlotWidget()
@@ -135,6 +135,8 @@ class ScopeView(QWidget):
             plot.getViewBox().sigRangeChangedManually.connect(self._on_dragged)
             # The same width, so that the same time is at the same place in both.
             plot.getAxis("left").setWidth(60)
+
+        self._follow_theme()
 
         self.channel_list = ChannelList()
         self.channel_list.shown_changed.connect(self._on_shown)
@@ -196,6 +198,28 @@ class ScopeView(QWidget):
         self._timer.start()
         self._values_timer = QTimer(self, interval=VALUES_MS, timeout=self._show_values)
         self._values_timer.start()
+
+    # --- colours ---------------------------------------------------------------------------
+    def _follow_theme(self) -> None:
+        """Draw the plots in the window's own colours: dark in a dark window.
+
+        pyqtgraph has colours of its own, set once, and a white plot in a
+        dark window is the brightest thing on the screen.
+        """
+        background = self.palette().color(QPalette.Base)
+        text = self.palette().color(QPalette.Text)
+        for plot in (self.analog, self.digital):
+            plot.setBackground(background)
+            for side in ("left", "bottom"):
+                axis = plot.getAxis(side)
+                axis.setPen(text)
+                axis.setTextPen(text)
+
+    def changeEvent(self, event) -> None:
+        # The theme was changed under Tools > Settings, or by the system.
+        if event.type() == QEvent.PaletteChange and hasattr(self, "digital"):
+            self._follow_theme()
+        super().changeEvent(event)
 
     # --- which channels -------------------------------------------------------------------
     def _rebuild(self) -> None:

@@ -16,6 +16,7 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 
 - **Channels and Plot**: analog channels on one plot and digital channels in lanes under it, on the same time axis. Drag or zoom either and both move.
 - **Deep captures stay quick**: the last minute of every channel is held, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
+- **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.
 - **Light and dark** themes, or whichever the system is set to.
@@ -23,24 +24,13 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 ## Instruments
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
-- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. **Written from Pico's programmer's guide and not yet tried on a scope.**
+- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. It opens and streams a 2204A; the voltage scale and the signal generator have not yet been checked against a known signal.
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 
-The scope is set up from `settings.json` in your settings folder (*Tools > Open settings folder*) until there are controls for it. Everything is optional, and these are the defaults:
+The **Instrument** pane sets the scope up: sample rate, each channel's range and coupling, and channel B on or off. A change to any of those starts the scope again from an empty plot.
 
-```json
-"instrument.picoscope2000": {
-  "rate": 500000,
-  "range_a": "5V",
-  "range_b": "5V",
-  "dc_a": true,
-  "dc_b": true,
-  "enabled_b": true
-}
-```
-
-Ranges are `20mV`, `50mV`, `100mV`, `200mV`, `500mV`, `1V`, `2V`, `5V`, `10V` and `20V`; a scope has only some of them, and says so if asked for one it lacks.
+The pane also drives the scope's **signal generator** output: off, sine, square or triangle, with frequency, peak-to-peak amplitude and offset. It is off until you choose a waveform, and changes take effect at once without restarting.
 
 ## Installing
 

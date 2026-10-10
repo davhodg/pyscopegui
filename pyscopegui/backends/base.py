@@ -38,6 +38,33 @@ class Channel:
 
 
 @dataclass(frozen=True)
+class Setting:
+    """One thing about an instrument that can be chosen: a range, a rate.
+
+    Described rather than drawn, so that a back end needs no widgets of its
+    own and every instrument's settings look alike. A setting with choices is
+    a list to pick from; one without is a number.
+    """
+
+    #: What it is saved under, and what the instrument is handed it as.
+    key: str
+    label: str
+    default: object
+    #: (value, what the list calls it), for a setting picked from a list.
+    choices: tuple[tuple[object, str], ...] = ()
+    #: For a number: its limits, how many decimal places, and what it is in.
+    minimum: float = 0.0
+    maximum: float = 0.0
+    decimals: int = 0
+    unit: str = ""
+    #: The heading it is listed under.
+    group: str = ""
+    #: Takes effect at once, while running. Anything else restarts the instrument.
+    live: bool = False
+    tip: str = ""
+
+
+@dataclass(frozen=True)
 class Block:
     """A run of evenly spaced samples of every channel, all the same length."""
 
@@ -70,6 +97,13 @@ class Instrument(QObject):
     note = Signal(str)
     #: It is still running, but what it is sending is not what was asked for.
     warning = Signal(str)
+
+    #: What can be set, in the order it should be listed.
+    SETTINGS: tuple[Setting, ...] = ()
+
+    def set(self, key: str, value: object) -> None:
+        """Change a ``live`` setting now. One that is not live is not sent here:
+        the instrument is made again with it instead."""
 
     def channels(self) -> list[Channel]:
         """The inputs it has, in the order they should be listed."""

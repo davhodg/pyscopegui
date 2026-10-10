@@ -33,16 +33,17 @@ from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.ui import event_colours, theme
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.instrument_bar import InstrumentBar
+from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
 
 # Bumped whenever the set of docks changes. restoreState declines a state
 # saved under a different version, so an old layout is replaced by the current
 # default instead of being restored with panes missing.
-LAYOUT_VERSION = 1
+LAYOUT_VERSION = 2
 
 #: Open on a first run. Everything else is one click away in the View menu.
-DEFAULT_VISIBLE = ("scope", "log")
+DEFAULT_VISIBLE = ("instrument", "scope", "log")
 
 #: How near the bottom of the Event Log still counts as being at the bottom,
 #: in scrollbar steps. Exactly at the end is too strict: a line arriving
@@ -110,6 +111,10 @@ class MainWindow(QMainWindow):
         self._register_panes()
         # The first of each kind is named after its kind, which is the name
         # every saved layout and setting knows it by.
+        self.instrument_view = self.panes.view(self.panes.add("instrument"))
+        self.instrument_view.changed.connect(self._on_setting)
+        self.instrument_bar.instrument.currentIndexChanged.connect(lambda _i: self._show_settings())
+        self._show_settings()
         self.scope = self.panes.view(self.panes.add("scope"))
         self.panes.add("log")
         self._arrange_default()
@@ -195,6 +200,46 @@ class MainWindow(QMainWindow):
         if self.instrument is not None and self.instrument.running:
             self.instrument.stop()
 
+    def _options(self, name: str) -> dict:
+        """What is saved for this instrument. Empty for anything that is not a dictionary."""
+        saved = self.ctx.settings.get(f"instrument.{name}")
+        return dict(saved) if isinstance(saved, dict) else {}
+
+    def _show_settings(self) -> None:
+        """Fill the Instrument pane for whichever instrument is chosen."""
+        name = self.instrument_bar.current()
+        try:
+            settings = backends.settings(name)
+        except Exception as exc:
+            self.events.error(
+                f"{backends.title(name)}: its settings could not be read: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            settings = ()
+        self.instrument_view.show_settings(settings, self._options(name))
+
+    @Slot(str, object, bool)
+    def _on_setting(self, key: str, value: object, live: bool) -> None:
+        """Save a setting, and have the instrument take it up.
+
+        One that is live is handed to the instrument as it runs. Anything else
+        is part of how it was set up, so the instrument is made again with it:
+        started again if it was running, and otherwise at the next Run.
+        """
+        name = self.instrument_bar.current()
+        options = self._options(name)
+        options[key] = value
+        self.ctx.settings.set(f"instrument.{name}", options)
+        if self.instrument is None or name != self._instrument_name:
+            return
+        if live:
+            self.instrument.set(key, value)
+            return
+        was_running = self.instrument.running
+        self._drop_instrument()
+        if was_running:
+            self.run(name)
+
     def _drop_instrument(self) -> None:
         if self.instrument is not None:
             self.instrument.stop()
@@ -234,6 +279,9 @@ class MainWindow(QMainWindow):
     # --- panes ---------------------------------------------------------------------------
     def _register_panes(self) -> None:
         """Every sort of pane, in the order the View menu lists them."""
+        self.panes.register(
+            PaneKind("instrument", "Instrument", Qt.LeftDockWidgetArea, lambda _n: InstrumentView())
+        )
         self.panes.register(
             PaneKind(
                 "scope",
@@ -332,22 +380,26 @@ class MainWindow(QMainWindow):
     def _arrange_default(self) -> None:
         """The layout a first run opens with, and what Reset layout goes back to.
 
-            +--------------------------------+
-            |       Channels and Plot        |
-            +--------------------------------+
+            +------------+-------------------+
+            | Instrument | Channels and Plot |
+            +------------+-------------------+
             |           Event Log            |
             +--------------------------------+
 
-        The plot gets most of the height and all of the width; the log is the
-        thing you glance at rather than work in.
+        The plot gets most of the room; the settings are a narrow column
+        beside it, and the log is the thing you glance at rather than work in.
         """
-        scope, log = (self.panes.docks[n] for n in DEFAULT_VISIBLE)
-        self.addDockWidget(Qt.TopDockWidgetArea, scope)
-        self.splitDockWidget(scope, log, Qt.Vertical)
+        instrument, scope, log = (self.panes.docks[n] for n in DEFAULT_VISIBLE)
+        self.addDockWidget(Qt.TopDockWidgetArea, instrument)
+        self.splitDockWidget(instrument, log, Qt.Vertical)
+        self.splitDockWidget(instrument, scope, Qt.Horizontal)
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)
-        self.resizeDocks([scope, log], [4, 1], Qt.Vertical)
+        # The inner division first, and the outer through a dock that sits
+        # directly in it: an outer call re-divides what an inner one settled.
+        self.resizeDocks([instrument, scope], [1, 5], Qt.Horizontal)
+        self.resizeDocks([log, scope], [1, 4], Qt.Vertical)
 
     def _restore_layout(self) -> None:
         # Where the window sits stays in QSettings: that belongs to this desk

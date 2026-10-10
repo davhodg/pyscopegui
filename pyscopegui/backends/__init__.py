@@ -15,7 +15,7 @@ from typing import NamedTuple
 
 from PySide6.QtCore import QObject
 
-from pyscopegui.backends.base import Instrument
+from pyscopegui.backends.base import Instrument, Setting
 
 
 class Backend(NamedTuple):
@@ -43,6 +43,12 @@ def names() -> list[str]:
 
 def title(name: str) -> str:
     return BACKENDS[name].title
+
+
+def settings(name: str) -> tuple[Setting, ...]:
+    """What this instrument lets you set. Needs its module, not its library."""
+    backend = BACKENDS[name]
+    return getattr(importlib.import_module(backend.module), backend.cls).SETTINGS
 
 
 def create(name: str, parent: QObject | None = None, options: dict | None = None) -> Instrument:

@@ -30,6 +30,7 @@ class FakeLibrary:
         self.waiting = []
         self.refused_ranges = set()
         self.streams = True
+        self.generates = True
         self.overrun = False
 
     def ps2000_open_unit(self):
@@ -75,6 +76,12 @@ class FakeLibrary:
     def ps2000_overview_buffer_status(self, handle, overrun):
         overrun._obj.value = int(self.overrun)
         return 0
+
+    def ps2000_set_sig_gen_built_in(
+        self, handle, offset, pk_to_pk, wave, start, stop, increment, dwell, sweep, sweeps
+    ):
+        self.calls.append(("generator", offset, pk_to_pk, wave, start, stop))
+        return 1 if self.generates else 0
 
     def ps2000_stop(self, handle):
         self.calls.append(("stop",))
@@ -131,12 +138,13 @@ def test_channel_b_can_be_switched_off():
 # --- opening ---------------------------------------------------------------------------------
 def test_opening_sets_both_channels_and_starts_fast_streaming():
     library = FakeLibrary()
-    opened = stream(library, {"range_a": "1V", "dc_b": False})
+    opened = stream(library, {"range_a": "1V", "coupling_b": "AC"})
     opened.open()
     assert library.calls == [
         ("open",),
         ("channel", pico.CHANNEL_A, True, True, 6),
         ("channel", pico.CHANNEL_B, True, False, 8),
+        ("generator", 0, 0, pico.WAVES["off"], 1000.0, 1000.0),
         ("trigger", pico.NO_TRIGGER),
         ("stream", 2000, pico.TIME_UNITS_NS, pico.DRIVER_SAMPLES, 0, 1, pico.OVERVIEW_SAMPLES),
     ]
@@ -285,6 +293,105 @@ def test_samples_arriving_at_the_rate_asked_for_say_nothing():
     library.waiting.append(([0] * 3_000_000, [0] * 3_000_000))
     reading.poll()
     assert reading.notes == []
+
+
+# --- the signal generator ----------------------------------------------------------------------
+def test_the_generator_is_off_unless_asked_for():
+    assert pico.Settings().generator[0] == "off"
+    assert pico.Settings({"gen_wave": "sawtooth"}).generator[0] == "off"
+
+
+def test_generator_settings_are_kept_to_what_the_output_can_do():
+    settings = pico.Settings(
+        {"gen_wave": "sine", "gen_frequency": 5e6, "gen_amplitude": 9, "gen_offset": -7}
+    )
+    assert settings.generator == ("sine", pico.GENERATOR_HZ, 4.0, -2.0)
+    assert pico.Settings({"gen_frequency": "fast"}).generator[1] == 1000.0
+
+
+def test_a_generator_asked_for_is_set_as_the_scope_opens_in_microvolts():
+    library = FakeLibrary()
+    opened = stream(
+        library,
+        {"gen_wave": "square", "gen_frequency": 250, "gen_amplitude": 1.5, "gen_offset": 0.25},
+    )
+    opened.open()
+    assert ("generator", 250_000, 1_500_000, pico.WAVES["square"], 250.0, 250.0) in library.calls
+    assert ("Signal generator: square, 250 Hz, 1.5 V peak to peak, 0.25 V offset.", False) in (
+        opened.notes
+    )
+
+
+def test_a_generator_change_while_running_is_made_between_two_polls():
+    library = FakeLibrary()
+    reading = stream(library)
+    reading.open()
+    library.calls.clear()
+    reading.notes.clear()
+    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    reading.poll()
+    reading.poll()
+    assert library.calls == [("generator", 0, 2_000_000, pico.WAVES["sine"], 1000.0, 1000.0)]
+    reading.wanted_generator = ("off", 1000.0, 2.0, 0.0)
+    reading.poll()
+    assert library.calls[-1] == ("generator", 0, 0, pico.WAVES["off"], 1000.0, 1000.0)
+    assert [text for text, _ in reading.notes][-1] == "Signal generator: off."
+
+
+def test_a_scope_with_no_generator_warns_only_when_one_is_asked_for():
+    library = FakeLibrary()
+    library.generates = False
+    quiet = stream(library)
+    quiet.open()
+    assert not any(is_warning for _text, is_warning in quiet.notes)
+    asked = stream(library, {"gen_wave": "sine"})
+    asked.open()
+    assert any("would not set its signal generator" in text for text, _ in asked.notes)
+
+
+def test_the_running_instrument_passes_a_generator_setting_to_its_thread(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    states = []
+    instrument.state_changed.connect(states.append)
+    instrument.start()
+    run_for(app, instrument, lambda: states == [True])
+    instrument.set("gen_wave", "triangle")
+    wanted = ("generator", 0, 2_000_000, pico.WAVES["triangle"], 1000.0, 1000.0)
+    run_for(app, instrument, lambda: wanted in library.calls)
+    instrument.stop()
+    run_for(app, instrument, lambda: states == [True, False])
+
+
+# --- what can be set ---------------------------------------------------------------------------
+def test_every_setting_offered_is_one_the_back_end_reads():
+    """A control whose key nothing reads would look as if it worked."""
+    defaults = {s.key: s.default for s in pico.SETTINGS}
+    assert len(defaults) == len(pico.SETTINGS)
+    by_default = pico.Settings(defaults)
+    plain = pico.Settings()
+    assert vars(by_default) == vars(plain)
+    for setting in pico.SETTINGS:
+        other = next(
+            (value for value, _label in setting.choices if value != setting.default),
+            setting.maximum,
+        )
+        changed = pico.Settings(defaults | {setting.key: other})
+        # The generator's numbers only show once it is on.
+        if setting.key.startswith("gen_") and setting.key != "gen_wave":
+            assert changed.generator != plain.generator
+        else:
+            assert vars(changed) != vars(plain), setting.key
+
+
+def test_only_the_generator_changes_without_a_restart():
+    assert {s.key for s in pico.SETTINGS if s.live} == {
+        "gen_wave",
+        "gen_frequency",
+        "gen_amplitude",
+        "gen_offset",
+    }
 
 
 # --- the library -----------------------------------------------------------------------------
