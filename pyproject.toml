@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyscopegui"
+# From __version__ in pyscopegui/__init__.py, the one copy -- read without
+# importing the package. The installer takes it from there too.
+dynamic = ["version"]
+description = "Oscilloscopes and logic analysers in one time-aligned view"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+authors = [{ name = "davhodg" }]
+keywords = [
+    "oscilloscope", "logic analyzer", "logic analyser", "mixed signal", "PicoScope",
+    "test and measurement", "embedded", "Qt",
+]
+# No licence classifier: the licence expression above replaces them, and
+# setuptools refuses both.
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    # Essentials, not the full PySide6: the "addons" wheel is the rest of Qt
+    # (3D, Charts, Multimedia, WebEngine), which pyscopegui never imports, and
+    # the GPL-only modules live there too. 6.8 for choosing light or dark
+    # (QStyleHints.setColorScheme).
+    "PySide6-Essentials>=6.8",
+    "pyqtgraph>=0.13",
+    "numpy>=1.26",
+]
+
+[project.urls]
+Homepage = "https://github.com/davhodg/pyscopegui"
+Repository = "https://github.com/davhodg/pyscopegui"
+Issues = "https://github.com/davhodg/pyscopegui/issues"
+
+[project.optional-dependencies]
+# Pinned ruff: a new one must not break the build.
+dev = [
+    "pytest",
+    "pytest-xdist",
+    "ruff==0.16.*",
+]
+
+# gui-scripts, not scripts: on Windows the launcher pip makes for a script is a
+# console program, so the window would open with a console behind it. Elsewhere
+# the two are the same. `python -m pyscopegui` is still there for a console.
+[project.gui-scripts]
+pyscopegui = "pyscopegui.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "pyscopegui.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["pyscopegui*"]
+
+# Without this a wheel carries only the .py files. Whole folders rather than a
+# list of extensions, so the next thing put in resources ships without anyone
+# having to remember this. tests/test_packaging.py checks that every non-Python
+# file under pyscopegui/ is covered by a pattern here.
+[tool.setuptools.package-data]
+"pyscopegui.resources" = ["*"]
+
+[tool.ruff]
+line-length = 100
+# Matches requires-python: ruff formats to the newest syntax the floor allows,
+# and the code must stay parseable on the oldest Python we support.
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N", "RUF"]
+ignore = [
+    "N802",   # Qt overrides must be camelCase (rowCount, closeEvent, ...)
+    "B008",   # QModelIndex() as a default argument is the standard Qt signature
+]

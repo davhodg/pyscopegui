@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only unless a job says otherwise.
+permissions:
+  contents: read
+
+jobs:
+  # Both ends of the supported range. The latest Python runs on both
+  # platforms, because platform differences (Qt, threads, drivers) are what
+  # actually bite. The oldest supported Python runs on Linux: bugs that appear
+  # only on the floor are real, but they are rarely platform specific.
+  test:
+    name: Test on ${{ matrix.os }}, Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, python: "3.14" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: ubuntu-latest, python: "3.12" }  # the floor: requires-python
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          python -m ruff check pyscopegui tests build/check_build.py build/notices.py
+          python -m ruff format --check pyscopegui tests
+
+      # Qt needs a display. The tests already ask for the offscreen platform,
+      # but Linux runners also lack the X libraries Qt links against.
+      - name: Install Qt's Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q -n auto tests
+
+      - name: Self test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pyscopegui --selftest
+
+  # The installer is only built for a release: nothing about the packaging
+  # changes between tags, and nobody installs from an ordinary push. Push a
+  # tag (git tag v0.1.0 && git push --tags) to produce and publish one, or run
+  # the workflow by hand from the Actions tab.
+  package:
+    name: Windows installer
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    # Publishing the release is the one write in the workflow.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      # The hosted image usually has Inno Setup already; installing it anyway
+      # keeps the build reproducible whichever image version is in use.
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # This job waits for the test jobs, so the Windows tests have passed for
+      # this commit on this Python; build.cmd would otherwise run them again.
+      - name: Build, check and package
+        env:
+          WINDOWS_TESTS_PASSED: "1"
+        run: .\build.cmd
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pyscopegui-windows
+          path: |
+            dist/*-setup.exe
+            THIRD-PARTY-NOTICES.txt
+          if-no-files-found: error
+
+      # A tagged commit publishes the installer as a release asset.
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*-setup.exe
+            THIRD-PARTY-NOTICES.txt
+            LICENSE
+            NOTICE

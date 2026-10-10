@@ -1,0 +1,203 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 davhodg
+"""Entry point: `python -m pyscopegui`, or the `pyscopegui` command pip installs."""
+
+import importlib
+import os
+import sys
+
+from PySide6.QtWidgets import QApplication
+
+from pyscopegui import APP_NAME
+
+#: Imported by ``--selftest``. These are the modules a packaged build is most
+#: likely to be missing, because they are loaded by name at run time and so no
+#: static analysis can see them.
+SELFTEST_MODULES = (
+    "pyqtgraph",
+    "numpy",
+    "pyscopegui.ui.main_window",
+)
+
+#: Read from beside the executable in a frozen build, and from the source
+#: folder otherwise.
+LICENCE_FILES = ("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.txt")
+
+
+def selftest() -> int:
+    """Import everything a build could plausibly be missing. Exit code only:
+    a windowed build has nowhere to print to."""
+    failures = []
+    for name in SELFTEST_MODULES:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:
+            failures.append(f"{name}: {exc}")
+    # Every back end's module, asked for the way the instrument list asks.
+    try:
+        from pyscopegui import backends
+
+        for name, backend in backends.BACKENDS.items():
+            try:
+                getattr(importlib.import_module(backend.module), backend.cls)
+            except Exception as exc:
+                failures.append(f"back end {name}: {exc}")
+    except Exception as exc:
+        failures.append(f"pyscopegui.backends: {exc}")
+
+    try:
+        from pyscopegui import resources
+
+        if not resources.path("pyscopegui.ico").is_file():
+            failures.append("pyscopegui/resources/pyscopegui.ico: not shipped with this build")
+    except Exception as exc:
+        failures.append(f"pyscopegui.resources: {exc}")
+
+    if getattr(sys, "frozen", False):
+        beside = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        failures += [
+            f"{name}: not found beside the application"
+            for name in LICENCE_FILES
+            if not os.path.isfile(os.path.join(beside, name))
+        ]
+
+    if failures:
+        sys.stderr.write("selftest failures:" + "".join(f"\n  {f}" for f in failures) + "\n")
+        return 1
+    return 0
+
+
+#: Who Windows thinks the windows belong to. Without one, a pyscopegui started
+#: from source is grouped under pythonw.exe and the taskbar shows Python's
+#: icon whatever the window says -- the window icon only reaches the title bar.
+APP_USER_MODEL_ID = "davhodg.pyscopegui"
+
+
+def set_icon(app) -> None:
+    """The application icon, before any window exists.
+
+    The .ico rather than the PNG: it holds each size drawn for that size, and
+    Qt picks the nearest one.
+    """
+    from PySide6.QtGui import QIcon
+
+    from pyscopegui import resources
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        except (AttributeError, OSError):  # an unusual shell: the title bar still has it
+            pass
+    app.setWindowIcon(QIcon(str(resources.path("pyscopegui.ico"))))
+
+
+#: The libraries Qt's X11 plugin needs that Debian, Ubuntu and Linux Mint can
+#: leave out, each with the package it comes in. Without one, Qt stops with
+#: "could not load the Qt platform plugin xcb" and does not say which.
+XCB_LIBRARIES = (
+    ("libxcb-cursor.so.0", "libxcb-cursor0"),
+    ("libxcb-icccm.so.4", "libxcb-icccm4"),
+    ("libxcb-image.so.0", "libxcb-image0"),
+    ("libxcb-keysyms.so.1", "libxcb-keysyms1"),
+    ("libxcb-render-util.so.0", "libxcb-render-util0"),
+    ("libxkbcommon-x11.so.0", "libxkbcommon-x11-0"),
+)
+
+
+def uses_xcb(environ=None) -> bool:
+    """Whether Qt will draw through X11 here, where XCB_LIBRARIES are needed."""
+    if not sys.platform.startswith("linux"):
+        return False
+    environ = os.environ if environ is None else environ
+    chosen = environ.get("QT_QPA_PLATFORM", "")
+    if chosen:
+        return chosen.startswith("xcb")
+    return environ.get("XDG_SESSION_TYPE") != "wayland"
+
+
+def missing_xcb_packages(load=None) -> list[str]:
+    """The packages to install for the XCB_LIBRARIES that cannot be loaded."""
+    if load is None:
+        import ctypes
+
+        load = ctypes.CDLL
+    missing = []
+    for library, package in XCB_LIBRARIES:
+        try:
+            load(library)
+        except OSError:
+            missing.append(package)
+    return missing
+
+
+def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
+    if uses_xcb() and (missing := missing_xcb_packages()):
+        sys.stderr.write(
+            "Qt needs libraries this system does not have to draw the window. On Debian,\n"
+            "Ubuntu and Linux Mint:\n\n"
+            f"    sudo apt install {' '.join(missing)}\n"
+        )
+        return 1
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName(APP_NAME)  # QSettings uses these two for the registry/ini path
+    set_icon(app)
+    # Before anything is drawn, so the window opens in the colours chosen.
+    from pyscopegui.ui import theme
+
+    theme.apply(theme.chosen())
+
+    # Imported here rather than at the top of the file so that a library
+    # which is not installed becomes a dialog. Started from pyscopegui.cmd
+    # there is no console -- it runs pythonw -- so an ImportError on the way
+    # up is a window that never appears and not one word about why.
+    try:
+        from pyscopegui.ui.main_window import MainWindow
+    except Exception as exc:
+        # Not ImportError alone: a library that is installed and will not
+        # load fails however it likes.
+        from pyscopegui.ui import messages
+
+        messages.critical(None, f"{APP_NAME} cannot start", why_it_cannot_start(exc))
+        sys.stderr and sys.stderr.write(why_it_cannot_start(exc) + "\n")
+        return 1
+
+    window = MainWindow()
+    window.show()
+    return app.exec()
+
+
+def why_it_cannot_start(failed: BaseException) -> str:
+    """What to tell somebody whose libraries would not load, and what to do.
+
+    Two different faults. A library that is not there is put right by
+    installing it. One that is there and will not load is usually two
+    libraries that no longer agree, and installing again changes nothing: it
+    wants the name of the file that failed, so that the pair can be found.
+    """
+    if isinstance(failed, ModuleNotFoundError):
+        return (
+            f"A library {APP_NAME} needs is missing:\n\n    {failed}\n\n"
+            "Start it with pyscopegui.cmd (or pyscopegui.sh), which installs "
+            "anything missing before starting, or install it with pip."
+        )
+    import traceback
+
+    where = traceback.extract_tb(failed.__traceback__)
+    place = f"\n    in {where[-1].filename}, line {where[-1].lineno}" if where else ""
+    return (
+        f"A library {APP_NAME} needs is installed but would not load:\n\n"
+        f"    {type(failed).__name__}: {failed}{place}\n\n"
+        "This is usually two libraries that no longer agree, after a new release "
+        "of one of them. Upgrading the one named above, or going back a version "
+        "of the one it was loading, normally puts it right; in a source folder, "
+        "deleting .venv and starting the launcher installs them all again."
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Build output. build/ holds the packaging *sources* and is tracked; only what
+# the build writes into it is ignored.
+dist/
+build/work/
+# setuptools' own scratch, from building a wheel out of this folder.
+build/lib/
+build/bdist.*/
+build_log.txt
+
+# Regenerated from the installed package metadata by build/notices.py
+THIRD-PARTY-NOTICES.txt
+
+# Working notes, kept local.
+docs/

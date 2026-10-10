@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: 2026 davhodg -->
+<!-- pyscopegui icon below 32 px: one analog trace over one logic trace,
+     drawn heavy enough to survive sixteen pixels. See pyscopegui.svg. -->
+<rect x="0" y="0" width="256" height="256" rx="40" fill="#151b1d"/>
+<path d="M28,88 C52,8 80,8 104,88 S156,168 180,88 S212,40 228,56" fill="none" stroke="#2FD9C4" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M28,216 H88 V160 H168 V216 H228" fill="none" stroke="#F2924B" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

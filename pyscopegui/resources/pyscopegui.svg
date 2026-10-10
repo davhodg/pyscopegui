@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: 2026 davhodg -->
+<!-- pyscopegui icon, 32 px and up: an analog trace over two logic traces, on
+     one time axis. Below 32 px three traces blur together, so
+     pyscopegui_small.svg draws one of each. build/icon.py renders both into
+     pyscopegui.ico and pyscopegui.png. -->
+<rect x="0" y="0" width="256" height="256" rx="40" fill="#151b1d"/>
+<!-- the graticule: one line across and three down, faint -->
+<path d="M28,84 H228 M78,32 V224 M128,32 V224 M178,32 V224" fill="none" stroke="#EDEAE2" stroke-opacity="0.16" stroke-width="4"/>
+<!-- analog: two periods of a sine -->
+<path d="M28,84 C44,28 62,28 78,84 S112,140 128,84 S162,28 178,84 S212,140 228,84" fill="none" stroke="#2FD9C4" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- digital: a clock, and a slower line that changes on its edges -->
+<path d="M28,176 H53 V146 H78 V176 H103 V146 H128 V176 H153 V146 H178 V176 H203 V146 H228" fill="none" stroke="#F2924B" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M28,222 H78 V194 H178 V222 H228" fill="none" stroke="#EDEAE2" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
