@@ -4,6 +4,13 @@
 
 # pyscopegui
 
+<!--
+The CI, release and PyPI badges are live. While the repository is private they cannot be read from outside it, and until there is a release and a package on PyPI the last two say there is none. The Python, platform and licence badges are checked against pyproject.toml by tests/test_readme.py.
+-->
+
+[![CI](https://github.com/davhodg/pyscopegui/actions/workflows/ci.yml/badge.svg)](https://github.com/davhodg/pyscopegui/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/davhodg/pyscopegui?include_prereleases)](https://github.com/davhodg/pyscopegui/releases)
+[![PyPI](https://img.shields.io/pypi/v/pyscopegui)](https://pypi.org/project/pyscopegui/)
 ![python](https://img.shields.io/badge/python-3.12+-blue)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-Apache--2.0-green)
@@ -97,6 +104,6 @@ pyscopegui shows what instruments connected to real equipment measure. A scope's
 
 ## Licence
 
-pyscopegui is free software, provided under the Apache License 2.0, without warranty of any kind; see `LICENSE` and `NOTICE`.
+pyscopegui is free software, provided under the Apache License 2.0, without warranty of any kind; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Development has made use of Anthropic's Claude.
