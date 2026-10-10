@@ -248,6 +248,11 @@ class MainWindow(QMainWindow):
 
     @Slot(bool)
     def _on_state(self, running: bool) -> None:
+        # A scope says it has stopped from its own thread, so the word can
+        # arrive after it has been replaced: one made again for a changed
+        # setting would otherwise be shown as stopped by the one before it.
+        if self.sender() is not self.instrument:
+            return
         self.instrument_bar.set_running(running)
         title = backends.title(self._instrument_name)
         if running:

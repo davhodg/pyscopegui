@@ -31,8 +31,8 @@ RAMP_HZ = 7.0
 CLOCK_HALF = 50
 
 CHANNELS = [
-    Channel("A", "A: sine"),
-    Channel("B", "B: ramp"),
+    Channel("A", "A: sine", full_scale=2.0),
+    Channel("B", "B: ramp", full_scale=0.5),
     *(Channel(f"D{bit}", f"D{bit}", DIGITAL, "") for bit in range(4)),
 ]
 

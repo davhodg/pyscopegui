@@ -15,6 +15,7 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 ## What it does
 
 - **Channels and Plot**: analog channels on one plot and digital channels in lanes under it, on the same time axis. Drag or zoom either and both move.
+- **Auto Y**, on to start with, fits the voltage axis to the signal; unticked, the axis is the range the channels are set to, as on a scope's screen.
 - **Deep captures stay quick**: the last minute of every channel is held, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
@@ -24,7 +25,7 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 ## Instruments
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
-- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. It opens and streams a 2204A; the voltage scale and the signal generator have not yet been checked against a known signal.
+- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. Tried on a 2204A: both channels at 1 MS/s, with voltages and timing checked against its own signal generator.
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 

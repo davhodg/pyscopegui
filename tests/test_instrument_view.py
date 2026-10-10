@@ -4,7 +4,7 @@
 
 import pytest
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox
 
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000 as pico
@@ -14,6 +14,7 @@ from pyscopegui.ui.instrument_view import NOTHING, InstrumentView
 SETTINGS = (
     Setting("range", "Range", "5V", choices=(("1V", "±1 V"), ("5V", "±5 V")), group="Channel A"),
     Setting("level", "Level", 1.5, minimum=0.0, maximum=4.0, decimals=2, unit="V", live=True),
+    Setting("enabled", "Enabled", True, group="Channel A"),
 )
 
 
@@ -60,11 +61,30 @@ def test_a_change_says_its_key_its_value_and_whether_it_is_live(app):
     assert said == [("range", "1V", False), ("level", 2.0, True)]
 
 
+def test_on_or_off_is_a_tick_box_and_not_a_list_of_two(app):
+    view = InstrumentView()
+    view.show_settings(SETTINGS, {})
+    tick = view.controls["enabled"]
+    assert isinstance(tick, QCheckBox)
+    assert tick.text() == "Enabled" and tick.isChecked()
+    said = []
+    view.changed.connect(lambda *change: said.append(change))
+    tick.click()
+    assert said == [("enabled", False, False)]
+
+
+@pytest.mark.parametrize(("saved", "ticked"), [(False, False), ("no", True), (None, True)])
+def test_a_tick_shows_what_was_saved_or_the_default(app, saved, ticked):
+    view = InstrumentView()
+    view.show_settings(SETTINGS, {"enabled": saved})
+    assert view.controls["enabled"].isChecked() is ticked
+
+
 def test_showing_settings_is_not_a_change(app):
     view = InstrumentView()
     said = []
     view.changed.connect(lambda *change: said.append(change))
-    view.show_settings(SETTINGS, {"range": "1V", "level": 3.0})
+    view.show_settings(SETTINGS, {"range": "1V", "level": 3.0, "enabled": False})
     assert said == []
 
 
@@ -152,6 +172,62 @@ def test_settings_saved_as_something_else_are_treated_as_none(window):
 def test_every_back_end_can_say_what_it_lets_you_set():
     for name in backends.names():
         assert all(isinstance(s, Setting) for s in backends.settings(name))
+
+
+def test_channel_b_is_switched_off_with_a_tick(window, monkeypatch, app):
+    FakeScope(monkeypatch)
+    pick_picoscope(window)
+    window.instrument_view.controls["enabled_b"].click()
+    window.instrument_bar.run.setChecked(True)
+    assert [c.key for c in window.instrument.channels()] == ["A"]
+    window.stop()
+
+
+def test_a_scope_that_was_replaced_cannot_mark_its_replacement_stopped(window, monkeypatch, app):
+    """It says it has stopped from its own thread, after the next one has started."""
+    FakeScope(monkeypatch)
+    pick_picoscope(window)
+    window.instrument_bar.run.setChecked(True)
+    choose(window.instrument_view, "rate", 100_000)  # made again, and started
+    for _ in range(20):
+        app.processEvents()
+    assert window.instrument.running
+    assert window.instrument_bar.run.text() == "Stop"
+    window.stop()
+
+
+# --- the plot's voltage axis -------------------------------------------------------------------
+def y_range(scope):
+    return scope.analog.getViewBox().viewRange()[1]
+
+
+def test_the_voltage_axis_fits_the_signal_unless_told_otherwise(window):
+    assert window.scope.auto_y.isChecked()
+    assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
+
+
+def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatch, app):
+    FakeScope(monkeypatch)
+    pick_picoscope(window)
+    choose(window.instrument_view, "range_a", "1V")
+    choose(window.instrument_view, "range_b", "10V")
+    window.scope.auto_y.setChecked(False)
+    window.instrument_bar.run.setChecked(True)
+    low, high = y_range(window.scope)
+    assert -11.5 < low < -10 and 10 < high < 11.5
+    assert not window.scope.analog.getViewBox().autoRangeEnabled()[1]
+    # A channel that is not shown does not hold the axis open for itself.
+    window.scope._on_shown("B", False)
+    low, high = y_range(window.scope)
+    assert -1.15 < low < -1 and 1 < high < 1.15
+    window.scope.auto_y.setChecked(True)
+    assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
+    window.stop()
+
+
+def test_the_choice_of_voltage_axis_is_remembered(window):
+    window.scope.auto_y.setChecked(False)
+    assert window.ctx.settings.get("scope.auto_y") is False
 
 
 # --- the plot's colours ------------------------------------------------------------------------

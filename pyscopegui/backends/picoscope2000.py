@@ -152,7 +152,11 @@ SETTINGS = (
     Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A"),
     Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A"),
     Setting(
-        "enabled_b", "Channel", True, choices=((True, "On"), (False, "Off")), group="Channel B"
+        "enabled_b",
+        "Enabled",
+        True,
+        group="Channel B",
+        tip="Whether channel B is read at all.",
     ),
     Setting("range_b", "Range", "5V", choices=_RANGE_CHOICES, group="Channel B"),
     Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B"),
@@ -175,12 +179,12 @@ SETTINGS = (
     ),
     Setting(
         "gen_amplitude",
-        "Amplitude",
+        "Peak to peak",
         2.0,
         maximum=2 * GENERATOR_VOLTS,
         decimals=2,
         unit="V",
-        tip="Peak to peak.",
+        tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
         **_GENERATOR,
     ),
     Setting(
@@ -579,7 +583,12 @@ class PicoScope2000(Instrument):
 
     def channels(self) -> list[Channel]:
         return [
-            Channel(key, f"{key}: ±{self.settings.ranges[key]}") for key in self.settings.keys()
+            Channel(
+                key,
+                f"{key}: ±{self.settings.ranges[key]}",
+                full_scale=RANGES[self.settings.ranges[key]][1],
+            )
+            for key in self.settings.keys()
         ]
 
     @property

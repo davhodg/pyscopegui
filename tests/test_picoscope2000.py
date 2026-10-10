@@ -373,10 +373,13 @@ def test_every_setting_offered_is_one_the_back_end_reads():
     plain = pico.Settings()
     assert vars(by_default) == vars(plain)
     for setting in pico.SETTINGS:
-        other = next(
-            (value for value, _label in setting.choices if value != setting.default),
-            setting.maximum,
-        )
+        if isinstance(setting.default, bool):
+            other = not setting.default
+        else:
+            other = next(
+                (value for value, _label in setting.choices if value != setting.default),
+                setting.maximum,
+            )
         changed = pico.Settings(defaults | {setting.key: other})
         # The generator's numbers only show once it is on.
         if setting.key.startswith("gen_") and setting.key != "gen_wave":

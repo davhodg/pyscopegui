@@ -19,6 +19,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QHBoxLayout,
@@ -54,6 +55,14 @@ TIME_ITEM_TIPS = (
     "Stay where the plot was dragged or zoomed to.",
 )
 WINDOW_TIP = "How many seconds Follow keeps in view."
+AUTO_Y_TIP = (
+    "Fit the voltage axis to what is being measured. Unticked, the axis is the\n"
+    "range the channels are set to, as a scope's screen is: a small signal on\n"
+    "a large range is then drawn small."
+)
+#: Above and below the range when the axis is the range, as a share of the
+#: whole of it, so a signal at full scale is not drawn on the edge of the plot.
+RANGE_MARGIN = 0.05
 
 #: Thirty redraws a second: smooth, and each one is a few thousand points.
 REDRAW_MS = 33
@@ -153,6 +162,10 @@ class ScopeView(QWidget):
         self.window_s.setValue(0.1)
         self.window_s.setSuffix(" s")
         self.window_s.setToolTip(WINDOW_TIP)
+        self.auto_y = QCheckBox("Auto Y")
+        self.auto_y.setToolTip(AUTO_Y_TIP)
+        self.auto_y.setChecked(True)
+        self.auto_y.toggled.connect(self._place_y)
         clear = QPushButton("Clear history")
         clear.setToolTip("Throw away the samples collected so far, for every channel")
         clear.clicked.connect(capture.clear)
@@ -160,6 +173,7 @@ class ScopeView(QWidget):
         bar.addWidget(QLabel("Time:"))
         bar.addWidget(self.time)
         bar.addWidget(self.window_s)
+        bar.addWidget(self.auto_y)
         bar.addStretch()
         bar.addWidget(clear)
 
@@ -191,6 +205,7 @@ class ScopeView(QWidget):
 
         if ctx is not None:
             remember(ctx, f"{key}.window_s", self.window_s)
+            remember(ctx, f"{key}.auto_y", self.auto_y)
         capture.channels_changed.connect(self._rebuild)
         self._rebuild()
         self._show_time()
@@ -256,6 +271,27 @@ class ScopeView(QWidget):
         for key, curve in self._curves.items():
             curve.setVisible(key not in self._hidden)
         self.digital.setVisible(bool(shown) or not self._curves)
+        self._place_y()
+
+    def _place_y(self, *_args) -> None:
+        """Fit the voltage axis to the signal, or set it to the channels' range.
+
+        The range is the largest of the analog channels shown, since they
+        share the one axis. Where none of them has a range to speak of, the
+        axis is fitted whatever the tick says: there is nothing else to set it to.
+        """
+        most = max(
+            (
+                r.channel.full_scale
+                for r in self.capture.records.values()
+                if r.channel.kind == ANALOG and r.channel.key not in self._hidden
+            ),
+            default=0.0,
+        )
+        if self.auto_y.isChecked() or most <= 0:
+            self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
+        else:
+            self.analog.setYRange(-most, most, padding=RANGE_MARGIN)
 
     def _on_shown(self, key: str, on: bool) -> None:
         self._hidden.discard(key) if on else self._hidden.add(key)

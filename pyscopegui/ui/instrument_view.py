@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -41,7 +42,7 @@ class InstrumentView(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(6, 6, 6, 6)
         #: Setting key -> the control showing it.
-        self.controls: dict[str, QComboBox | QDoubleSpinBox] = {}
+        self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox] = {}
         self.show_settings((), {})
 
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
@@ -63,7 +64,10 @@ class InstrumentView(QWidget):
             control = self._control(setting, values.get(setting.key, setting.default))
             control.setToolTip(setting.tip)
             self.controls[setting.key] = control
-            forms[setting.group].addRow(setting.label + ":", control)
+            if isinstance(control, QCheckBox):
+                forms[setting.group].addRow(control)  # it carries its own label
+            else:
+                forms[setting.group].addRow(setting.label + ":", control)
         note = QLabel(RESTARTS)
         note.setWordWrap(True)
         # As wide as the controls above it and no wider: a wrapped label asks
@@ -72,7 +76,15 @@ class InstrumentView(QWidget):
         self._layout.addWidget(note)
         self._layout.addStretch()
 
-    def _control(self, setting: Setting, value) -> QComboBox | QDoubleSpinBox:
+    def _control(self, setting: Setting, value) -> QCheckBox | QComboBox | QDoubleSpinBox:
+        if isinstance(setting.default, bool) and not setting.choices:
+            # On or off is a tick, not a list of two to open and choose from.
+            tick = QCheckBox(setting.label)
+            # Anything saved that is not a yes or a no is the default.
+            tick.setChecked(value if isinstance(value, bool) else setting.default)
+            # clicked, not toggled: only a change somebody made.
+            tick.clicked.connect(lambda on, s=setting: self.changed.emit(s.key, bool(on), s.live))
+            return tick
         if setting.choices:
             box = QComboBox()
             for choice, label in setting.choices:
