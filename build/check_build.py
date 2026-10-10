@@ -36,6 +36,7 @@ ICON = PROJECT / "pyscopegui" / "resources" / "pyscopegui.ico"
 
 REQUIRED_FILES = (
     "pyscopegui/resources/pyscopegui.ico",
+    "pyscopegui/help/manual.md",
     "LICENSE",
     "NOTICE",
     "THIRD-PARTY-NOTICES.txt",

@@ -1,0 +1,33 @@
+[&larr; Contents](manual.md)
+
+# Changes
+
+What each version of pyscopegui added, changed and fixed, newest first. The format is [Keep a
+Changelog](https://keepachangelog.com/en/1.1.0/), and versions are numbered as [Semantic
+Versioning](https://semver.org/spec/v2.0.0.html) describes. *Unreleased* is what has been done
+since the last version, and comes out in the next one.
+
+## [Unreleased]
+
+Nothing has been released yet. This is what the first version will have.
+
+### Added
+
+- **Channels and Plot**: analog channels on one plot and logic channels in lanes under it,
+  on one time axis. Follow, All or Manual for time; Auto Y, or the axis as the channels'
+  range.
+- Deep captures are drawn as a lowest and a highest per column of the screen, so a spike
+  narrower than a pixel is still drawn.
+- **Instrument** pane: the settings of whichever instrument is chosen, built from what its
+  back end says it has.
+- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels
+  streamed at up to 1 MS/s, with range, coupling and sample rate, and the scope's signal
+  generator.
+- **Demo signals**: two analog and four digital channels, with no hardware.
+- Panes that dock, float, detach into windows of their own and pin on top, with the
+  arrangement remembered, and more than one plot at once.
+- **Event Log**, with warnings and errors in their own colours.
+- Light and dark themes, or whichever the system is set to.
+- **Help**: this manual, a diagnostics report, a check for updates, the licences and About.
+- Installing with pip, from a source folder with a launcher that sets itself up, or with a
+  Windows installer.

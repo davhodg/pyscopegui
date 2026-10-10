@@ -3,6 +3,10 @@
 Bug reports, fixes and features are all welcome. pyscopegui is looked after by one person in their
 own time, so there is no promised response time, but every issue and pull request is read.
 
+Bugs and feature requests are issues. Security problems go through [SECURITY.md](SECURITY.md),
+not a public issue. Everyone taking part is asked to follow the
+[code of conduct](CODE_OF_CONDUCT.md).
+
 ## Policy
 
 **Open an issue before large changes, to allow for discussion.** Trivial fixes can go straight to
@@ -12,6 +16,18 @@ a pull request.
 
 **Tests with every change.** A fix comes with a test that fails without it. The full suite and
 the linter must pass.
+
+**A line in the changelog for anything a user would notice**, under *Unreleased* in
+`pyscopegui/help/changelog.md`, in the group it belongs to: Added, Changed, Deprecated, Removed,
+Fixed or Security. A release's description is taken from it.
+
+**The manual says what the application does.** It is the Markdown in `pyscopegui/help`, shown
+under *Help > Documentation* and read as it is on GitHub. A change to how something behaves
+changes its page, and a new pane gets a page: the tests check that every pane is in it.
+
+**Anything that drives an output asks to be chosen.** A signal generator is a real voltage on a
+connector. It is off until somebody picks a waveform, and a new output of that kind does the
+same.
 
 **Dependencies stay few, and never GPL-only.** pyscopegui is Apache-2.0, and the Windows installer
 bundles what it depends on, so a GPL-only package cannot be used. LGPL is fine as a separate,
@@ -111,3 +127,14 @@ find out what the bundle can import rather than guessing from file names.
 The version is written once, as `__version__` in `pyscopegui/__init__.py`. A tag's installer is
 named after the tag, and the build stops if the tag and `__version__` disagree. Any other build is
 named `<version>-dev-<commit>`, so an installer that is not a release says so.
+
+**Making a release:**
+
+1. In `pyscopegui/help/changelog.md`, move what is under *Unreleased* to a heading for the
+   version, `## [x.y.z] - YYYY-MM-DD`, and leave *Unreleased* above it.
+2. Bump `__version__` in `pyscopegui/__init__.py` to match, commit and push.
+3. Tag the same commit, `git tag v<version>`, and push the tag. CI runs the tests, builds the
+   installer, and publishes it as a GitHub release whose description is that section of the
+   changelog.
+
+A tag whose run fails publishes nothing: delete it, fix, and tag again.

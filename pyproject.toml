@@ -47,8 +47,11 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/davhodg/pyscopegui"
+Documentation = "https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md"
 Repository = "https://github.com/davhodg/pyscopegui"
 Issues = "https://github.com/davhodg/pyscopegui/issues"
+Releases = "https://github.com/davhodg/pyscopegui/releases"
+Changelog = "https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/changelog.md"
 
 [project.optional-dependencies]
 # Pinned ruff: a new one must not break the build.
@@ -71,11 +74,12 @@ version = { attr = "pyscopegui.__version__" }
 include = ["pyscopegui*"]
 
 # Without this a wheel carries only the .py files. Whole folders rather than a
-# list of extensions, so the next thing put in resources ships without anyone
+# list of extensions, so the next thing put in resources or help ships without anyone
 # having to remember this. tests/test_packaging.py checks that every non-Python
 # file under pyscopegui/ is covered by a pattern here.
 [tool.setuptools.package-data]
 "pyscopegui.resources" = ["*"]
+"pyscopegui.help" = ["*"]
 
 [tool.ruff]
 line-length = 100

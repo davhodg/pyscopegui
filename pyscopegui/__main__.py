@@ -19,10 +19,6 @@ SELFTEST_MODULES = (
     "pyscopegui.ui.main_window",
 )
 
-#: Read from beside the executable in a frozen build, and from the source
-#: folder otherwise.
-LICENCE_FILES = ("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.txt")
-
 
 def selftest() -> int:
     """Import everything a build could plausibly be missing. Exit code only:
@@ -53,13 +49,30 @@ def selftest() -> int:
     except Exception as exc:
         failures.append(f"pyscopegui.resources: {exc}")
 
-    if getattr(sys, "frozen", False):
-        beside = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    # The manual is package data, so it is exactly the kind of file a build
+    # drops silently. Every page, by name: a manual that still opens is the
+    # worst way for a missing page to be found.
+    try:
+        from pyscopegui.help import missing_images, missing_pages
+
+        for page in missing_pages():
+            failures.append(f"pyscopegui/help/{page}: not shipped with this build")
+        for image in missing_images():
+            failures.append(f"pyscopegui/help/{image}: shown in the manual but not shipped")
+    except Exception as exc:
+        failures.append(f"pyscopegui.help: {exc}")
+
+    # Help > Licences reads these at run time from beside the executable. A
+    # build that ships them where it cannot see them would show empty tabs.
+    try:
+        from pyscopegui.ui.help_menu import missing_licence_files
+
         failures += [
             f"{name}: not found beside the application"
-            for name in LICENCE_FILES
-            if not os.path.isfile(os.path.join(beside, name))
+            for name in missing_licence_files(getattr(sys, "frozen", False))
         ]
+    except Exception as exc:
+        failures.append(f"pyscopegui.ui.help_menu: {exc}")
 
     if failures:
         sys.stderr.write("selftest failures:" + "".join(f"\n  {f}" for f in failures) + "\n")

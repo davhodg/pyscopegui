@@ -10,6 +10,8 @@
 
 Oscilloscopes and logic analysers in one time-aligned view: analog channels and logic channels from separate instruments, on one time axis. Apache-2.0.
 
+![pyscopegui on its demo instrument: a sine and a ramp on the analog plot, four logic channels in lanes under it, the Instrument pane and the Event Log](pyscopegui/help/main-window.png)
+
 **This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and a first back end for the PicoScope 2204A.
 
 ## What it does
@@ -21,6 +23,8 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.
 - **Light and dark** themes, or whichever the system is set to.
+
+Full details are in [the manual](pyscopegui/help/manual.md), which is also under **Help > Documentation** in the application. What each version added, changed and fixed is in [the changelog](pyscopegui/help/changelog.md), which is part of the manual too.
 
 ## Instruments
 
@@ -85,7 +89,7 @@ Only LGPL Qt modules are used (QtCore, QtGui, QtWidgets). pyscopegui depends on 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md): setting up, running the tests, and building the Windows installer.
+See [CONTRIBUTING.md](CONTRIBUTING.md): setting up, running the tests, and building the Windows installer. Everyone taking part is asked to follow the [code of conduct](CODE_OF_CONDUCT.md), and security problems go through [SECURITY.md](SECURITY.md).
 
 ## Safety notice
 

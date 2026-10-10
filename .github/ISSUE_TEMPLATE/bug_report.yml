@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in pyscopegui does not work the way the manual says it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        Ran a PicoScope 2204A at 1 MS/s with a 1 kHz sine on channel A. Expected
+        a period of 1 ms on the plot; it shows 2 ms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1.
+        2.
+        3.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        *Help > Diagnostics...* copies a report to the clipboard: the versions of pyscopegui, Python, PySide6, pyqtgraph and numpy, the platform, the instrument and its settings, and how many samples each channel has received. Paste it here.
+        If pyscopegui will not start at all, say so, and paste whatever it printed instead.
+      render: text
+
+  - type: dropdown
+    id: instrument
+    attributes:
+      label: Instrument
+      options:
+        - None -- Demo signals
+        - PicoScope 2204A, or another on the ps2000 driver
+        - Another -- say which above
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installed
+    attributes:
+      label: Installed with
+      options:
+        - The Windows installer
+        - The launcher (pyscopegui.cmd or pyscopegui.sh)
+        - pip
+        - A source checkout, for development
+    validations:
+      required: true
+
+  - type: textarea
+    id: event-log
+    attributes:
+      label: Event Log
+      description: What the Event Log said around the time -- warnings and errors especially. A traceback is worth more than any description of one.
+      render: text

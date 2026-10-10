@@ -458,6 +458,7 @@ class MainWindow(QMainWindow):
         self.panes.close_detached()
         self._status_timer.stop()
         self._drop_instrument()
+        self.help_menu.shutdown()
         self.exceptions.remove()
         super().closeEvent(event)
 

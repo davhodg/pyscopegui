@@ -7,7 +7,8 @@
 #   (``backends.create("demo")``), so nothing imports those modules statically.
 #   They are listed as hidden imports below, taken from pyscopegui's own table
 #   so the list cannot drift.
-# * the icon is read as a file, so the resources folder is collected as data.
+# * the icon and the manual are read as files, so the resources and help
+#   folders are collected as data.
 #
 # Qt is left as separate DLLs (a one-directory build) so it stays dynamically
 # linked and replaceable, which is what the LGPL asks for. GPL-only Qt modules
@@ -92,6 +93,8 @@ EXCLUDED = [
 DATA = [
     # The icon, read as a file at run time.
     (str(PROJECT / "pyscopegui" / "resources"), "pyscopegui/resources"),
+    # The manual, read as files by Help > Documentation.
+    (str(PROJECT / "pyscopegui" / "help"), "pyscopegui/help"),
     (str(PROJECT / "LICENSE"), "."),
     (str(PROJECT / "NOTICE"), "."),
     (str(PROJECT / "THIRD-PARTY-NOTICES.txt"), "."),
