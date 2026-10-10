@@ -16,6 +16,10 @@ from pyscopegui.backends.base import ANALOG, Block, Channel
 
 #: How much of each channel is kept, in seconds, before the oldest is dropped.
 HISTORY_S = 60.0
+#: And the most, in samples, whatever the rate. A record is twice this many
+#: values long, so at four bytes each this is 64 MB a channel: a minute at
+#: 100 kS/s, and sixteen seconds at 500 kS/s.
+MOST_SAMPLES = 8_000_000
 
 
 class Record:
@@ -93,7 +97,7 @@ class Capture(QObject):
 
     def set_channels(self, channels: list[Channel], rate: float) -> None:
         """Start again, empty, for these channels at this rate."""
-        capacity = int(rate * self.history_s)
+        capacity = min(int(rate * self.history_s), MOST_SAMPLES)
         self.records = {c.key: Record(c, rate, capacity) for c in channels}
         self.channels_changed.emit()
 

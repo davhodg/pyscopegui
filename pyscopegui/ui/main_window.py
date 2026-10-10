@@ -168,7 +168,8 @@ class MainWindow(QMainWindow):
         if self.instrument is None or name != self._instrument_name:
             self._drop_instrument()
             try:
-                instrument = backends.create(name, self)
+                options = self.ctx.settings.get(f"instrument.{name}")
+                instrument = backends.create(name, self, options)
             except Exception as exc:
                 # Not ImportError alone: a maker's library that is installed
                 # and will not load fails however it likes.
@@ -180,9 +181,14 @@ class MainWindow(QMainWindow):
             instrument.block.connect(self.capture.add)
             instrument.state_changed.connect(self._on_state)
             instrument.error.connect(self.events.error)
+            instrument.note.connect(self.events.information)
+            instrument.warning.connect(self.events.warning)
             self.instrument, self._instrument_name = instrument, name
         self.capture.set_channels(self.instrument.channels(), self.instrument.rate)
         self.instrument.start()
+        # Now, and not when it says so: a scope takes seconds to open, and
+        # the button has to offer Stop for all of them.
+        self.instrument_bar.set_running(self.instrument.running)
 
     @Slot()
     def stop(self) -> None:

@@ -52,7 +52,7 @@ def samples(first: int, count: int) -> dict[str, np.ndarray]:
 
 
 class DemoInstrument(Instrument):
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
         self._timer = QTimer(self, interval=TICK_MS, timeout=self._tick)
         self._started = 0.0

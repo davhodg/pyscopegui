@@ -28,6 +28,9 @@ class Backend(NamedTuple):
 #: Name -> where it lives. The name is what is remembered between runs.
 BACKENDS: dict[str, Backend] = {
     "demo": Backend("pyscopegui.backends.demo", "DemoInstrument", "Demo signals"),
+    "picoscope2000": Backend(
+        "pyscopegui.backends.picoscope2000", "PicoScope2000", "PicoScope 2204A (ps2000)"
+    ),
 }
 
 #: Chosen on a first run: something to look at with nothing plugged in.
@@ -42,8 +45,8 @@ def title(name: str) -> str:
     return BACKENDS[name].title
 
 
-def create(name: str, parent: QObject | None = None) -> Instrument:
+def create(name: str, parent: QObject | None = None, options: dict | None = None) -> Instrument:
     """Make the instrument called this. ImportError if its library is missing."""
     backend = BACKENDS[name]
     module = importlib.import_module(backend.module)
-    return getattr(module, backend.cls)(parent)
+    return getattr(module, backend.cls)(parent, options)

@@ -54,7 +54,11 @@ class Block:
 
 
 class Instrument(QObject):
-    """A source of samples. Subclass it, and add the class to ``BACKENDS``."""
+    """A source of samples. Subclass it, and add the class to ``BACKENDS``.
+
+    Made with a parent and its own settings: whatever settings.json holds
+    under ``instrument.<name>``, which may be nothing, or not a dictionary.
+    """
 
     #: A ``Block``. Emitted on the GUI thread, or queued to it from another.
     block = Signal(object)
@@ -62,6 +66,10 @@ class Instrument(QObject):
     state_changed = Signal(bool)
     #: Something went wrong that stopped it, in words for the Event Log.
     error = Signal(str)
+    #: Something worth recording that is not a problem: which scope was found.
+    note = Signal(str)
+    #: It is still running, but what it is sending is not what was asked for.
+    warning = Signal(str)
 
     def channels(self) -> list[Channel]:
         """The inputs it has, in the order they should be listed."""

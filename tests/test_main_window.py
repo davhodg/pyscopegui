@@ -87,7 +87,7 @@ def test_a_second_plot_can_be_opened_and_removed(window):
 
 
 def test_a_back_end_that_will_not_load_is_said_and_not_raised(window, monkeypatch):
-    def broken(name, parent=None):
+    def broken(name, parent=None, options=None):
         raise ImportError("no such library")
 
     monkeypatch.setattr(backends, "create", broken)

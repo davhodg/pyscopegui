@@ -10,7 +10,7 @@
 
 Oscilloscopes and logic analysers in one time-aligned view: analog channels and logic channels from separate instruments, on one time axis. Apache-2.0.
 
-**This is an early skeleton.** The window, the panes, the build and the installer are in place, and one instrument: a built-in demo that needs no hardware. No real instrument is supported yet.
+**This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and a first back end for the PicoScope 2204A.
 
 ## What it does
 
@@ -20,9 +20,27 @@ Oscilloscopes and logic analysers in one time-aligned view: analog channels and 
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.
 - **Light and dark** themes, or whichever the system is set to.
 
-## Planned
+## Instruments
 
-The first real instrument is the PicoScope 2204A, through Pico's own `ps2000` library. That library is not bundled: install Pico's software, and pyscopegui finds it at run time.
+- **Demo signals**: two analog and four digital channels, with no hardware.
+- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. **Written from Pico's programmer's guide and not yet tried on a scope.**
+
+Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
+
+The scope is set up from `settings.json` in your settings folder (*Tools > Open settings folder*) until there are controls for it. Everything is optional, and these are the defaults:
+
+```json
+"instrument.picoscope2000": {
+  "rate": 500000,
+  "range_a": "5V",
+  "range_b": "5V",
+  "dc_a": true,
+  "dc_b": true,
+  "enabled_b": true
+}
+```
+
+Ranges are `20mV`, `50mV`, `100mV`, `200mV`, `500mV`, `1V`, `2V`, `5V`, `10V` and `20V`; a scope has only some of them, and says so if asked for one it lacks.
 
 ## Installing
 
