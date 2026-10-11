@@ -9,6 +9,11 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Fixed
+
+- *Help > Licences* said the third-party file held the full text of every licence. It is a
+  list of the packages a build was made with, and now says so.
+
 ## [0.1.0] - 2026-10-11
 
 The first version.

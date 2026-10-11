@@ -68,7 +68,7 @@ LICENCE_FILES = (
     LicenceFile(
         "Third party",
         "THIRD-PARTY-NOTICES.txt",
-        "The full licence text of every installed package.",
+        "The packages this was built with: each one's version, licence and where it is from.",
         generated=True,
     ),
 )
