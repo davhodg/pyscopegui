@@ -48,10 +48,12 @@ The pane also drives the scope's **signal generator** output: off, sine, square 
 
 There are three options:
 
-1. **With pip** -- into whichever Python environment you choose. Python 3.12 or newer is needed. From a clone, until there is a release on PyPI:
+1. **With pip** -- from [PyPI](https://pypi.org/project/pyscopegui/), into whichever Python environment you choose. Python 3.12 or newer is needed.
+
+   To install it:
 
    ```
-   pip install .
+   pip install pyscopegui
    ```
 
    To run it:
@@ -60,9 +62,19 @@ There are three options:
    pyscopegui
    ```
 
-2. **The Windows installer** -- `pyscopegui-<version>-setup.exe`, built by `build.cmd`. Nothing else is needed, not even Python. It installs a self-contained application, offers a desktop shortcut, and uninstalls cleanly.
+   To update it:
 
-3. **From a Git clone** -- clone the repository, then double-click `pyscopegui.cmd` (Windows) or run `./pyscopegui.sh` (Linux). Python 3.12 or newer must be on the PATH.
+   ```
+   pip install --upgrade pyscopegui
+   ```
+
+   It is an ordinary Python package with an ordinary entry point, so the choice of environment is yours.
+
+2. **The Windows installer** -- `pyscopegui-<version>-setup.exe` from the [releases page](https://github.com/davhodg/pyscopegui/releases). Nothing else is needed: **not even Python.** It installs a self-contained application, offers a desktop shortcut, and uninstalls cleanly.
+
+   It asks first who it is for: **everybody who uses the computer**, which needs administrator rights, or **only you**, which does not.
+
+3. **From a Git clone** -- clone the repository, then double-click `pyscopegui.cmd` (Windows) or run `./pyscopegui.sh` (Linux). This is the way to have the latest changes before they are released, or to contribute. Python 3.12 or newer must be on the PATH.
 
    The first run sets itself up: it creates a *virtual environment* -- a folder called `.venv` holding its own copy of Python and only the libraries pyscopegui needs, so nothing else on the machine is touched -- and downloads a couple of hundred megabytes into it. That takes a few minutes once; every later start is immediate, and deleting `.venv` undoes the whole thing. If `uv` is installed it is used instead of pip.
 
