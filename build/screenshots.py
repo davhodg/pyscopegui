@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""Take the screenshot the README shows.
+"""Take a screenshot of the window on its demo instrument.
 
     python build/screenshots.py
 
 Opens pyscopegui on the demo instrument for a few seconds, with temporary
 settings of its own so that nothing of yours is read or changed, and writes
-``pyscopegui/help/main-window.png``. Leave the window alone while it runs.
+``build/work/demo-window.png``. Leave the window alone while it runs.
 
-In the manual's folder because the README and the manual show the same file,
-so there is one copy of it and it ships with the manual.
+Not the picture the README shows: that one, ``pyscopegui/help/main-window.png``,
+is of two real scopes and was taken by hand. This is for seeing how the
+window looks after a change, and is not kept.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
-OUTPUT = PROJECT / "pyscopegui" / "help" / "main-window.png"
+OUTPUT = PROJECT / "build" / "work" / "demo-window.png"
 #: A window that fits a README column without being shrunk past reading.
 SIZE = (1200, 760)
 #: Long enough for the plot to have filled and the list to show values.
@@ -58,6 +59,7 @@ def main() -> int:
     source.activated.emit(source.currentIndex())
 
     def take() -> None:
+        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         window.grab().save(str(OUTPUT))
         window.close()
         app.quit()

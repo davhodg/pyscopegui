@@ -13,7 +13,7 @@
 
 Oscilloscopes and logic analysers in one view: analog and logic channels from separate instruments, on one time axis. Apache-2.0.
 
-![pyscopegui on its demo instrument: a sine and a ramp on the analog plot, four logic channels in lanes under it, the Instrument pane and the Event Log](pyscopegui/help/main-window.png)
+![pyscopegui with a Rigol DS1054Z and a PicoScope 2204A open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](pyscopegui/help/main-window.png)
 
 **This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and back ends for the PicoScope 2204A and the Rigol DS1000Z series.
 
