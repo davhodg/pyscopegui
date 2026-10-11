@@ -32,6 +32,9 @@ body:
         - Instrument pane
         - A new instrument
         - PicoScope
+        - Rigol
+        - Trigger and run modes
+        - Several instruments at once
         - Event Log
         - Panes and layout
         - Installing
