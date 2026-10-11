@@ -30,6 +30,10 @@ class FakeScope(socketserver.ThreadingTCPServer):
         self.status = "STOP"
         #: Whether a trigger comes by itself once it is armed.
         self.triggers = True
+        #: How often it has beeped at being read.
+        self.beeps = 0
+        #: How often setting one end of what is to be read moved the other.
+        self.moved = 0
         #: How many points its memory holds.
         self.depth = 600_000
         threading.Thread(target=self.serve_forever, daemon=True).start()
@@ -56,13 +60,22 @@ class FakeScope(socketserver.ThreadingTCPServer):
             self.status = "STOP"
         elif what == ":TRIG:STAT?":
             return self.status.encode() + b"\n"
+        elif what == ":SYST:BEEP?":
+            return b"0\n" if self.state.get(":SYST:BEEP") == "OFF" else b"1\n"
         elif what == ":WAV:PRE?":
             return self._preamble().encode() + b"\n"
         elif what == ":WAV:DATA?":
+            if self._raw() and self.state.get(":SYST:BEEP", "1") != "OFF":
+                self.beeps += 1  # "Can Operate Now!", after each piece of its memory
             data = self._data()
             return b"#9%09d" % len(data) + data + b"\n"
         elif to:
             self.state[what] = to
+            # As the real one does: an end set past the other moves that one too.
+            first, last = (int(self.state.get(f":WAV:{end}", 1)) for end in ("STAR", "STOP"))
+            if what in (":WAV:STAR", ":WAV:STOP") and first > last:
+                self.moved += 1
+                self.state[":WAV:STOP" if what == ":WAV:STAR" else ":WAV:STAR"] = to
         return None
 
     def _raw(self) -> bool:
@@ -110,6 +123,7 @@ class _Handler(socketserver.StreamRequestHandler):
 def fake(monkeypatch):
     monkeypatch.setattr(rigol, "SETTLE_S", 0.0)
     monkeypatch.setattr(rigol, "AUTO_S", 0.0)
+    monkeypatch.setattr(rigol, "QUIET_S", 0.0)
     scope = FakeScope()
     yield scope
     scope.shutdown()
@@ -284,6 +298,8 @@ def test_the_memory_is_read_a_piece_at_a_time(fake):
     assert fake.sent(":WAV:DATA?") == 3
     assert fake.sent(":WAV:STAR 250001") == 1 and fake.sent(":WAV:STOP 600000") == 1
     assert np.all(np.diff(block.data["CH1"]) >= 0), "the pieces in order"
+    sweep_of(scope)
+    assert fake.moved == 0, "asked for in an order the scope has nothing to put right"
     scope.close()
 
 
@@ -294,6 +310,37 @@ def test_the_screen_is_read_whole_after_the_memory_was(fake):
     scope.wanted = rigol.Settings({"address": fake.address})
     assert scope.poll() is None
     assert len(sweep_of(scope)) == 1200
+    scope.close()
+
+
+def test_the_beeper_is_off_while_the_memory_is_read_and_put_back_after(fake):
+    scope = opened(fake, read="memory")
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    sweep_of(scope)
+    assert fake.beeps == 0 and fake.state[":SYST:BEEP"] == "OFF"
+    scope.stop()
+    scope._link.ask("*OPC?")
+    assert fake.state[":SYST:BEEP"] == "ON"
+    scope.close()
+
+
+def test_a_beeper_that_was_off_is_left_off(fake):
+    fake.state[":SYST:BEEP"] = "OFF"
+    scope = opened(fake, read="memory")
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    scope.stop()
+    scope._link.ask("*OPC?")
+    assert fake.sent(":SYST:BEEP ON") == 0
+    scope.close()
+
+
+def test_the_screen_is_read_without_touching_the_beeper(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    assert fake.sent(":SYST:BEEP?") == 0
     scope.close()
 
 

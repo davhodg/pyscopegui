@@ -60,6 +60,12 @@ The plot shows the whole sweep, so the box beside **Time** has no say in how muc
 
 How deep the memory is, is left as it is set on the scope: *Acquire > Mem Depth*.
 
+The scope says *Can Operate Now!* and beeps after every piece of its memory that is read,
+which is dozens of times a sweep. So pyscopegui turns the scope's beeper off while it reads
+the memory, and puts it back as it was when the run stops: one beep as a run starts and one
+as it stops is what is left. If pyscopegui is ended in the
+middle of a run, turn it back on at the scope: *Utility > Sound*.
+
 ## Settings
 
 | Setting | What it is |

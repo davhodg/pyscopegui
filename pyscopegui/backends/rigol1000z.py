@@ -61,6 +61,9 @@ POLL_S = 0.02
 #: How long a scope that has stopped may go on having nothing to show
 #: before it is armed again.
 NOT_READY_S = 1.0
+#: How long after the last of its memory was read the scope's beeper is left
+#: off, for it to have said the last thing it has to say about that.
+QUIET_S = 1.5
 IDLE_S = 0.1
 
 
@@ -325,7 +328,8 @@ class NotReadyError(Exception):
 class Scope:
     """One scope, from connecting to it to letting go. Used from one thread."""
 
-    def __init__(self, settings: Settings, clock=time.monotonic) -> None:
+    def __init__(self, settings: Settings, clock=time.monotonic, sleep=time.sleep) -> None:
+        self._sleep = sleep
         self.settings = settings
         self.trigger = Trigger()
         self._clock = clock
@@ -345,6 +349,8 @@ class Scope:
         self._armed_at = 0.0
         self._forced = False
         self._said_reading = False
+        #: Whether the scope's beeper was on before it was silenced here.
+        self._beeper_silenced = False
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -403,6 +409,7 @@ class Scope:
                 self._link.write(":STOP")
             except ScopeError:
                 pass
+        self._unsilence()
         self.running = False
 
     def poll(self) -> Block | None:
@@ -482,17 +489,47 @@ class Scope:
             return Block(0, rate, data, sweep=True)
         return Block(0, rate, data, sweep=True, trigger=at, triggered=not self._forced)
 
+    def _silence(self) -> None:
+        """Turn the scope's beeper off while its memory is read.
+
+        After each piece it says "Can Operate Now!" and beeps: two dozen
+        times for a deep memory, every sweep. Put back when the run stops.
+        """
+        if not self._beeper_silenced and self._link.ask(":SYST:BEEP?") in ("1", "ON"):
+            self._link.write(":SYST:BEEP OFF")
+            self._beeper_silenced = True
+
+    def _unsilence(self) -> None:
+        if self._beeper_silenced and self._link is not None:
+            self._beeper_silenced = False
+            try:
+                # Not at once: the scope has one more "Can Operate Now!" to
+                # say after the last piece, and would beep with it.
+                self._sleep(QUIET_S)
+                self._link.write(":SYST:BEEP ON")
+            except ScopeError:
+                pass
+
     def _read_memory(self, points: int) -> bytes:
+        self._silence()
         parts = []
         for first in range(1, points + 1, CHUNK):
             if self.interrupted():
                 raise GivenUpError
-            self._link.write(f":WAV:STAR {first}")
-            self._link.write(f":WAV:STOP {min(first + CHUNK - 1, points)}")
+            last = min(first + CHUNK - 1, points)
+            # In an order that never has the start past the stop: the scope
+            # moves the other end to suit, and beeps as it does.
+            if first == 1:
+                self._link.write(":WAV:STAR 1")
+                self._link.write(f":WAV:STOP {last}")
+            else:
+                self._link.write(f":WAV:STOP {last}")
+                self._link.write(f":WAV:STAR {first}")
             parts.append(self._link.ask_bytes(":WAV:DATA?"))
         return b"".join(parts)
 
     def close(self) -> None:
+        self._unsilence()
         if self._link is not None:
             self._link.close()
         self._link = None
