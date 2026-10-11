@@ -29,6 +29,9 @@ from pyscopegui.backends.base import Setting
 from pyscopegui.ui.spin import SequenceSpin
 
 NOTHING = "This instrument has nothing to set."
+#: Behind what has been typed and not yet taken up: Enter, or leaving the
+#: box, takes it up. The amber pycangui uses for the same thing.
+PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
 RESTARTS = (
     "Some changes here start the instrument again, from an empty plot. The rest "
     "are taken up as it runs."
@@ -83,6 +86,26 @@ class InstrumentView(QWidget):
         self._layout.addStretch()
         self._show_needed()
 
+    def _show_pending(self, line: QLineEdit) -> None:
+        waiting = line.text().strip() != line.property("taken")
+        line.setStyleSheet(PENDING if waiting else "")
+
+    def _take_text(self, setting: Setting, line: QLineEdit) -> None:
+        text = line.text().strip()
+        if text == line.property("taken"):
+            return  # Enter and then leaving the box both say it is finished
+        line.setProperty("taken", text)
+        self._show_pending(line)
+        self.changed.emit(setting.key, text, setting.live)
+
+    def commit(self) -> None:
+        """Take up anything typed and still waiting: before the instrument is opened or run."""
+        for control in self.controls.values():
+            if isinstance(control, QLineEdit):
+                control.editingFinished.emit()
+            elif isinstance(control, QDoubleSpinBox):
+                control.interpretText()
+
     def value(self, key: str) -> object:
         """What the control for this setting is at."""
         control = self.controls[key]
@@ -133,10 +156,11 @@ class InstrumentView(QWidget):
             return box
         if isinstance(setting.default, str):
             line = QLineEdit(value if isinstance(value, str) else setting.default)
-            # Once it is finished with, not at every letter typed on the way.
-            line.editingFinished.connect(
-                lambda s=setting, e=line: self.changed.emit(s.key, e.text().strip(), s.live)
-            )
+            line.setProperty("taken", line.text())
+            # Taken up once it is finished with, not at every letter typed on
+            # the way, and shown as waiting until then.
+            line.textChanged.connect(lambda _t, e=line: self._show_pending(e))
+            line.editingFinished.connect(lambda s=setting, e=line: self._take_text(s, e))
             return line
         spin = QDoubleSpinBox() if setting.step else SequenceSpin()
         if setting.step:

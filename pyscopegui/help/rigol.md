@@ -27,7 +27,9 @@ which every one of them can do.
 
 Plug the scope into the network, and on the scope press **Utility > IO > LAN Conf** to see
 the address it was given. Put that in **Address** in the Instrument pane -- `192.168.1.50`
--- and press **Open**. The [Event Log](event-log.md) says which scope answered.
+-- and press **Open**. The [Event Log](event-log.md) says which scope answered. The box is
+amber while what is typed in it has not been taken up yet: Enter, leaving the box, **Open**
+or a run button takes it up.
 
 A scope plugged straight into the computer with one cable works too: leave *Auto IP* on in
 the same menu, and both ends give themselves an address starting `169.254`.

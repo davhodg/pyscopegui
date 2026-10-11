@@ -236,6 +236,8 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def open_instrument(self, name: str = "") -> None:
         """Connect to the instrument called this, or the one chosen, and leave it stopped."""
+        # An address typed and not yet finished with is the one meant.
+        self.instrument_view.commit()
         if not self._have(name or self.instrument_bar.current()):
             self.instrument_bar.set_open(False)
             return
@@ -260,6 +262,7 @@ class MainWindow(QMainWindow):
             if self.instrument is not None and self.instrument.running:
                 self.instrument.stop()
             return
+        self.instrument_view.commit()
         if not self._have(self.instrument_bar.current()):
             self._show_mode(STOP)
             return

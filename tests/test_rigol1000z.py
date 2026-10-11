@@ -426,3 +426,31 @@ def test_an_address_typed_in_is_saved(window, app):
     line.setText(" 192.168.1.50 ")
     line.editingFinished.emit()
     assert window.ctx.settings.get("instrument.rigol1000z")["address"] == "192.168.1.50"
+
+
+def test_an_address_typed_and_not_finished_with_is_amber_and_open_takes_it_up(window, fake, app):
+    from pyscopegui.ui.instrument_view import PENDING
+
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("rigol1000z"))
+    line = window.instrument_view.controls["address"]
+    line.setText(fake.address)
+    assert line.styleSheet() == PENDING
+    assert "address" not in (window.ctx.settings.get("instrument.rigol1000z") or {})
+    window.instrument_bar.open.click()
+    assert line.styleSheet() == ""
+    wait_for(app, lambda: window.instrument.is_open)
+    assert window.ctx.settings.get("instrument.rigol1000z")["address"] == fake.address
+    window.close_instrument()
+
+
+def test_typing_back_what_was_there_is_not_waiting(window, app):
+    from pyscopegui.ui.instrument_view import PENDING
+
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("rigol1000z"))
+    line = window.instrument_view.controls["address"]
+    line.setText("10.0.0.1")
+    assert line.styleSheet() == PENDING
+    line.setText("")
+    assert line.styleSheet() == ""
