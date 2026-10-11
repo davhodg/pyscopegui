@@ -9,7 +9,9 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
-Nothing has been released yet. This is what the first version will have.
+## [0.1.0] - 2026-10-11
+
+The first version.
 
 ### Added
 
@@ -25,7 +27,7 @@ Nothing has been released yet. This is what the first version will have.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its
   back end says it has.
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels
-  streamed at up to 1 MS/s, with range, coupling and sample rate, either channel switched
+  streamed at up to 1 MS/s, with scale, probe, coupling and sample rate, either channel switched
   off, and the scope's signal generator.
 - PicoScope **blocks**: short captures at up to 100 MS/s around the scope's own trigger, for
   what is too fast to stream.
@@ -50,3 +52,6 @@ Nothing has been released yet. This is what the first version will have.
 - **Help**: this manual, a diagnostics report, a check for updates, the licences and About.
 - Installing with pip, from a source folder with a launcher that sets itself up, or with a
   Windows installer.
+
+[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/davhodg/pyscopegui/releases/tag/v0.1.0
