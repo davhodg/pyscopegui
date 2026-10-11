@@ -18,6 +18,10 @@ Nothing has been released yet. This is what the first version will have.
   range.
 - Deep captures are drawn as a lowest and a highest per column of the screen, so a spike
   narrower than a pixel is still drawn.
+- **Open** and **Close** for the instrument, and a scope's own **Stop**, **Single**,
+  **Normal** and **Auto**.
+- A **trigger** on any channel -- rising or falling, at a level, anywhere in the plot --
+  found in the samples as they arrive, so it is the same for every instrument.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its
   back end says it has.
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels

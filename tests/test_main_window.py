@@ -32,7 +32,7 @@ def test_the_view_menu_lists_every_pane_ticked(window):
 
 
 def test_run_fills_the_plot_from_the_demo(window):
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert window.instrument.running
     feed(window)
     assert set(window.capture.records) == {c.key for c in demo.CHANNELS}
@@ -44,17 +44,17 @@ def test_run_fills_the_plot_from_the_demo(window):
 
 
 def test_stop_keeps_what_was_collected(window):
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     feed(window)
-    window.instrument_bar.run.setChecked(False)
+    window.set_mode("stop")
     assert not window.instrument.running
     assert window.capture.stored() > 0
-    assert window.instrument_bar.run.text() == "Run"
-    assert window.instrument_bar.instrument.isEnabled()
+    assert window.instrument_bar.mode() == "stop"
+    assert window.instrument.is_open, "stopped, and still open"
 
 
 def test_a_long_capture_is_drawn_as_a_few_points_a_column(window):
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     for _ in range(8):
         feed(window, 0.4)
     window.scope.time.setCurrentText("All")
@@ -65,7 +65,7 @@ def test_a_long_capture_is_drawn_as_a_few_points_a_column(window):
 
 
 def test_an_unticked_channel_is_not_drawn_and_stays_unticked(window, app):
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     feed(window)
     window.scope._on_shown("D1", False)
     assert "D1" not in window.scope.shown()
@@ -98,16 +98,101 @@ def test_a_back_end_that_will_not_load_is_said_and_not_raised(window, monkeypatc
         raise ImportError("no such library")
 
     monkeypatch.setattr(backends, "create", broken)
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert "could not be started" in window.log.toPlainText()
     assert window.instrument is None
-    assert not window.instrument_bar.run.isChecked()
+    assert window.instrument_bar.mode() == "stop"
+    assert not window.instrument_bar.open.isChecked()
 
 
 def test_the_instrument_chosen_is_remembered(window):
     assert window.instrument_bar.current() == backends.DEFAULT
     window.instrument_bar.instrument.currentIndexChanged.emit(0)
     assert window.ctx.settings.get("instrument.name") == backends.DEFAULT
+
+
+# --- open and close, and the four a scope has --------------------------------------------------
+def press(window, mode):
+    """Press a mode's button the way somebody does."""
+    window.instrument_bar.modes[mode].click()
+
+
+def test_it_starts_closed_and_stopped(window):
+    bar = window.instrument_bar
+    assert bar.open.text() == "Open" and not bar.open.isChecked()
+    assert bar.mode() == "stop"
+    assert bar.instrument.isEnabled()
+    assert window.instrument is None
+
+
+def test_open_connects_and_reads_nothing(window):
+    bar = window.instrument_bar
+    bar.open.click()
+    assert window.instrument.is_open and not window.instrument.running
+    assert bar.open.text() == "Close"
+    assert not bar.instrument.isEnabled(), "not changed while it is open"
+    assert window.capture.stored() == 0
+    assert set(window.capture.records) == {c.key for c in demo.CHANNELS}, "its channels, empty"
+    assert "open, stopped" in window.status.text()
+
+
+def test_close_lets_go_and_keeps_what_is_on_the_plot(window):
+    press(window, "auto")
+    feed(window)
+    window.instrument_bar.open.click()  # which says Close while it is open
+    assert not window.instrument.is_open and not window.instrument.running
+    assert window.instrument_bar.open.text() == "Open"
+    assert window.instrument_bar.mode() == "stop"
+    assert window.instrument_bar.instrument.isEnabled()
+    assert window.capture.stored() > 0
+
+
+def test_a_run_button_opens_the_instrument_if_it_is_not_open(window):
+    press(window, "normal")
+    assert window.instrument.is_open and window.instrument.running
+    assert window.instrument_bar.open.text() == "Close"
+    assert window.instrument_bar.mode() == "normal" == window.acquisition.mode
+
+
+def test_changing_between_normal_and_auto_keeps_the_run_going(window):
+    press(window, "auto")
+    feed(window)
+    held = window.capture.stored()
+    press(window, "normal")
+    assert window.instrument.running and window.capture.stored() == held
+    assert window.acquisition.mode == "normal"
+
+
+def test_stop_then_a_run_button_starts_from_an_empty_plot(window):
+    press(window, "auto")
+    feed(window)
+    press(window, "stop")
+    assert window.capture.stored() > 0
+    press(window, "auto")
+    assert window.capture.stored() == 0
+    assert window.instrument.running
+
+
+def test_choosing_another_instrument_lets_go_of_the_one_there_was(window, monkeypatch):
+    from tests.test_instrument_view import FakeScope
+
+    fake = FakeScope(monkeypatch)
+    press(window, "auto")
+    first = window.instrument
+    window.close_instrument()
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("picoscope2000"))
+    window.instrument_bar.open.click()
+    assert window.instrument is not first
+    assert set(window.capture.records) == {"A", "B"}
+    window.close_instrument()
+    assert ("close",) in fake.library.calls or ("open",) not in fake.library.calls
+
+
+def test_an_instrument_that_stops_by_itself_is_shown_stopped(window):
+    press(window, "auto")
+    window.instrument.stop()  # as a scope that was unplugged would
+    assert window.instrument_bar.mode() == "stop" == window.acquisition.mode
 
 
 # --- how much is kept --------------------------------------------------------------------------
@@ -124,7 +209,7 @@ def test_the_history_menu_offers_every_length_with_the_default_ticked(window):
 
 def test_a_history_chosen_is_used_at_the_next_run_and_remembered(window, app):
     history_actions(window)["1 s"].trigger()
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert window.capture.records["A"].capacity == 100_000
     assert "Keeping the last 1 s of each channel" in window.log.toPlainText()
     window.close()
@@ -137,7 +222,7 @@ def test_a_history_chosen_is_used_at_the_next_run_and_remembered(window, app):
 
 
 def test_changing_the_history_while_running_starts_it_again_at_that_size(window):
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     feed(window)
     history_actions(window)["30 s"].trigger()
     assert window.instrument.running
@@ -160,10 +245,10 @@ def test_a_history_there_is_no_room_for_is_said_and_nothing_is_started(window, m
         raise MemoryError
 
     monkeypatch.setattr(window.capture, "set_channels", no_room)
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert "not enough memory to keep 10 s" in window.log.toPlainText()
     assert not window.instrument.running
-    assert not window.instrument_bar.run.isChecked()
+    assert window.instrument_bar.mode() == "stop"
 
 
 def test_lengths_of_time_and_memory_are_said_the_way_they_are_spoken():

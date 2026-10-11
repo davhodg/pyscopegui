@@ -2,22 +2,64 @@
 
 # Instrument
 
-## Choosing and running
+## Choosing, opening and running
 
-The toolbar has the list of instruments and one button. The button says what pressing it
-will do: **Run** while stopped, **Stop** while running. The instrument cannot be changed
-while it is running.
+The toolbar has the list of instruments, **Open**, and the four buttons a scope has.
 
-**Run** starts from an empty plot, with time counted from zero. **Stop** keeps what has been
-collected on the plot. The status bar says which instrument, its sample rate and how many
-seconds are held.
+**Open** connects to the instrument chosen and leaves it stopped. For a scope this is the
+slow part, done once. The button then reads **Close**, which stops the instrument and lets
+it go, so that another program can have it. The instrument cannot be changed while it is
+open. Pressing one of the run buttons opens it for you if it is not open.
 
-The instrument chosen is remembered.
+Whichever of the four is pressed in is what the instrument is doing:
+
+| Button | What it does |
+|--------|--------------|
+| **Stop** | Stops reading. What has been collected stays on the plot |
+| **Single** | Waits for one trigger, shows what is either side of it, and stops |
+| **Normal** | Shows each trigger as it comes, and holds the last one until the next |
+| **Auto** | Shows each trigger as it comes, and what there is anyway when none does |
+
+With no trigger chosen there is nothing to wait for: **Auto** and **Normal** both follow the
+newest samples, as a chart recorder does, and **Single** reads one plot's worth and stops.
+
+Going from **Stop** to one of the others starts from an empty plot, with time counted from
+zero. Going between **Normal** and **Auto** does not: the run carries on.
+
+The status bar says which instrument, what it is doing, its sample rate and how many seconds
+are held. The instrument chosen is remembered.
 
 | Instrument | What it is |
 |------------|------------|
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
 | [PicoScope 2204A](picoscope.md) | Pico's two-channel scopes on the `ps2000` driver |
+
+## The trigger
+
+The second toolbar is the trigger: one for the whole window, since the four buttons are one
+set.
+
+| Setting | What it does |
+|---------|--------------|
+| Trigger | The channel to trigger on, or **None** for no trigger |
+| Edge | **Rising**, as the signal goes up through the level, or **Falling** |
+| Level | The voltage the signal has to cross, drawn as a dashed line on the plot |
+| Position | Where the trigger sits in the plot: 50% is the middle, with as much before as after |
+
+A digital channel has only one level, between its 0 and its 1, so the level box is not
+offered for one.
+
+The trigger is found by pyscopegui, in the samples as they arrive, and not by the
+instrument. So it is the same for every instrument, the samples either side of a trigger are
+all still there to go back over, and it finds nothing the instrument cannot stream: on a
+PicoScope 2204A, nothing faster than 1 MS/s shows.
+
+A signal has to go back past the level by a fiftieth of the channel's range before it can
+trigger again, so that the noise on a slow edge does not trigger a dozen times on the way
+through.
+
+What the plot does with a trigger is in [Channels and Plot](plot.md). The trigger's settings
+are remembered.
 
 ## The Instrument pane
 
@@ -26,11 +68,13 @@ demo has no settings.
 
 There are two kinds of setting, and the pane says so at the bottom:
 
-- **How the instrument is set up** -- a sample rate, a range. Changing one while the
-  instrument is running starts it again, from an empty plot; changed while it is stopped, it
-  is used at the next Run.
-- **What changes as it runs** -- a signal generator. These take effect without starting
-  the instrument again.
+- **What the samples are** -- how many a second, of which channels. Changing one while the
+  instrument is running starts the run again, from an empty plot; changed while it is
+  stopped, it is used the next time it is run.
+- **What changes as it runs** -- a range, a signal generator. These take effect with what is
+  on the plot kept.
+
+Neither closes the instrument, so neither costs the time it took to open.
 
 A list picks one of several; a tick box is on or off; a number is typed, or stepped with its
 arrows, and takes effect when you press Enter or move on, not at every digit.

@@ -21,12 +21,17 @@ To use a copy of the library somewhere else, set the environment variable
 
 ## Running it
 
-Choose **PicoScope 2204A (ps2000)** and press **Run**. Opening takes a few seconds, and
+Choose **PicoScope 2204A (ps2000)** and press **Open**. Opening takes a few seconds, and
 Pico's driver shows a progress window of its own while it does. The
 [Event Log](event-log.md) then names the scope and its serial number.
 
-The scope is read continuously -- what Pico calls fast streaming -- with no trigger: every
-sample from the moment it starts, on both channels at once.
+The scope stays open until **Close**, or until pyscopegui is closed. Starting, stopping and
+changing a setting are then quick: none of them opens it again. PicoScope 7 cannot use the
+scope while pyscopegui has it open.
+
+The scope is read continuously -- what Pico calls fast streaming -- every sample from the
+moment a run starts. The [trigger](instruments.md) is found by pyscopegui in those samples,
+not by the scope.
 
 ## Settings
 
@@ -43,7 +48,10 @@ Choose the smallest range the signal fits in. The scope's converter has 8 bits, 
 signal on the ±10 V range is measured in about twenty-six steps and looks like a staircase;
 on ±1 V or ±2 V it is smooth. A signal larger than the range is clipped at the range.
 
-Changing any of these starts the scope again, which is its few seconds of opening each time.
+A range or the coupling is taken up as the scope runs: reading stops for a moment while it
+is set, drawn as a gap in the plot, and what was on the plot is kept. The sample rate and
+**Enabled** change what the samples are, so they start the run again from an empty plot.
+None of them opens the scope again.
 
 ## Signal generator
 
@@ -71,8 +79,9 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
 - *Pico's ps2000 library was not found* --- install Pico's software, as above.
 - *No PicoScope was found* --- it is not plugged in, or another program has it open.
 - *Pico's driver failed while opening the scope* --- the scope left the USB bus part way
-  through. Unplug it, plug it in again and press Run.
-- *The scope would not set channel A to ...* --- this model does not have that range.
+  through. Unplug it, plug it in again and press Open.
+- *The scope would not set channel A to ...* --- this model does not have that range. If
+  it was running, it is still reading on the range it had.
 - *Both channels are switched off* --- tick **Enabled** for one of them.
 - *The scope is delivering ... samples a second where ... were asked for* --- it cannot keep
   to that rate, and the times on the plot are out by that ratio. Choose a lower rate.

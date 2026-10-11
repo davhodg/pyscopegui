@@ -30,6 +30,24 @@ computer, so what is drawn does not carry the jitter of the USB or the network.
 
 Wheel to zoom, drag to move, and right-click a plot for the rest.
 
+## With a trigger
+
+With a [trigger](instruments.md) chosen, time is measured **from the trigger**: nought is the
+trigger, and it stays in the same place on the screen while each new one is drawn over the
+last, so a repeating signal stands still. A dashed line down the plots marks it, and a dashed
+line across the analog plot marks the level.
+
+The box beside **Time** is then the stretch drawn around each trigger, and **Position** in
+the trigger toolbar says how much of it is before the trigger. Each plot has its own, so one
+plot can show a whole burst and another the few milliseconds around the same edge.
+
+Beside the time controls the plot says what it is doing: *Triggered*; *Waiting for trigger*,
+with what was last drawn left on screen; *Auto*, when no trigger has come and it is showing
+what there is; or *Stopped*.
+
+Dragging or zooming still chooses **Manual**, and the plot stays where you put it, measured
+from the trigger. Choosing a trigger, or going back to none, puts it back to **Follow**.
+
 ## Voltage
 
 **Auto Y** fits the voltage axis to what is being measured, and is on to start with.
@@ -52,8 +70,8 @@ is run, and if there is not room for it the instrument is not started.
 **Clear history** throws away what is held and counts time from zero again. The status bar
 says how many seconds are held.
 
-Starting the instrument again -- **Run**, or a change to how it is set up -- starts from an
-empty plot.
+Starting a run -- from **Stop** to one of the other three, or a change to what the samples
+are -- starts from an empty plot.
 
 ## Many samples in few pixels
 

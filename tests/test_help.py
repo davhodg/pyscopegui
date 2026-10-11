@@ -640,7 +640,8 @@ def test_diagnostics_before_anything_is_run_say_so(app, window):
     report = diagnostics(window)
     assert __version__ in report
     assert "chosen=Demo signals (demo)" in report
-    assert "not started since it was chosen" in report
+    assert "not opened since it was chosen" in report
+    assert "mode=stop trigger=none" in report
     assert "none: no instrument has been run" in report
 
 
@@ -648,7 +649,7 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     """The two faults that look the same from a description."""
     from pyscopegui.ui.help_menu import diagnostics
 
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert ">> the instrument has sent no samples at all" in diagnostics(window)
     window.instrument._started -= 0.05
     window.instrument._tick()
@@ -657,6 +658,7 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     assert "sent no samples" not in report
     held = window.capture.records["A"].count
     assert held >= 5000 and f"A: {held} held of {held} received" in report
-    assert "running=True rate=100000 S/s" in report
+    assert "open=True running=True rate=100000 S/s" in report
+    assert "mode=auto trigger=none" in report
     assert "shown=['B', 'D0', 'D1', 'D2', 'D3']" in report
     window.stop()

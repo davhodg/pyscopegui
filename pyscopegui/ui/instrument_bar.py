@@ -1,29 +1,56 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""The toolbar: which instrument, and Run.
+"""The toolbar: which instrument, Open, and Stop, Single, Normal and Auto.
 
-One button that says what pressing it will do: Run while stopped, Stop while
-running. The instrument cannot be changed while it is running, since what is
-on the plot would no longer be what the list says.
+Connecting to an instrument and reading it are two things. Open connects --
+which for a scope is the slow part, done once -- and Close lets it go, so
+that another program can have it. The four beside it are a scope's own:
+whichever is pressed in is what it is doing.
+
+The Open button says what pressing it will do, Open or Close. The instrument
+cannot be changed while it is open, since what is on the plot would no longer
+be what the list says.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QLabel, QToolBar, QToolButton
+from PySide6.QtWidgets import QButtonGroup, QComboBox, QLabel, QToolBar, QToolButton
 
 from pyscopegui import backends
+from pyscopegui.core.acquire import AUTO, MODES, NORMAL, SINGLE, STOP
 from pyscopegui.core.context import Context
 
 SETTING = "instrument.name"
-RUN_TIP = "Start reading the instrument chosen, from an empty plot."
-STOP_TIP = "Stop reading. What has been collected stays on the plot."
+OPEN_TIP = "Connect to the instrument chosen, ready to be run."
+CLOSE_TIP = "Stop, and let go of the instrument, so that another program can use it."
+#: Mode -> what its button says, and what it means.
+BUTTONS = {
+    STOP: ("Stop", "Stop reading. What has been collected stays on the plot."),
+    SINGLE: (
+        "Single",
+        "Wait for one trigger, show what is either side of it, and stop.\n"
+        "With no trigger chosen: read one plot's worth, and stop.",
+    ),
+    NORMAL: (
+        "Normal",
+        "Show each trigger as it comes, and hold the last one until the next.\n"
+        "With no trigger chosen this is the same as Auto.",
+    ),
+    AUTO: (
+        "Auto",
+        "Show each trigger as it comes, and what there is anyway when none does.\n"
+        "With no trigger chosen: the newest samples, as they arrive.",
+    ),
+}
 
 
 class InstrumentBar(QToolBar):
     #: The back end's name.
-    run_requested = Signal(str)
-    stop_requested = Signal()
+    open_requested = Signal(str)
+    close_requested = Signal()
+    #: One of the modes in pyscopegui.core.acquire.
+    mode_requested = Signal(str)
 
     def __init__(self, ctx: Context) -> None:
         super().__init__("Instrument")
@@ -45,29 +72,53 @@ class InstrumentBar(QToolBar):
             lambda _i: ctx.settings.set(SETTING, self.current())
         )
 
-        self.run = QToolButton()
-        self.run.setCheckable(True)
-        self.run.toggled.connect(self._on_toggled)
-        self.set_running(False)
+        self.open = QToolButton()
+        self.open.setCheckable(True)
+        self.open.clicked.connect(self._on_open_clicked)
+
+        #: Mode -> its button. One of them is always pressed in.
+        self.modes: dict[str, QToolButton] = {}
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        for mode in MODES:
+            text, tip = BUTTONS[mode]
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(tip)
+            button.setCheckable(True)
+            # clicked, not toggled: only a press somebody made.
+            button.clicked.connect(lambda _on=False, m=mode: self.mode_requested.emit(m))
+            self._group.addButton(button)
+            self.modes[mode] = button
 
         self.addWidget(QLabel(" Instrument: "))
         self.addWidget(self.instrument)
-        self.addWidget(self.run)
+        self.addWidget(self.open)
+        self.addSeparator()
+        for button in self.modes.values():
+            self.addWidget(button)
+        self.set_open(False)
+        self.set_mode(STOP)
 
     def current(self) -> str:
         return str(self.instrument.currentData())
 
-    def _on_toggled(self, on: bool) -> None:
+    def _on_open_clicked(self, on: bool) -> None:
         if on:
-            self.run_requested.emit(self.current())
+            self.open_requested.emit(self.current())
         else:
-            self.stop_requested.emit()
+            self.close_requested.emit()
 
-    def set_running(self, running: bool) -> None:
+    def set_open(self, is_open: bool) -> None:
         """Show what is so, without asking for it again."""
-        self.run.blockSignals(True)
-        self.run.setChecked(running)
-        self.run.blockSignals(False)
-        self.run.setText("Stop" if running else "Run")
-        self.run.setToolTip(STOP_TIP if running else RUN_TIP)
-        self.instrument.setEnabled(not running)
+        self.open.setChecked(is_open)
+        self.open.setText("Close" if is_open else "Open")
+        self.open.setToolTip(CLOSE_TIP if is_open else OPEN_TIP)
+        self.instrument.setEnabled(not is_open)
+
+    def set_mode(self, mode: str) -> None:
+        """Press in the button for what is being done, without asking for it again."""
+        self.modes[mode if mode in self.modes else STOP].setChecked(True)
+
+    def mode(self) -> str:
+        return next(mode for mode, button in self.modes.items() if button.isChecked())

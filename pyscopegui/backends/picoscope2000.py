@@ -13,14 +13,18 @@ the scope's own 8 kS buffer holds too little for block mode to be any use.
 
 Everything that talks to the scope runs on a thread of its own, because
 opening it takes seconds -- the driver loads the scope's firmware every time
--- and a window that stops answering for that long looks broken.
+-- and a window that stops answering for that long looks broken. The scope
+is opened once and kept open: starting, stopping and changing a setting are
+then quick, since none of them loads the firmware again.
 """
 
 from __future__ import annotations
 
+import copy
 import ctypes
 import ctypes.util
 import os
+import queue
 import sys
 import time
 from collections.abc import Callable
@@ -85,6 +89,9 @@ DRIVER_SAMPLES = 1_000_000
 OVERVIEW_SAMPLES = 1_000_000
 #: How long the thread sleeps between polls. A hundred a second, at most.
 POLL_S = 0.01
+#: And how often it looks to see whether it has been asked for anything
+#: while the scope is open and not streaming.
+IDLE_S = 0.1
 #: How long before the rate that is arriving is compared with the one asked for.
 CHECK_AFTER_S = 5.0
 #: How far out it may be before it is said.
@@ -156,8 +163,8 @@ SETTINGS = (
         group="Channel A",
         tip="Whether channel A is read at all.",
     ),
-    Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A"),
-    Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A"),
+    Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A", live=True),
+    Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A", live=True),
     Setting(
         "enabled_b",
         "Enabled",
@@ -165,8 +172,8 @@ SETTINGS = (
         group="Channel B",
         tip="Whether channel B is read at all.",
     ),
-    Setting("range_b", "Range", "5V", choices=_RANGE_CHOICES, group="Channel B"),
-    Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B"),
+    Setting("range_b", "Range", "5V", choices=_RANGE_CHOICES, group="Channel B", live=True),
+    Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B", live=True),
     Setting(
         "gen_wave",
         "Output",
@@ -327,7 +334,7 @@ class Settings:
 
 
 class Stream:
-    """One run of fast streaming: open, poll until told to stop, close.
+    """The scope, from opening it to closing it, with any number of runs between.
 
     Apart from the thread that calls it, so that it can be driven a step at a
     time with a stand-in for the library.
@@ -346,12 +353,15 @@ class Stream:
         self._sent = 0
         self._started = 0.0
         self._rate_checked = False
+        #: Whether the scope is streaming now.
+        self.streaming = False
         #: True until the next block: reading stopped for a moment, on purpose.
         self._paused = False
         #: Whether the generator has been set to anything but off.
         self._generating = False
-        #: A generator setting waiting to be applied by the next poll, or None.
-        self.wanted_generator: tuple[str, float, float, float] | None = None
+        #: Settings waiting to be taken up by the next poll, or None. Set from
+        #: the GUI thread, taken by the thread that owns the scope.
+        self.wanted: Settings | None = None
         #: What the callback copied out during the poll in progress.
         self._arrived: dict[str, np.ndarray] = {}
         # Kept for as long as the driver may call it: ctypes does not, and a
@@ -362,19 +372,16 @@ class Stream:
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
-        """Open the scope, set it up and start it streaming. ScopeError if it will not."""
-        library, settings = self._library, self.settings
-        if not settings.keys():
-            raise ScopeError("Both channels are switched off, so there is nothing to read.")
+        """Open the scope, which loads its firmware. ScopeError if it will not."""
         try:
-            handle = library.ps2000_open_unit()
+            handle = self._library.ps2000_open_unit()
         except OSError as exc:
             # The driver's own failure, let out as a Windows exception: seen
             # when the scope leaves the bus while it is being opened.
             raise ScopeError(
                 "Pico's driver failed while opening the scope, which is what happens when "
                 f"the scope drops off USB part way through ({exc}). Unplug it, plug it in "
-                "again and press Run."
+                "again and press Open."
             ) from exc
         if handle <= 0:
             raise ScopeError(self._why_not_opened(handle))
@@ -382,22 +389,58 @@ class Stream:
         self.notes.append(
             (f"PicoScope {self._info(INFO_VARIANT)}, {self._info(INFO_SERIAL)}.", False)
         )
+
+    def _info(self, line: int) -> str:
+        text = ctypes.create_string_buffer(64)
+        self._library.ps2000_get_unit_info(self._handle, text, len(text), line)
+        return text.value.decode("ascii", "replace") or "?"
+
+    def _why_not_opened(self, handle: int) -> str:
+        if handle == 0:
+            return (
+                "No PicoScope was found. Check that it is plugged in, and that PicoScope 7 "
+                "is closed: only one program can have the scope open."
+            )
+        # With no scope open, the driver answers about the one that failed.
+        code = self._info(INFO_ERROR)
+        reason = ERRORS.get(int(code), "") if code.isdigit() else ""
+        return f"The PicoScope would not open: {reason or 'driver error ' + code}."
+
+    # --- running ---------------------------------------------------------------------------
+    def start(self, settings: Settings | None = None) -> None:
+        """Set the scope up and start it streaming, counting samples from zero.
+
+        The scope stays open whether or not this works, so a setting it
+        refuses can be put right and tried again without opening it again.
+        """
+        self.stop()
+        if settings is not None:
+            self.settings = settings
+        if not self.settings.keys():
+            raise ScopeError("Both channels are switched off, so there is nothing to read.")
+        self._set_channels()
+        self.set_generator(self.settings.generator)
+        # No trigger: streaming is everything, from the moment it starts.
+        self._library.ps2000_set_trigger(self._handle, NO_TRIGGER, 0, 0, 0, 0)
+        self._start_streaming()
+        self._sent = 0
+        self._started = self._clock()
+        self._rate_checked = False
+        self._paused = False
+        self.wanted = None
+
+    def _set_channels(self) -> None:
+        settings = self.settings
         for key, channel in (("A", CHANNEL_A), ("B", CHANNEL_B)):
             code, _volts = RANGES[settings.ranges[key]]
-            done = library.ps2000_set_channel(
-                handle, channel, settings.enabled[key], settings.dc[key], code
+            done = self._library.ps2000_set_channel(
+                self._handle, channel, settings.enabled[key], settings.dc[key], code
             )
             if not done:
                 raise ScopeError(
                     f"The scope would not set channel {key} to ±{settings.ranges[key]}: "
                     "not every model has every range."
                 )
-        self.set_generator(settings.generator)
-        # No trigger: streaming is everything, from the moment it starts.
-        library.ps2000_set_trigger(handle, NO_TRIGGER, 0, 0, 0, 0)
-        self._start_streaming()
-        self._sent = 0
-        self._started = self._clock()
 
     def _start_streaming(self) -> None:
         settings = self.settings
@@ -415,19 +458,37 @@ class Stream:
                 f"The scope would not stream at one sample every {settings.interval_ns} ns. "
                 "Try a lower rate."
             )
+        self.streaming = True
 
-    def _change_generator(self, generator: tuple[str, float, float, float]) -> None:
-        """Set the generator while streaming, which means not streaming for a moment.
+    def stop(self) -> None:
+        """Stop streaming and leave the scope open. Safe when it is not streaming."""
+        if self.streaming:
+            self._library.ps2000_stop(self._handle)
+        self.streaming = False
 
-        The scope refuses its generator a new output while it is streaming,
-        so the stream is stopped, the output set and the stream started
+    def _take_up(self, wanted: Settings) -> None:
+        """Change a range, the coupling or the generator while streaming.
+
+        The scope takes none of them while it is streaming -- found on a
+        2204A, which refused its generator a new output until it was stopped
+        -- so the stream is stopped, the change made and the stream started
         again, with the scope left open. The time that took is counted as
         samples not taken, so what comes after is drawn where it belongs and
         the pause is a gap.
         """
         paused_at = self._clock()
-        self._library.ps2000_stop(self._handle)
-        self.set_generator(generator)
+        self.stop()
+        before, self.settings = self.settings, wanted
+        try:
+            if (wanted.ranges, wanted.dc) != (before.ranges, before.dc):
+                self._set_channels()
+        except ScopeError as exc:
+            # Back to what it was reading on, which is still what the plot says.
+            self.settings = replace_setup(wanted, before)
+            self._set_channels()
+            self.notes.append((f"{exc} It is still set as it was.", True))
+        if wanted.generator != before.generator:
+            self.set_generator(wanted.generator)
         self._start_streaming()
         self._sent += round((self._clock() - paused_at) * self.settings.rate)
         self._paused = True
@@ -466,22 +527,6 @@ class Stream:
             self.notes.append(("Signal generator: off.", False))
         self._generating = bool(done) and not off
 
-    def _info(self, line: int) -> str:
-        text = ctypes.create_string_buffer(64)
-        self._library.ps2000_get_unit_info(self._handle, text, len(text), line)
-        return text.value.decode("ascii", "replace") or "?"
-
-    def _why_not_opened(self, handle: int) -> str:
-        if handle == 0:
-            return (
-                "No PicoScope was found. Check that it is plugged in, and that PicoScope 7 "
-                "is closed: only one program can have the scope open."
-            )
-        # With no scope open, the driver answers about the one that failed.
-        code = self._info(INFO_ERROR)
-        reason = ERRORS.get(int(code), "") if code.isdigit() else ""
-        return f"The PicoScope would not open: {reason or 'driver error ' + code}."
-
     # --- reading ---------------------------------------------------------------------------
     def _on_values(self, buffers, _overflow, _triggered_at, _triggered, _auto_stop, count) -> None:
         """Called by the driver from inside ``poll``. Copies, and nothing else:
@@ -497,9 +542,9 @@ class Stream:
     def poll(self) -> Block | None:
         """Whatever has arrived since the last poll, or None if nothing has."""
         # Taken and cleared in one step: it is set from the GUI thread.
-        wanted, self.wanted_generator = self.wanted_generator, None
+        wanted, self.wanted = self.wanted, None
         if wanted is not None:
-            self._change_generator(wanted)
+            self._take_up(wanted)
         self._arrived = {}
         self._library.ps2000_get_streaming_last_values(self._handle, self._callback)
         if not self._arrived:
@@ -557,25 +602,42 @@ class Stream:
         if self._handle > 0:
             self._library.ps2000_stop(self._handle)
             self._library.ps2000_close_unit(self._handle)
+        self.streaming = False
         self._handle = 0
 
 
-class _Reader(QThread):
-    """The thread a stream runs on, from opening the scope to closing it."""
+def replace_setup(wanted: Settings, before: Settings) -> Settings:
+    """``wanted``, with the ranges and coupling ``before`` had: for a change the scope refused."""
+    kept = copy.copy(wanted)
+    kept.ranges, kept.dc = dict(before.ranges), dict(before.dc)
+    return kept
 
-    block = Signal(object)
+
+class _Reader(QThread):
+    """The thread that owns the scope, from opening it to closing it.
+
+    Asked to start, stop and close through a queue, and otherwise polling:
+    Pico's driver is called from this thread and no other.
+    """
+
+    #: The run it belongs to, and the block.
+    block = Signal(int, object)
     note = Signal(str)
     warning = Signal(str)
     failed = Signal(str)
     opened = Signal()
+    #: The run that has started, or stopped.
+    started_run = Signal(int)
+    stopped_run = Signal(int)
 
     def __init__(self, stream: Stream, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._stream = stream
-        self._wanted = True
+        self._asked: queue.SimpleQueue = queue.SimpleQueue()
 
-    def ask_to_stop(self) -> None:
-        self._wanted = False
+    def ask(self, *command) -> None:
+        """("start", settings, run), ("stop",) or ("close",): done in the order asked."""
+        self._asked.put(command)
 
     def _say(self) -> None:
         notes, self._stream.notes = self._stream.notes, []
@@ -583,21 +645,55 @@ class _Reader(QThread):
             (self.warning if is_warning else self.note).emit(text)
 
     def run(self) -> None:
+        stream = self._stream
+        run = 0
         try:
-            self._stream.open()
+            stream.open()
             self._say()
             self.opened.emit()
-            while self._wanted:
-                if (block := self._stream.poll()) is not None:
-                    self.block.emit(block)
-                self._say()
-                time.sleep(POLL_S)
+            while True:
+                try:
+                    # Waiting to be asked is also the pause between two polls.
+                    command = self._asked.get(timeout=POLL_S if stream.streaming else IDLE_S)
+                except queue.Empty:
+                    command = None
+                if command is not None:
+                    if command[0] == "close":
+                        break
+                    was_streaming = stream.streaming
+                    stream.stop()
+                    if was_streaming:
+                        self.stopped_run.emit(run)
+                    if command[0] == "start":
+                        run = command[2]
+                        try:
+                            stream.start(command[1])
+                            self._say()
+                            self.started_run.emit(run)
+                        except ScopeError as exc:
+                            stream.stop()
+                            self._say()
+                            self.failed.emit(str(exc))
+                            self.stopped_run.emit(run)
+                    continue
+                if stream.streaming:
+                    try:
+                        block = stream.poll()
+                    except ScopeError as exc:
+                        stream.stop()
+                        self._say()
+                        self.failed.emit(str(exc))
+                        self.stopped_run.emit(run)
+                        continue
+                    if block is not None:
+                        self.block.emit(run, block)
+                    self._say()
         except ScopeError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # report, never die: nothing else would say why
             self.failed.emit(f"PicoScope: {type(exc).__name__}: {exc}")
         finally:
-            self._stream.close()
+            stream.close()
 
 
 class PicoScope2000(Instrument):
@@ -606,22 +702,27 @@ class PicoScope2000(Instrument):
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
         self.settings = Settings(options)
-        #: Loaded now rather than at Run, so that a missing library is said
+        #: Loaded now rather than at Open, so that a missing library is said
         #: when the instrument is chosen and in the same words as any other.
         self._library = load_library()
         self._reader: _Reader | None = None
         self._stream: Stream | None = None
         self._options = dict(options) if isinstance(options, dict) else {}
+        self._is_open = False
+        self._running = False
+        #: Which run the blocks that count belong to. One more at each start,
+        #: so that what a run sends after it was replaced is told apart.
+        self._run = 0
 
     def set(self, key: str, value: object) -> None:
-        """A signal generator setting, changed while running or before."""
+        """Take up a setting: now if it is running, and at the next start if not."""
         self._options[key] = value
         self.settings = Settings(self._options)
-        if self.running and self._stream is not None:
-            # Handed to the thread that owns the scope, which sets it between
-            # two polls: the driver is not called from two threads at once.
-            # Reading stops for a moment while it does; see _change_generator.
-            self._stream.wanted_generator = self.settings.generator
+        if self._running and self._stream is not None:
+            # Handed to the thread that owns the scope, which takes it up
+            # between two polls: the driver is not called from two threads at
+            # once. Reading stops for a moment while it does; see _take_up.
+            self._stream.wanted = self.settings
 
     def channels(self) -> list[Channel]:
         return [
@@ -638,30 +739,80 @@ class PicoScope2000(Instrument):
         return self.settings.rate
 
     @property
-    def running(self) -> bool:
-        return self._reader is not None and self._reader.isRunning()
+    def is_open(self) -> bool:
+        return self._is_open
 
-    def start(self) -> None:
-        if self.running:
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    # --- opening and closing ---------------------------------------------------------------
+    def open(self) -> None:
+        if self._reader is not None and self._reader.isRunning():
             return
         self._stream = Stream(self._library, self.settings)
         reader = _Reader(self._stream, self)
-        reader.block.connect(self.block)
+        reader.block.connect(self._on_block)
         reader.note.connect(self.note)
         reader.warning.connect(self.warning)
         reader.failed.connect(self.error)
-        reader.opened.connect(lambda: self.state_changed.emit(True))
+        reader.opened.connect(self._on_opened)
+        reader.started_run.connect(self._on_started)
+        reader.stopped_run.connect(self._on_stopped)
         reader.finished.connect(self._on_finished)
         self._reader = reader
         self.note.emit("Opening the PicoScope, which takes a few seconds...")
         reader.start()
 
-    def _on_finished(self) -> None:
-        self.state_changed.emit(False)
-
-    def stop(self) -> None:
+    def close(self) -> None:
         if self._reader is None:
             return
-        self._reader.ask_to_stop()
+        self._reader.ask("close")
         # Opening cannot be interrupted, so this can be most of its few seconds.
         self._reader.wait(10_000)
+
+    def _on_opened(self) -> None:
+        self._is_open = True
+        self.opened_changed.emit(True)
+
+    def _on_finished(self) -> None:
+        """The thread has gone: the scope is closed, however that came about."""
+        was_running, was_open = self._running, self._is_open
+        self._running = self._is_open = False
+        if was_running:
+            self.state_changed.emit(False)
+        if was_open:
+            self.note.emit("PicoScope closed.")
+        self.opened_changed.emit(False)
+
+    # --- running ---------------------------------------------------------------------------
+    def start(self) -> None:
+        if self._running:
+            return
+        self.open()
+        self._run += 1
+        self._running = True
+        self._reader.ask("start", self.settings, self._run)
+
+    def stop(self) -> None:
+        if not self._running or self._reader is None:
+            return
+        # Said now and not when the thread gets to it: whatever it sends in
+        # the meantime belongs to a run that is over.
+        self._running = False
+        self._reader.ask("stop")
+        self.state_changed.emit(False)
+
+    def _on_block(self, run: int, block: Block) -> None:
+        if run == self._run and self._running:
+            self.block.emit(block)
+
+    def _on_started(self, run: int) -> None:
+        if run == self._run:
+            self.state_changed.emit(True)
+
+    def _on_stopped(self, run: int) -> None:
+        # A run that was replaced by the next says nothing: the next is running.
+        if run == self._run and self._running:
+            self._running = False
+            self.state_changed.emit(False)

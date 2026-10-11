@@ -63,7 +63,8 @@ class Setting:
     unit: str = ""
     #: The heading it is listed under.
     group: str = ""
-    #: Takes effect at once, while running. Anything else restarts the instrument.
+    #: Taken up as the instrument runs, with what is on the plot kept.
+    #: Anything else starts the run again, from an empty plot.
     live: bool = False
     tip: str = ""
 
@@ -97,6 +98,8 @@ class Instrument(QObject):
 
     #: A ``Block``. Emitted on the GUI thread, or queued to it from another.
     block = Signal(object)
+    #: Open, or not: connected to, and ready to be started.
+    opened_changed = Signal(bool)
     #: Running, or not.
     state_changed = Signal(bool)
     #: Something went wrong that stopped it, in words for the Event Log.
@@ -110,8 +113,21 @@ class Instrument(QObject):
     SETTINGS: tuple[Setting, ...] = ()
 
     def set(self, key: str, value: object) -> None:
-        """Change a ``live`` setting now. One that is not live is not sent here:
-        the instrument is made again with it instead."""
+        """Take up a setting. A ``live`` one may arrive while running; any
+        other arrives while stopped, and is used at the next start."""
+
+    @property
+    def is_open(self) -> bool:
+        raise NotImplementedError
+
+    def open(self) -> None:
+        """Connect to the instrument, which may take seconds and happen on a
+        thread: ``opened_changed`` says when it has, or that it could not."""
+        raise NotImplementedError
+
+    def close(self) -> None:
+        """Stop, and let go of the instrument, so that another program can have it."""
+        raise NotImplementedError
 
     def channels(self) -> list[Channel]:
         """The inputs it has, in the order they should be listed."""
@@ -127,7 +143,8 @@ class Instrument(QObject):
         raise NotImplementedError
 
     def start(self) -> None:
-        """Begin sending blocks, counting samples from zero again."""
+        """Begin sending blocks, counting samples from zero again. Opens the
+        instrument first if it is not open."""
         raise NotImplementedError
 
     def stop(self) -> None:

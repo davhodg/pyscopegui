@@ -116,6 +116,14 @@ class Capture(QObject):
         finally:
             self.channels_changed.emit()
 
+    def update_channels(self, channels: list[Channel]) -> None:
+        """Take up what has changed about channels that are still the same
+        channels -- a range, and so a name -- and keep what is held of them."""
+        for channel in channels:
+            if (record := self.records.get(channel.key)) is not None:
+                record.channel = channel
+        self.channels_changed.emit()
+
     def memory_bytes(self) -> int:
         """What the records take when they are full."""
         return sum(record.memory_bytes for record in self.records.values())

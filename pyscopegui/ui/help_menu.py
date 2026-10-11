@@ -367,12 +367,18 @@ def diagnostics(window) -> str:
     lines.append(f"  settings={window.ctx.settings.get(f'instrument.{chosen}') or 'defaults'}")
     instrument = window.instrument
     if instrument is None:
-        lines.append("  not started since it was chosen, or since a setting was changed")
+        lines.append("  not opened since it was chosen")
     else:
         lines.append(
-            f"  running={instrument.running} rate={instrument.rate:g} S/s "
-            f"channels={[c.key for c in instrument.channels()]}"
+            f"  open={instrument.is_open} running={instrument.running} "
+            f"rate={instrument.rate:g} S/s channels={[c.key for c in instrument.channels()]}"
         )
+    acquisition = window.acquisition
+    lines.append(
+        f"  mode={acquisition.mode} trigger={acquisition.source or 'none'} "
+        f"level={acquisition.level:g} {'rising' if acquisition.rising else 'falling'} "
+        f"position={acquisition.position:.0%}"
+    )
 
     lines += ["", "Samples held"]
     records = window.capture.records
@@ -391,7 +397,8 @@ def diagnostics(window) -> str:
         scope = window.panes.view(name)
         lines.append(
             f"  {name}: time={scope.time.currentText()} window={scope.window_s.value():g} s "
-            f"auto Y={scope.auto_y.isChecked()} shown={scope.shown() or 'none'}"
+            f"auto Y={scope.auto_y.isChecked()} shown={scope.shown() or 'none'} "
+            f"state={scope.state.text() or 'following'}"
         )
 
     floating = [(n, d) for n, d in window.panes.docks.items() if d.isFloating()]

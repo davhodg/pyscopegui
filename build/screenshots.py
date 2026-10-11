@@ -51,7 +51,11 @@ def main() -> int:
     window = MainWindow()
     window.resize(*SIZE)
     window.show()
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
+    # Triggered on the sine, so the picture shows the trigger and stands still.
+    source = window.trigger_bar.source
+    source.setCurrentIndex(source.findData("A"))
+    source.activated.emit(source.currentIndex())
 
     def take() -> None:
         window.grab().save(str(OUTPUT))

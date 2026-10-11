@@ -57,6 +57,7 @@ class DemoInstrument(Instrument):
         self._timer = QTimer(self, interval=TICK_MS, timeout=self._tick)
         self._started = 0.0
         self._sent = 0
+        self._is_open = False
 
     def channels(self) -> list[Channel]:
         return list(CHANNELS)
@@ -69,9 +70,25 @@ class DemoInstrument(Instrument):
     def running(self) -> bool:
         return self._timer.isActive()
 
+    @property
+    def is_open(self) -> bool:
+        return self._is_open
+
+    def open(self) -> None:
+        if not self._is_open:
+            self._is_open = True
+            self.opened_changed.emit(True)
+
+    def close(self) -> None:
+        self.stop()
+        if self._is_open:
+            self._is_open = False
+            self.opened_changed.emit(False)
+
     def start(self) -> None:
         if self.running:
             return
+        self.open()
         self._started = time.perf_counter()
         self._sent = 0
         self._timer.start()

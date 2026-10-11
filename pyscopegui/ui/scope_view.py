@@ -10,6 +10,11 @@ and the list can be dragged shut when only the plot is wanted.
 Analog channels share one plot and digital ones are stacked in lanes under
 it, on the same time axis: dragging or zooming either moves both, which is
 the whole point of having them in one window.
+
+With a trigger chosen the time axis is measured from the trigger, which
+stays where it is on the screen while each new one is drawn over the last.
+With none it is measured from when the instrument started, and the plot
+follows the newest samples.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.backends.base import ANALOG, DIGITAL
+from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import Capture, min_max
 from pyscopegui.core.context import Context
 from pyscopegui.ui import fonts
@@ -54,7 +60,12 @@ TIME_ITEM_TIPS = (
     "Show everything that is held, and keep it all in view as more arrives.",
     "Stay where the plot was dragged or zoomed to.",
 )
-WINDOW_TIP = "How many seconds Follow keeps in view."
+WINDOW_TIP = (
+    "How many seconds Follow keeps in view: the newest, or with a trigger\n"
+    "chosen, the stretch drawn around each trigger."
+)
+#: What the plot is doing about the trigger, said beside the time controls.
+STOPPED, WAITING, TRIGGERED, FREE = "Stopped", "Waiting for trigger", "Triggered", "Auto"
 AUTO_Y_TIP = (
     "Fit the voltage axis to what is being measured. Unticked, the axis is the\n"
     "range the channels are set to, as a scope's screen is: a small signal on\n"
@@ -116,9 +127,26 @@ class ChannelList(QTreeWidget):
 
 
 class ScopeView(QWidget):
-    def __init__(self, capture: Capture, ctx: Context | None = None, key: str = "scope") -> None:
+    def __init__(
+        self,
+        capture: Capture,
+        ctx: Context | None = None,
+        key: str = "scope",
+        acquisition: Acquisition | None = None,
+    ) -> None:
         super().__init__()
         self.capture = capture
+        #: Stop, Single, Normal or Auto and the trigger, or None for a plot
+        #: that only ever follows the newest samples.
+        self.acquisition = acquisition
+        #: The trigger last drawn around, kept while the next is waited for.
+        self._held: int | None = None
+        self._generation = -1
+        #: Where time is measured from on the axis now, in seconds: a trigger,
+        #: or zero with none.
+        self._origin = 0.0
+        #: Whether the axis is measured from a trigger at the moment.
+        self._relative = False
         self._ctx = ctx
         self._key = key
         self._curves: dict[str, pg.PlotDataItem] = {}
@@ -135,6 +163,12 @@ class ScopeView(QWidget):
         self.digital = pg.PlotWidget()
         self.digital.showGrid(x=True, y=False, alpha=0.3)
         self.digital.setLabel("bottom", "time", units="s")
+        dashed = pg.mkPen("#888888", width=1, style=Qt.DashLine)
+        #: The trigger's level, across the analog plot, and its moment, down both.
+        self.level_line = pg.InfiniteLine(angle=0, movable=False, pen=dashed)
+        self.trigger_lines = [
+            pg.InfiniteLine(pos=0, angle=90, movable=False, pen=dashed) for _ in range(2)
+        ]
         # One time axis for both: the reason they are in one pane.
         self.digital.setXLink(self.analog)
         # A lane is a place, not a measurement, so there is nothing to zoom.
@@ -174,6 +208,8 @@ class ScopeView(QWidget):
         bar.addWidget(self.time)
         bar.addWidget(self.window_s)
         bar.addWidget(self.auto_y)
+        self.state = QLabel()
+        bar.addWidget(self.state)
         bar.addStretch()
         bar.addWidget(clear)
 
@@ -207,6 +243,8 @@ class ScopeView(QWidget):
             remember(ctx, f"{key}.window_s", self.window_s)
             remember(ctx, f"{key}.auto_y", self.auto_y)
         capture.channels_changed.connect(self._rebuild)
+        if acquisition is not None:
+            acquisition.changed.connect(self._show_trigger)
         self._rebuild()
         self._show_time()
         self._timer = QTimer(self, interval=REDRAW_MS, timeout=self.redraw)
@@ -255,7 +293,13 @@ class ScopeView(QWidget):
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         self.channel_list.fill(channels, self._colours, self._hidden)
+        # Cleared with everything else, so put back: left out of the fitting
+        # of the axes, or the voltage axis would always stretch to the level.
+        self.analog.addItem(self.level_line, ignoreBounds=True)
+        for plot, line in zip((self.analog, self.digital), self.trigger_lines, strict=True):
+            plot.addItem(line, ignoreBounds=True)
         self._arrange_lanes()
+        self._show_trigger()
 
     def _arrange_lanes(self) -> None:
         """Stack the digital channels that are shown, the first of them on top."""
@@ -298,6 +342,7 @@ class ScopeView(QWidget):
         if self._ctx is not None:
             self._ctx.settings.set(f"{self._key}.hidden", sorted(self._hidden))
         self._arrange_lanes()
+        self._show_trigger()
         self.redraw()
 
     def shown(self) -> list[str]:
@@ -308,13 +353,83 @@ class ScopeView(QWidget):
         self.time.setCurrentText(MANUAL)
 
     def _show_time(self, *_args) -> None:
-        self.window_s.setEnabled(self.time.currentText() == FOLLOW)
+        self.window_s.setEnabled(self.time.currentText() == FOLLOW or self._relative)
+
+    # --- the trigger ----------------------------------------------------------------------
+    def _show_trigger(self) -> None:
+        """Draw the level where the trigger's settings say it is, if it is on this plot."""
+        acquisition = self.acquisition
+        record = acquisition.record() if acquisition is not None else None
+        on_plot = (
+            record is not None
+            and record.channel.kind == ANALOG
+            and record.channel.key not in self._hidden
+        )
+        self.level_line.setVisible(on_plot)
+        if on_plot:
+            self.level_line.setValue(acquisition.level)
+
+    def _find_origin(self) -> tuple[float | None, str]:
+        """Where to measure time from, in seconds, and what to say is going on.
+
+        None for the origin means leave the plot as it is: a trigger is
+        being waited for, and what was drawn last is what there is to show.
+        """
+        acquisition = self.acquisition
+        record = acquisition.record() if acquisition is not None else None
+        if record is None:
+            self._relative = False
+            stopped = acquisition is not None and acquisition.mode == STOP and self._curves
+            return 0.0, STOPPED if stopped and self.capture.stored() else ""
+        self._relative = True
+        if acquisition.generation != self._generation:
+            self._held, self._generation = None, acquisition.generation
+        window = self.window_s.value()
+        after = round((1 - acquisition.position) * window * record.rate)
+        if acquisition.mode == STOP:
+            if acquisition.frozen is not None:
+                self._held = acquisition.frozen
+            if self._held is None:
+                return (self._origin if record.count else None), STOPPED
+            return self._held / record.rate, STOPPED
+        found = acquisition.trigger_for(after)
+        if acquisition.mode == AUTO and (
+            found is None or acquisition.quiet_for(max(AUTO_S, window))
+        ):
+            # Nothing to hold still on, so what there is, as it arrives.
+            self._held = None
+            return (record.total - after) / record.rate, FREE
+        if found is not None:
+            self._held = found
+        if self._held is None:
+            return None, WAITING
+        return self._held / record.rate, WAITING if acquisition.mode == SINGLE else TRIGGERED
+
+    def _show_relative(self, was_relative: bool) -> None:
+        """Take up a change between time from the start and time from a trigger."""
+        if was_relative == self._relative:
+            return
+        # A stretch chosen by hand on one axis means nothing on the other.
+        self.time.setCurrentText(FOLLOW)
+        self._show_time()
+        self.digital.setLabel(
+            "bottom", "time from trigger" if self._relative else "time", units="s"
+        )
 
     def _place(self) -> None:
         """Move the time axis to where Follow or All says it should be."""
         choice = self.time.currentText()
+        if choice == MANUAL:
+            return
+        if self._relative:
+            # Around the trigger, which is at nought: All has no meaning of
+            # its own here, and is the same as Follow.
+            window = self.window_s.value()
+            before = self.acquisition.position * window
+            self.analog.setXRange(-before, window - before, padding=0)
+            return
         newest = self.capture.newest()
-        if choice == MANUAL or newest is None:
+        if newest is None:
             return
         if choice == FOLLOW:
             t_from = newest - self.window_s.value()
@@ -326,8 +441,18 @@ class ScopeView(QWidget):
     def redraw(self) -> None:
         if not self._curves or not self.isVisible():
             return
+        was_relative = self._relative
+        origin, state = self._find_origin()
+        self._show_relative(was_relative)
+        if self.state.text() != state:
+            self.state.setText(state)
+        for line in self.trigger_lines:
+            line.setVisible(self._relative and origin is not None)
+        if origin is None:
+            return  # waiting for a trigger: what was drawn last stays
+        self._origin = origin
         self._place()
-        (t_from, t_to), _y = self.analog.getViewBox().viewRange()
+        (x_from, x_to), _y = self.analog.getViewBox().viewRange()
         columns = max(int(self.analog.getViewBox().width()), 1)
         for key, curve in self._curves.items():
             if key in self._hidden:
@@ -335,9 +460,9 @@ class ScopeView(QWidget):
             record = self.capture.records.get(key)
             if record is None:
                 continue
-            first, samples = record.between(t_from, t_to)
+            first, samples = record.between(x_from + origin, x_to + origin)
             positions, values = min_max(samples, columns)
-            times = (first + positions) / record.rate
+            times = (first + positions) / record.rate - origin
             if key in self._lanes:
                 values = values.astype(np.float32) * LANE_HEIGHT + self._lanes[key]
             curve.setData(times, values)

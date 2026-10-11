@@ -144,6 +144,7 @@ def test_channel_b_alone_is_read_and_a_is_told_to_be_off():
     library = FakeLibrary()
     reading = stream(library, {"enabled_a": False, "range_b": "1V"})
     reading.open()
+    reading.start()
     assert ("channel", pico.CHANNEL_A, False, True, 8) in library.calls
     library.waiting.append((None, [pico.MAX_VALUE, 0]))
     block = reading.poll()
@@ -151,11 +152,14 @@ def test_channel_b_alone_is_read_and_a_is_told_to_be_off():
     assert block.data["B"].tolist() == pytest.approx([1.0, 0.0])
 
 
-def test_both_channels_off_is_said_before_the_scope_is_touched():
+def test_both_channels_off_is_said_without_setting_anything_up():
     library = FakeLibrary()
+    opened = stream(library, {"enabled_a": False, "enabled_b": False})
+    opened.open()
     with pytest.raises(pico.ScopeError, match="Both channels are switched off"):
-        stream(library, {"enabled_a": False, "enabled_b": False}).open()
-    assert library.calls == []
+        opened.start()
+    assert library.calls == [("open",)]
+    assert not opened.streaming
 
 
 # --- opening ---------------------------------------------------------------------------------
@@ -163,6 +167,7 @@ def test_opening_sets_both_channels_and_starts_fast_streaming():
     library = FakeLibrary()
     opened = stream(library, {"range_a": "1V", "coupling_b": "AC"})
     opened.open()
+    opened.start()
     assert library.calls == [
         ("open",),
         ("channel", pico.CHANNEL_A, True, True, 6),
@@ -200,15 +205,20 @@ def test_a_driver_that_fails_inside_opening_is_said_and_not_raised_as_it_is():
 def test_a_range_the_model_does_not_have_is_said():
     library = FakeLibrary()
     library.refused_ranges = {1}
+    opened = stream(library, {"range_a": "20mV"})
+    opened.open()
     with pytest.raises(pico.ScopeError, match="channel A to ±20mV"):
-        stream(library, {"range_a": "20mV"}).open()
+        opened.start()
 
 
 def test_a_rate_the_scope_refuses_is_said():
     library = FakeLibrary()
     library.streams = False
+    opened = stream(library)
+    opened.open()
     with pytest.raises(pico.ScopeError, match="lower rate"):
-        stream(library).open()
+        opened.start()
+    assert not opened.streaming
 
 
 def test_closing_stops_and_lets_go_and_does_nothing_if_it_never_opened():
@@ -218,6 +228,7 @@ def test_closing_stops_and_lets_go_and_does_nothing_if_it_never_opened():
     assert library.calls == []
     opened = stream(library)
     opened.open()
+    opened.start()
     opened.close()
     assert library.calls[-2:] == [("stop",), ("close",)]
 
@@ -227,6 +238,7 @@ def test_counts_become_volts_at_the_range_each_channel_is_on():
     library = FakeLibrary()
     reading = stream(library, {"range_a": "5V", "range_b": "200mV"})
     reading.open()
+    reading.start()
     library.waiting.append(([pico.MAX_VALUE, 0, -pico.MAX_VALUE], [pico.MAX_VALUE, 0, 0]))
     block = reading.poll()
     assert block.first == 0 and block.rate == pico.DEFAULT_RATE
@@ -239,6 +251,7 @@ def test_blocks_are_numbered_from_the_samples_before_them():
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     library.waiting += [([1] * 700, [2] * 700), ([3] * 50, [4] * 50)]
     first, second = reading.poll(), reading.poll()
     assert (first.first, len(first)) == (0, 700)
@@ -248,6 +261,7 @@ def test_blocks_are_numbered_from_the_samples_before_them():
 def test_nothing_waiting_is_no_block():
     reading = stream(FakeLibrary())
     reading.open()
+    reading.start()
     assert reading.poll() is None
 
 
@@ -255,6 +269,7 @@ def test_a_sample_the_driver_lost_is_a_gap_and_not_minus_full_scale():
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     library.waiting.append(([100, pico.LOST_DATA, 100], [0, 0, 0]))
     samples = reading.poll().data["A"]
     assert np.isnan(samples[1]) and not np.isnan(samples[[0, 2]]).any()
@@ -264,6 +279,7 @@ def test_a_channel_that_is_off_sends_nothing():
     library = FakeLibrary()
     reading = stream(library, {"enabled_b": False})
     reading.open()
+    reading.start()
     library.waiting.append(([1, 2, 3], None))
     assert set(reading.poll().data) == {"A"}
 
@@ -273,6 +289,7 @@ def test_the_samples_are_copied_out_of_the_drivers_buffer():
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     theirs = np.array([1000, 2000], dtype=np.int16)
     library.waiting.append((theirs, theirs))
     block = reading.poll()
@@ -284,6 +301,7 @@ def test_a_full_driver_buffer_is_a_warning():
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     reading.notes.clear()
     library.overrun = True
     library.waiting.append(([1], [1]))
@@ -297,6 +315,7 @@ def test_samples_arriving_at_half_the_rate_asked_for_are_said_once():
     library, clock = FakeLibrary(), Clock()
     reading = stream(library, clock=clock)
     reading.open()
+    reading.start()
     reading.notes.clear()
     clock.now = pico.CHECK_AFTER_S + 1
     library.waiting += [([0] * 1_500_000, [0] * 1_500_000), ([0], [0])]
@@ -311,6 +330,7 @@ def test_samples_arriving_at_the_rate_asked_for_say_nothing():
     library, clock = FakeLibrary(), Clock()
     reading = stream(library, clock=clock)
     reading.open()
+    reading.start()
     reading.notes.clear()
     clock.now = 6.0
     library.waiting.append(([0] * 3_000_000, [0] * 3_000_000))
@@ -339,6 +359,7 @@ def test_a_generator_asked_for_is_set_as_the_scope_opens_in_microvolts():
         {"gen_wave": "square", "gen_frequency": 250, "gen_amplitude": 1.5, "gen_offset": 0.25},
     )
     opened.open()
+    opened.start()
     assert ("generator", 250_000, 1_500_000, pico.WAVES["square"], 250.0, 250.0) in library.calls
     assert ("Signal generator: square, 250 Hz, 1.5 V peak to peak, 0.25 V offset.", False) in (
         opened.notes
@@ -355,9 +376,10 @@ def test_a_generator_change_while_running_stops_the_stream_for_it_and_starts_it_
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     library.calls.clear()
     reading.notes.clear()
-    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    reading.wanted = pico.Settings({"gen_wave": "sine"})
     reading.poll()
     reading.poll()
     assert library.calls == [
@@ -368,7 +390,7 @@ def test_a_generator_change_while_running_stops_the_stream_for_it_and_starts_it_
     assert reading.notes == [
         ("Signal generator: sine, 1000 Hz, 2 V peak to peak, 0 V offset.", False)
     ]
-    reading.wanted_generator = ("off", 1000.0, 2.0, 0.0)
+    reading.wanted = pico.Settings({"gen_wave": "off"})
     reading.poll()
     assert library.calls[-2] == ("generator", 0, 0, pico.WAVES["off"], 1000.0, 1000.0)
     assert [text for text, _ in reading.notes][-1] == "Signal generator: off."
@@ -379,6 +401,7 @@ def test_the_time_a_generator_change_took_is_a_gap_and_not_lost_samples():
     library, clock = FakeLibrary(), Clock()
     reading = stream(library, clock=clock)
     reading.open()
+    reading.start()
     library.waiting.append(([1] * 100, [1] * 100))
     assert reading.poll().after_pause is False
 
@@ -387,7 +410,7 @@ def test_the_time_a_generator_change_took_is_a_gap_and_not_lost_samples():
         return 1
 
     library.ps2000_stop = takes_a_while
-    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    reading.wanted = pico.Settings({"gen_wave": "sine"})
     library.waiting.append(([2] * 50, [2] * 50))
     after = reading.poll()
     assert after.after_pause is True
@@ -401,10 +424,64 @@ def test_a_stream_that_will_not_start_again_after_the_generator_is_said():
     library = FakeLibrary()
     reading = stream(library)
     reading.open()
+    reading.start()
     library.streams = False
-    reading.wanted_generator = ("sine", 1000.0, 2.0, 0.0)
+    reading.wanted = pico.Settings({"gen_wave": "sine"})
     with pytest.raises(pico.ScopeError, match="would not stream"):
         reading.poll()
+
+
+# --- ranges and coupling, changed while it runs ------------------------------------------------
+def test_a_range_change_while_running_stops_the_stream_sets_it_and_starts_again():
+    library = FakeLibrary()
+    reading = stream(library, {"range_a": "5V"})
+    reading.open()
+    reading.start()
+    library.calls.clear()
+    reading.wanted = pico.Settings({"range_a": "1V", "coupling_b": "AC"})
+    library.waiting.append(([pico.MAX_VALUE], [0]))
+    block = reading.poll()
+    assert library.calls == [
+        ("stop",),
+        ("channel", pico.CHANNEL_A, True, True, 6),
+        ("channel", pico.CHANNEL_B, True, False, 8),
+        STREAM,
+    ]
+    assert ("open",) not in library.calls, "the scope is not opened again for it"
+    assert block.after_pause and block.data["A"].tolist() == pytest.approx([1.0])
+
+
+def test_a_range_the_scope_refuses_while_running_leaves_it_as_it_was_and_says_so():
+    library = FakeLibrary()
+    reading = stream(library, {"range_a": "5V"})
+    reading.open()
+    reading.start()
+    reading.notes.clear()
+    library.refused_ranges = {1}
+    reading.wanted = pico.Settings({"range_a": "20mV"})
+    library.waiting.append(([pico.MAX_VALUE], [0]))
+    block = reading.poll()
+    assert reading.streaming
+    assert reading.settings.ranges["A"] == "5V"
+    assert block.data["A"].tolist() == pytest.approx([5.0])
+    warnings = [text for text, is_warning in reading.notes if is_warning]
+    assert len(warnings) == 1 and "It is still set as it was." in warnings[0]
+
+
+def test_a_second_run_does_not_open_the_scope_again():
+    library = FakeLibrary()
+    reading = stream(library)
+    reading.open()
+    reading.start()
+    library.waiting.append(([1] * 10, [1] * 10))
+    assert reading.poll().first == 0
+    reading.stop()
+    reading.start(pico.Settings({"rate": 100_000}))
+    library.waiting.append(([1] * 10, [1] * 10))
+    again = reading.poll()
+    assert again.first == 0 and again.rate == 100_000, "counted from zero, at the new rate"
+    assert library.calls.count(("open",)) == 1
+    assert ("close",) not in library.calls
 
 
 def test_a_scope_with_no_generator_warns_only_when_one_is_asked_for():
@@ -412,13 +489,15 @@ def test_a_scope_with_no_generator_warns_only_when_one_is_asked_for():
     library.generates = False
     quiet = stream(library)
     quiet.open()
+    quiet.start()
     assert not any(is_warning for _text, is_warning in quiet.notes)
     asked = stream(library, {"gen_wave": "sine"})
     asked.open()
+    asked.start()
     assert any("would not set its signal generator" in text for text, _ in asked.notes)
 
 
-def test_the_running_instrument_passes_a_generator_setting_to_its_thread(app, monkeypatch):
+def test_the_running_instrument_passes_a_setting_to_its_thread(app, monkeypatch):
     library = FakeLibrary()
     monkeypatch.setattr(pico, "load_library", lambda: library)
     instrument = backends.create("picoscope2000")
@@ -429,9 +508,11 @@ def test_the_running_instrument_passes_a_generator_setting_to_its_thread(app, mo
     instrument.set("gen_wave", "triangle")
     wanted = ("generator", 0, 2_000_000, pico.WAVES["triangle"], 1000.0, 1000.0)
     run_for(app, instrument, lambda: wanted in library.calls and library.streaming)
-    assert library.calls.count(("open",)) == 1, "the scope is not opened again for it"
-    instrument.stop()
-    run_for(app, instrument, lambda: states == [True, False])
+    instrument.set("range_b", "1V")
+    assert instrument.channels()[1].full_scale == 1.0
+    run_for(app, instrument, lambda: ("channel", pico.CHANNEL_B, True, True, 6) in library.calls)
+    assert library.calls.count(("open",)) == 1, "the scope is not opened again for either"
+    instrument.close()
 
 
 # --- what can be set ---------------------------------------------------------------------------
@@ -458,13 +539,21 @@ def test_every_setting_offered_is_one_the_back_end_reads():
             assert vars(changed) != vars(plain), setting.key
 
 
-def test_only_the_generator_changes_without_a_restart():
-    assert {s.key for s in pico.SETTINGS if s.live} == {
+def test_what_is_taken_up_as_it_runs_and_what_starts_the_run_again():
+    """A range, the coupling and the generator leave the samples what they
+    were; the rate and which channels are read do not."""
+    live = {s.key for s in pico.SETTINGS if s.live}
+    assert live == {
+        "range_a",
+        "coupling_a",
+        "range_b",
+        "coupling_b",
         "gen_wave",
         "gen_frequency",
         "gen_amplitude",
         "gen_offset",
     }
+    assert {s.key for s in pico.SETTINGS} - live == {"rate", "enabled_a", "enabled_b"}
 
 
 # --- the library -----------------------------------------------------------------------------
@@ -513,18 +602,73 @@ def test_the_instrument_streams_on_its_thread_and_closes_the_scope(app, monkeypa
     monkeypatch.setattr(pico, "load_library", lambda: library)
     instrument = backends.create("picoscope2000", None, {"range_a": "1V"})
     assert [c.name for c in instrument.channels()] == ["A: ±1V", "B: ±5V"]
-    blocks, states, notes = [], [], []
+    blocks, states, opened, notes = [], [], [], []
     instrument.block.connect(blocks.append)
     instrument.state_changed.connect(states.append)
+    instrument.opened_changed.connect(opened.append)
     instrument.note.connect(notes.append)
-    instrument.start()
+    instrument.start()  # which opens it first
     run_for(app, instrument, lambda: len(blocks) == 2)
+    assert opened == [True] and instrument.is_open
     instrument.stop()
-    run_for(app, instrument, lambda: states == [True, False])
-    assert not instrument.running
+    assert states == [True, False] and not instrument.running
+    assert instrument.is_open, "stopped, and still open"
     assert [b.first for b in blocks] == [0, 10]
     assert any("2204A" in note for note in notes)
+    instrument.close()
+    run_for(app, instrument, lambda: opened == [True, False])
+    assert not instrument.is_open
     assert library.calls[-2:] == [("stop",), ("close",)]
+
+
+def test_open_alone_connects_and_reads_nothing(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    opened, states = [], []
+    instrument.opened_changed.connect(opened.append)
+    instrument.state_changed.connect(states.append)
+    instrument.open()
+    run_for(app, instrument, lambda: opened == [True])
+    assert library.calls == [("open",)] and states == []
+    assert not instrument.running
+    instrument.close()
+    run_for(app, instrument, lambda: opened == [True, False])
+
+
+def test_running_again_after_a_stop_is_quick_and_counts_from_zero(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    blocks = []
+    instrument.block.connect(blocks.append)
+    library.waiting.append(([1] * 10, [1] * 10))
+    instrument.start()
+    run_for(app, instrument, lambda: len(blocks) == 1)
+    instrument.stop()
+    instrument.set("rate", 100_000)
+    library.waiting.append(([2] * 4, [2] * 4))
+    instrument.start()
+    run_for(app, instrument, lambda: len(blocks) == 2)
+    assert (blocks[1].first, blocks[1].rate) == (0, 100_000)
+    assert library.calls.count(("open",)) == 1
+    instrument.close()
+
+
+def test_what_a_run_sends_after_it_was_stopped_is_dropped(app, monkeypatch):
+    """A block already on its way when Stop was pressed belongs to a run that is over."""
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    blocks, states = [], []
+    instrument.block.connect(blocks.append)
+    instrument.state_changed.connect(states.append)
+    instrument.start()
+    run_for(app, instrument, lambda: states == [True])
+    instrument.stop()
+    instrument._on_block(instrument._run, "late")
+    assert blocks == []
+    instrument.close()
 
 
 def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch):
@@ -536,4 +680,4 @@ def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch)
     instrument.start()
     run_for(app, instrument, lambda: states == [False])
     assert len(errors) == 1 and "No PicoScope was found" in errors[0]
-    assert not instrument.running
+    assert not instrument.running and not instrument.is_open

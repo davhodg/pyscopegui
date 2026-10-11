@@ -133,28 +133,30 @@ def test_a_setup_change_while_stopped_is_used_at_the_next_run(window, monkeypatc
     FakeScope(monkeypatch)
     pick_picoscope(window)
     choose(window.instrument_view, "range_a", "200mV")
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert window.instrument.channels()[0].name == "A: ±200mV"
     window.stop()
 
 
 def test_a_setup_change_while_running_starts_it_again_with_the_change(window, monkeypatch, app):
-    FakeScope(monkeypatch)
+    fake = FakeScope(monkeypatch)
     pick_picoscope(window)
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("normal")
     first = window.instrument
     choose(window.instrument_view, "rate", 100_000)
-    assert window.instrument is not first
+    assert window.instrument is first, "the same scope, still open"
     assert window.instrument.running
     assert window.instrument.rate == 100_000
     assert window.capture.records["A"].rate == 100_000
-    window.stop()
+    assert window.instrument_bar.mode() == "normal", "and doing what it was doing"
+    window.close_instrument()
+    assert fake.library.calls.count(("open",)) <= 1, "it was not opened again for it"
 
 
 def test_a_generator_change_while_running_does_not_start_it_again(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     first = window.instrument
     choose(window.instrument_view, "gen_wave", "sine")
     assert window.instrument is first
@@ -178,7 +180,7 @@ def test_either_channel_is_switched_off_with_a_tick(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
     window.instrument_view.controls["enabled_b"].click()
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     assert [c.key for c in window.instrument.channels()] == ["A"]
     window.instrument_view.controls["enabled_b"].click()
     window.instrument_view.controls["enabled_a"].click()
@@ -187,17 +189,39 @@ def test_either_channel_is_switched_off_with_a_tick(window, monkeypatch, app):
     window.stop()
 
 
-def test_a_scope_that_was_replaced_cannot_mark_its_replacement_stopped(window, monkeypatch, app):
-    """It says it has stopped from its own thread, after the next one has started."""
+def test_a_run_that_was_replaced_cannot_mark_its_replacement_stopped(window, monkeypatch, app):
+    """The one before says it has stopped from its own thread, after the next has started."""
     FakeScope(monkeypatch)
     pick_picoscope(window)
-    window.instrument_bar.run.setChecked(True)
-    choose(window.instrument_view, "rate", 100_000)  # made again, and started
+    window.set_mode("auto")
+    choose(window.instrument_view, "rate", 100_000)  # stopped, and started again
     for _ in range(20):
         app.processEvents()
     assert window.instrument.running
-    assert window.instrument_bar.run.text() == "Stop"
+    assert window.instrument_bar.mode() == "auto"
     window.stop()
+
+
+def test_a_range_change_while_running_keeps_what_is_on_the_plot(window, monkeypatch, app):
+    """The samples are held in volts, so a range is taken up without starting again."""
+    import time
+
+    fake = FakeScope(monkeypatch)
+    pick_picoscope(window)
+    fake.library.waiting.append(([1000] * 50, [1000] * 50))
+    window.set_mode("auto")
+    deadline = time.monotonic() + 5
+    while not window.capture.stored() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    held = window.capture.stored()
+    assert held == 100
+    choose(window.instrument_view, "range_a", "1V")
+    assert window.capture.stored() == held, "nothing was thrown away"
+    assert window.capture.records["A"].channel.name == "A: ±1V"
+    assert window.capture.records["A"].channel.full_scale == 1.0
+    assert window.instrument.running
+    window.close_instrument()
 
 
 # --- the plot's voltage axis -------------------------------------------------------------------
@@ -216,7 +240,7 @@ def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatc
     choose(window.instrument_view, "range_a", "1V")
     choose(window.instrument_view, "range_b", "10V")
     window.scope.auto_y.setChecked(False)
-    window.instrument_bar.run.setChecked(True)
+    window.set_mode("auto")
     low, high = y_range(window.scope)
     assert -11.5 < low < -10 and 10 < high < 11.5
     assert not window.scope.analog.getViewBox().autoRangeEnabled()[1]
