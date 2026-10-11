@@ -3,8 +3,20 @@
 # PicoScope 2204A
 
 For the two-channel PicoScope 2000 Series scopes that use Pico's older `ps2000` driver: the
-2202, 2203, 2204, 2204A, 2205 and 2205A. It has been tried on a 2204A. The newer models --
-the B models and the MSOs -- use a different driver, `ps2000a`, and are not supported yet.
+2202, 2203, 2204, 2204A, 2205 and 2205A. It has been tried on a 2204A.
+
+The rest of the 2000 Series use a different driver, `ps2000a`, and are **not supported
+yet**. The model number alone does not say which: a 2205A is on `ps2000` and a 2205A MSO is
+not.
+
+| Not supported yet | Models |
+|-------------------|--------|
+| 2-channel | 2206, 2206A, 2206B, 2207, 2207A, 2207B, 2208, 2208A, 2208B |
+| 2-channel with logic inputs | 2205 MSO, 2205A MSO, 2206B MSO, 2207B MSO, 2208B MSO |
+| 4-channel | 2405A, 2406B, 2407B, 2408B |
+
+The single-channel 2104 and 2105 are on the `ps2000` driver but cannot stream as this back
+end needs, and are not supported either.
 
 Once a scope is open pyscopegui knows which model it is, and offers what that model has:
 
