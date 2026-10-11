@@ -49,7 +49,7 @@ class TriggerBar(QToolBar):
         self.level = QDoubleSpinBox()
         self.level.setDecimals(3)
         self.level.setRange(-100.0, 100.0)
-        self.level.setSingleStep(0.1)
+        self.level.setSingleStep(0.05)
         self.level.setSuffix(" V")
         self.level.setToolTip(LEVEL_TIP)
         # Once the number is finished, not at every digit typed on the way.

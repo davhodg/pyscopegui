@@ -26,7 +26,6 @@ from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -43,6 +42,7 @@ from pyscopegui.core.capture import Capture, min_max
 from pyscopegui.core.context import Context
 from pyscopegui.ui import fonts
 from pyscopegui.ui.persist import remember
+from pyscopegui.ui.spin import SequenceSpin
 
 # Enough for a channel name and its value; the plot takes whatever is left.
 LIST_WIDTH = 220
@@ -190,7 +190,8 @@ class ScopeView(QWidget):
         for index, tip in enumerate(TIME_ITEM_TIPS):
             self.time.setItemData(index, tip, Qt.ToolTipRole)
         self.time.currentTextChanged.connect(self._show_time)
-        self.window_s = QDoubleSpinBox()
+        # Its arrows go 1, 2, 5, 10: a fixed step is wrong at every size but one.
+        self.window_s = SequenceSpin()
         self.window_s.setDecimals(3)
         self.window_s.setRange(0.001, 3600)
         self.window_s.setValue(0.1)

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.backends.base import Setting
+from pyscopegui.ui.spin import SequenceSpin
 
 NOTHING = "This instrument has nothing to set."
 RESTARTS = (
@@ -99,7 +100,9 @@ class InstrumentView(QWidget):
                 lambda _i, s=setting, b=box: self.changed.emit(s.key, b.currentData(), s.live)
             )
             return box
-        spin = QDoubleSpinBox()
+        spin = QDoubleSpinBox() if setting.step else SequenceSpin()
+        if setting.step:
+            spin.setSingleStep(setting.step)
         spin.setDecimals(setting.decimals)
         spin.setRange(setting.minimum, setting.maximum)
         if setting.unit:

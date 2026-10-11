@@ -25,6 +25,7 @@ computer, so what is drawn does not carry the jitter of the USB or the network.
 **Time** chooses which stretch is in view:
 
 - **Follow** keeps the newest samples in view, and the box beside it says how many seconds.
+  Its arrows go 1, 2, 5, 10, 20, 50, as a scope's timebase does; any number can be typed.
 - **All** shows everything that is held, and keeps it all in view as more arrives.
 - **Manual** stays where you put it. Dragging or zooming a plot chooses it for you.
 

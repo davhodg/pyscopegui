@@ -63,7 +63,7 @@ scope is not opened again.
 | Setting | What it does |
 |---------|--------------|
 | Output | Off, sine, square or triangle. Off is a steady zero volts |
-| Frequency | 1 Hz to 100 kHz |
+| Frequency | 1 Hz to 100 kHz. Its arrows go 1, 2, 5, 10, 20, 50 |
 | Peak to peak | From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V |
 | Offset | Moves the whole wave up or down, within 2 V of zero |
 

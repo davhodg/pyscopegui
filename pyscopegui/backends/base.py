@@ -61,6 +61,9 @@ class Setting:
     maximum: float = 0.0
     decimals: int = 0
     unit: str = ""
+    #: How far its arrows move it. Zero is through 1, 2, 5, 10, 20, 50: for a
+    #: number that runs over many powers of ten, where no one step suits.
+    step: float = 0.0
     #: The heading it is listed under.
     group: str = ""
     #: Taken up as the instrument runs, with what is on the plot kept.
