@@ -8,8 +8,8 @@ The toolbar has the list of instruments, **Open**, and the four buttons a scope 
 
 **Open** connects to the instrument chosen and leaves it stopped. For a scope this is the
 slow part, done once. The button then reads **Close**, which stops the instrument and lets
-it go, so that another program can have it. The instrument cannot be changed while it is
-open. Pressing one of the run buttons opens it for you if it is not open.
+it go, so that another program can have it. Pressing one of the run buttons opens it for
+you if it is not open.
 
 Whichever of the four is pressed in is what the instrument is doing:
 
@@ -35,10 +35,39 @@ are held. The instrument chosen is remembered.
 | [PicoScope 2204A](picoscope.md) | Pico's two-channel scopes on the `ps2000` driver |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network |
 
+## Several instruments at once
+
+Open one instrument, choose another in the list, and open that too. The list says which
+are open. The channels of all of them are on the one plot, each named for whose it is:
+*Pico A*, *Rigol CH1*.
+
+The list chooses which instrument **Open**, the Instrument pane and the trigger toolbar are
+about. The four run buttons are for every instrument that is open: **Auto** runs them all,
+**Stop** stops them all, and **Single** stops once each has its capture.
+
+**Each instrument keeps time for itself**, and nothing says when one started by another's
+clock. What puts them on one time axis is the trigger: each has a trigger of its own, on a
+channel of its own, and nought on the axis is each one's trigger. So they line up as well
+as their triggers do:
+
+- Put the same signal on a channel of each, and trigger each on it, at the same level and
+  edge. The two then line up to within a sample or so of the slower one.
+- Triggered on different signals, each is still drawn around its own trigger, and the
+  time between the two is not shown.
+- An instrument with no trigger chosen is drawn as its newest samples arrive, beside the
+  one that has a trigger, and is not lined up with it at all.
+
+With a signal that repeats, each instrument may be showing a different repeat of it. With
+**Single** and something that happens once, they show the same one.
+
+Closing an instrument leaves its traces on the plot to be looked at. They go when another
+instrument is opened or run.
+
 ## The trigger
 
-The second toolbar is the trigger: one for the whole window, since the four buttons are one
-set.
+The second toolbar is the trigger of the instrument chosen in the list. With several open
+it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge and level.
+**Position** is the same for all of them, since they share the plot.
 
 | Setting | What it does |
 |---------|--------------|

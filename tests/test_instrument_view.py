@@ -245,7 +245,7 @@ def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatc
     assert -11.5 < low < -10 and 10 < high < 11.5
     assert not window.scope.analog.getViewBox().autoRangeEnabled()[1]
     # A channel that is not shown does not hold the axis open for itself.
-    window.scope._on_shown("B", False)
+    window.scope._on_shown("picoscope2000:B", False)
     low, high = y_range(window.scope)
     assert -1.15 < low < -1 and 1 < high < 1.15
     window.scope.auto_y.setChecked(True)

@@ -23,16 +23,18 @@ class Backend(NamedTuple):
     cls: str
     #: What the instrument list calls it.
     title: str
+    #: A word for it, to tell its channels from another instrument's.
+    short: str
 
 
 #: Name -> where it lives. The name is what is remembered between runs.
 BACKENDS: dict[str, Backend] = {
-    "demo": Backend("pyscopegui.backends.demo", "DemoInstrument", "Demo signals"),
+    "demo": Backend("pyscopegui.backends.demo", "DemoInstrument", "Demo signals", "Demo"),
     "picoscope2000": Backend(
-        "pyscopegui.backends.picoscope2000", "PicoScope2000", "PicoScope 2204A (ps2000)"
+        "pyscopegui.backends.picoscope2000", "PicoScope2000", "PicoScope 2204A (ps2000)", "Pico"
     ),
     "rigol1000z": Backend(
-        "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series (network)"
+        "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series (network)", "Rigol"
     ),
 }
 
@@ -46,6 +48,10 @@ def names() -> list[str]:
 
 def title(name: str) -> str:
     return BACKENDS[name].title
+
+
+def short(name: str) -> str:
+    return BACKENDS[name].short
 
 
 def settings(name: str) -> tuple[Setting, ...]:

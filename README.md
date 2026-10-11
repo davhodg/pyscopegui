@@ -27,6 +27,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 - **Auto Y**, on to start with, fits the voltage axis to the signal; unticked, the axis is the range the channels are set to, as on a scope's screen.
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes if you ask, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
+- **Several instruments at once**: open one, choose another and open that too. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.

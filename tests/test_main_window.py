@@ -38,7 +38,7 @@ def test_run_fills_the_plot_from_the_demo(window):
     assert set(window.capture.records) == {c.key for c in demo.CHANNELS}
     assert window.capture.newest() >= 0.05
     window.scope.redraw()
-    times, values = window.scope._curves["A"].getData()
+    times, values = window.scope._curves["demo:A"].getData()
     assert len(times) == len(values) > 0
     assert "running" in window.log.toPlainText()
 
@@ -59,7 +59,7 @@ def test_a_long_capture_is_drawn_as_a_few_points_a_column(window):
         feed(window, 0.4)
     window.scope.time.setCurrentText("All")
     window.scope.redraw()
-    times, _values = window.scope._curves["A"].getData()
+    times, _values = window.scope._curves["demo:A"].getData()
     assert window.capture.records["A"].count > 200_000
     assert len(times) <= 2 * window.scope.analog.getViewBox().width() + 2
 
@@ -67,14 +67,14 @@ def test_a_long_capture_is_drawn_as_a_few_points_a_column(window):
 def test_an_unticked_channel_is_not_drawn_and_stays_unticked(window, app):
     window.set_mode("auto")
     feed(window)
-    window.scope._on_shown("D1", False)
-    assert "D1" not in window.scope.shown()
-    assert "D1" not in window.scope._lanes
+    window.scope._on_shown("demo:D1", False)
+    assert "demo:D1" not in window.scope.shown()
+    assert "demo:D1" not in window.scope._lanes
     window.close()
     again = MainWindow()
     try:
         again.run("demo")
-        assert "D1" not in again.scope.shown()
+        assert "demo:D1" not in again.scope.shown()
     finally:
         again.close()
 
@@ -130,7 +130,8 @@ def test_open_connects_and_reads_nothing(window):
     bar.open.click()
     assert window.instrument.is_open and not window.instrument.running
     assert bar.open.text() == "Close"
-    assert not bar.instrument.isEnabled(), "not changed while it is open"
+    assert bar.instrument.isEnabled(), "another can be chosen, and opened beside it"
+    assert bar.instrument.currentText() == "Demo signals  (open)"
     assert window.capture.stored() == 0
     assert set(window.capture.records) == {c.key for c in demo.CHANNELS}, "its channels, empty"
     assert "open, stopped" in window.status.text()

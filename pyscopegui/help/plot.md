@@ -46,6 +46,9 @@ Beside the time controls the plot says what it is doing: *Triggered*; *Waiting f
 with what was last drawn left on screen; *Auto*, when no trigger has come and it is showing
 what there is; or *Stopped*.
 
+With [several instruments open](instruments.md), nought on the time axis is each one's own
+trigger, and the label beside **Time** says what each is doing.
+
 An instrument that triggers itself sends one capture at a time, and the plot then shows the
 whole of each: the box beside **Time** has no say in it, and is greyed out.
 

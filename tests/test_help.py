@@ -653,12 +653,12 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     assert ">> the instrument has sent no samples at all" in diagnostics(window)
     window.instrument._started -= 0.05
     window.instrument._tick()
-    window.scope._on_shown("A", False)
+    window.scope._on_shown("demo:A", False)
     report = diagnostics(window)
     assert "sent no samples" not in report
     held = window.capture.records["A"].count
     assert held >= 5000 and f"A: {held} held of {held} received" in report
     assert "open=True running=True rate=100000 S/s" in report
     assert "mode=auto trigger=none" in report
-    assert "shown=['B', 'D0', 'D1', 'D2', 'D3']" in report
+    assert "shown=['demo:B', 'demo:D0', 'demo:D1', 'demo:D2', 'demo:D3']" in report
     window.stop()

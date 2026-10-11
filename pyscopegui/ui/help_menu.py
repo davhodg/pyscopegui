@@ -362,35 +362,45 @@ def diagnostics(window) -> str:
         lines.append("")
 
     chosen = window.instrument_bar.current()
-    lines.append("Instrument")
-    lines.append(f"  chosen={backends.title(chosen)} ({chosen})")
-    lines.append(f"  settings={window.ctx.settings.get(f'instrument.{chosen}') or 'defaults'}")
-    instrument = window.instrument
-    if instrument is None:
-        lines.append("  not opened since it was chosen")
-    else:
+    # The one chosen, and any other that is in use beside it.
+    units = [window.unit] + [
+        unit
+        for unit in window.session.units.values()
+        if unit is not window.unit and unit.instrument is not None
+    ]
+    for unit in units:
+        name, instrument, acquisition = unit.name, unit.instrument, unit.acquisition
+        lines.append("Instrument")
         lines.append(
-            f"  open={instrument.is_open} running={instrument.running} "
-            f"rate={instrument.rate:g} S/s channels={[c.key for c in instrument.channels()]}"
+            f"  {'chosen' if name == chosen else 'also in use'}={backends.title(name)} ({name})"
         )
-    acquisition = window.acquisition
-    lines.append(
-        f"  mode={acquisition.mode} trigger={acquisition.source or 'none'} "
-        f"level={acquisition.level:g} {'rising' if acquisition.rising else 'falling'} "
-        f"position={acquisition.position:.0%}"
-    )
+        lines.append(f"  settings={window.ctx.settings.get(f'instrument.{name}') or 'defaults'}")
+        if instrument is None:
+            lines.append("  not opened since it was chosen")
+        else:
+            lines.append(
+                f"  open={instrument.is_open} running={instrument.running} "
+                f"rate={instrument.rate:g} S/s channels={[c.key for c in instrument.channels()]}"
+            )
+        lines.append(
+            f"  mode={acquisition.mode} trigger={acquisition.source or 'none'} "
+            f"level={acquisition.level:g} {'rising' if acquisition.rising else 'falling'} "
+            f"position={acquisition.position:.0%}"
+        )
 
-    lines += ["", "Samples held"]
-    records = window.capture.records
-    for key, record in records.items():
-        lines.append(
-            f"  {key}: {record.count} held of {record.total} received, "
-            f"room for {record.capacity}, {record.channel.kind}"
-        )
-    if not records:
-        lines.append("  none: no instrument has been run")
-    elif not any(record.total for record in records.values()):
-        lines.append("  >> the instrument has sent no samples at all")
+        lines += ["", "Samples held" if len(units) == 1 else f"Samples held, {unit.short}"]
+        records = unit.capture.records
+        for key, record in records.items():
+            lines.append(
+                f"  {key}: {record.count} held of {record.total} received, "
+                f"room for {record.capacity}, {record.channel.kind}"
+            )
+        if not records:
+            lines.append("  none: no instrument has been run")
+        elif not any(record.total for record in records.values()):
+            lines.append("  >> the instrument has sent no samples at all")
+        lines.append("")
+    lines.pop()
 
     lines += ["", "Plots"]
     for name in window.panes.instances("scope"):

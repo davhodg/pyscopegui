@@ -116,7 +116,7 @@ def test_with_a_trigger_time_is_measured_from_it_and_it_sits_where_position_says
     assert window.scope.state.text() == TRIGGERED
     assert window.scope.trigger_lines[0].isVisible()
     # At nought the sine is crossing 0 V on its way up.
-    times, values = window.scope._curves["A"].getData()
+    times, values = window.scope._curves["demo:A"].getData()
     at_trigger = int(np.argmin(np.abs(times)))
     assert abs(values[at_trigger]) < 0.1 and values[at_trigger + 5] > values[at_trigger - 5]
 
@@ -128,11 +128,11 @@ def test_each_new_trigger_is_drawn_in_the_same_place(window):
     window.scope.window_s.setValue(0.04)
     feed(window, 0.2)
     window.scope.redraw()
-    first = window.scope._curves["A"].getData()
+    first = window.scope._curves["demo:A"].getData()
     origin = window.scope._origin
     feed(window, 0.137)  # no whole number of periods later
     window.scope.redraw()
-    second = window.scope._curves["A"].getData()
+    second = window.scope._curves["demo:A"].getData()
     assert window.scope._origin > origin
     assert np.allclose(first[0], second[0], atol=1e-5)
     assert np.allclose(first[1], second[1], atol=0.05)
@@ -156,17 +156,17 @@ def test_normal_waits_and_holds_what_it_last_drew(window):
     feed(window, 0.3)
     window.scope.redraw()
     assert window.scope.state.text() == WAITING
-    assert len(window.scope._curves["A"].getData()[0] or []) == 0, "nothing drawn yet"
+    assert len(window.scope._curves["demo:A"].getData()[0] or []) == 0, "nothing drawn yet"
     window.trigger_bar.level.setValue(0.0)
     feed(window, 0.3)
     window.scope.redraw()
     assert window.scope.state.text() == TRIGGERED
-    drawn = window.scope._curves["A"].getData()[1].copy()
+    drawn = window.scope._curves["demo:A"].getData()[1].copy()
     window.trigger_bar.level.setValue(50.0)
     feed(window, 0.3)
     window.scope.redraw()
     assert window.scope.state.text() == WAITING
-    assert np.array_equal(window.scope._curves["A"].getData()[1], drawn), "held"
+    assert np.array_equal(window.scope._curves["demo:A"].getData()[1], drawn), "held"
 
 
 def test_auto_shows_what_there_is_when_no_trigger_comes(window):
@@ -176,7 +176,7 @@ def test_auto_shows_what_there_is_when_no_trigger_comes(window):
     feed(window, 0.4)
     window.scope.redraw()
     assert window.scope.state.text() == FREE
-    assert len(window.scope._curves["A"].getData()[0]) > 0
+    assert len(window.scope._curves["demo:A"].getData()[0]) > 0
     window.trigger_bar.level.setValue(0.0)
     feed(window, 0.4)
     window.scope.redraw()
@@ -197,7 +197,7 @@ def test_single_catches_one_trigger_stops_and_keeps_it_on_screen(window):
     caught = window.acquisition.frozen
     assert caught is not None
     assert abs(window.scope._origin - caught / demo.RATE) < 1e-9
-    times, values = window.scope._curves["A"].getData()
+    times, values = window.scope._curves["demo:A"].getData()
     assert abs(values[int(np.argmin(np.abs(times)))]) < 0.1
 
 
@@ -252,5 +252,5 @@ def test_two_plots_with_different_windows_are_held_by_the_same_trigger(window):
     assert abs(np.diff(x_range(window.scope))[0] - 0.02) < 1e-6
     assert abs(np.diff(x_range(second))[0] - 0.1) < 1e-6
     for scope in (window.scope, second):
-        times, values = scope._curves["A"].getData()
+        times, values = scope._curves["demo:A"].getData()
         assert abs(values[int(np.argmin(np.abs(times)))]) < 0.1

@@ -33,6 +33,8 @@ Nothing has been released yet. This is what the first version will have.
   has, and no signal generator for a 2202.
 - **Rigol DS1000Z series**, over the network: the four analog channels,
   a sweep at a time around the scope's own trigger, from its screen or its whole memory.
+- **Several instruments open at once**, on one time axis: each with a trigger of its own,
+  and drawn around it.
 - *Tools > Settings > History*: how much of each channel is kept, from a second to ten
   minutes.
 - **Demo signals**: two analog and four digital channels, with no hardware.

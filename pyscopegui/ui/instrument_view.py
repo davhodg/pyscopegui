@@ -57,6 +57,8 @@ class InstrumentView(QWidget):
         """Show these settings, at the values saved for them or their defaults."""
         while (item := self._layout.takeAt(0)) is not None:
             if (widget := item.widget()) is not None:
+                # Out of sight now: it is not deleted until the event loop gets to it.
+                widget.setParent(None)
                 widget.deleteLater()
         self.controls = {}
         self._settings, self._forms = settings, {}
