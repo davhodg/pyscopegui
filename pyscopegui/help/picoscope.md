@@ -6,6 +6,17 @@ For the two-channel PicoScope 2000 Series scopes that use Pico's older `ps2000` 
 2202, 2203, 2204, 2204A, 2205 and 2205A. It has been tried on a 2204A. The newer models --
 the B models and the MSOs -- use a different driver, `ps2000a`, and are not supported yet.
 
+Once a scope is open pyscopegui knows which model it is, and offers what that model has:
+
+| Model | Ranges offered | Signal generator |
+|-------|----------------|------------------|
+| 2204A, 2205A | ±50 mV to ±20 V | Yes |
+| 2202 | Every range | No |
+| 2203, 2204, 2205 | Every range | Yes |
+
+"Every range" is for the models whose ranges have not been checked: ±20 mV to ±20 V are all
+offered, and the scope refuses any it does not have, which the Event Log says.
+
 ## Before you start
 
 - **Install Pico's software.** The PicoSDK or PicoScope 7, from
@@ -29,9 +40,42 @@ The scope stays open until **Close**, or until pyscopegui is closed. Starting, s
 changing a setting are then quick: none of them opens it again. PicoScope 7 cannot use the
 scope while pyscopegui has it open.
 
-The scope is read continuously -- what Pico calls fast streaming -- every sample from the
-moment a run starts. The [trigger](instruments.md) is found by pyscopegui in those samples,
-not by the scope.
+## Streaming or blocks
+
+**Reading**, in the Instrument pane, chooses between the two ways the scope can be read.
+
+**Streaming** reads continuously -- what Pico calls fast streaming -- every sample from the
+moment a run starts, at up to 1 MS/s on each channel, for as long as it runs. The
+[trigger](instruments.md) is found by pyscopegui in those samples, and everything either
+side of it is kept to go back over.
+
+**Blocks** are for what is too fast to stream. The scope triggers itself and fills its own
+memory at up to 100 MS/s, and each block is then drawn in place of the last. The memory is
+a few thousand samples, shared between the channels that are on, so a block is a short
+stretch of time and there is nothing either side of it to go back over.
+
+| | Streaming | Blocks |
+|---|---|---|
+| Fastest | 1 MS/s on each channel | Up to 100 MS/s: the scope says what it has, which is less with both channels on |
+| How long | As long as it runs | One block: about 8000 samples on a 2204A, between the channels on |
+| Trigger | Found by pyscopegui | The scope's own |
+| History | Kept, as *Tools > Settings > History* says | None: each block replaces the last |
+
+**Block length** says how long a stretch each block is, and the scope samples as fast as
+its memory allows for that length: a shorter block is sampled faster. The
+[Event Log](event-log.md) says what it came to -- *Blocks of 3125 samples at 3,125,000 a
+second: 1 ms each* -- and the status bar shows the rate. Ask for a block longer than the
+scope can take and it takes its longest, and says so.
+
+The trigger toolbar and the four run buttons work as they do when streaming: the source,
+edge, level and position are handed to the scope. **Normal** has it wait for a trigger for as
+long as it takes; **Auto** has it take the block anyway after a tenth of a second, or twice
+the block's length; **Single** takes one block and stops. With no trigger chosen, blocks are
+taken one after another.
+
+Two things are different from streaming. The plot shows the whole block, so the box beside
+**Time** has no say in how much is drawn. And only channel A or B can be the trigger, since
+it is the scope that is triggering.
 
 ## Settings
 
@@ -39,7 +83,9 @@ In the [Instrument](instruments.md) pane.
 
 | Setting | What it does |
 |---------|--------------|
-| Sample rate | Samples a second on each channel, from 10 kS/s to 1 MS/s |
+| Reading | Streaming, or blocks: see above |
+| Sample rate | When streaming: samples a second on each channel, from 10 kS/s to 1 MS/s |
+| Block length | When reading blocks: how long each is, from 1 us to 1 s |
 | Range | The most the input can measure, either side of zero: ±50 mV to ±20 V |
 | Coupling | DC, or AC to remove a steady voltage and look at what is on top of it |
 | Enabled | Whether the channel is read at all. One of the two has to be |
@@ -49,9 +95,9 @@ signal on the ±10 V range is measured in about twenty-six steps and looks like 
 on ±1 V or ±2 V it is smooth. A signal larger than the range is clipped at the range.
 
 A range or the coupling is taken up as the scope runs: reading stops for a moment while it
-is set, drawn as a gap in the plot, and what was on the plot is kept. The sample rate and
-**Enabled** change what the samples are, so they start the run again from an empty plot.
-None of them opens the scope again.
+is set, drawn as a gap in the plot, and what was on the plot is kept. **Reading**, the
+sample rate, the block length and **Enabled** change what the samples are, so they start the
+run again from an empty plot. None of them opens the scope again.
 
 ## Signal generator
 
@@ -87,6 +133,10 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   to that rate, and the times on the plot are out by that ratio. Choose a lower rate.
 - *The driver's buffer filled before it was read* --- the computer did not keep up, and
   samples were lost.
+- *That is the longest block the scope can take* --- the block length asked for is more than
+  its memory holds at its slowest. Streaming reads for longer.
+- *The scope stopped answering* --- while a block was being waited for. It may have been
+  unplugged.
 
 ## Grounds
 

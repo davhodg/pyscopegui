@@ -27,6 +27,10 @@ Nothing has been released yet. This is what the first version will have.
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels
   streamed at up to 1 MS/s, with range, coupling and sample rate, either channel switched
   off, and the scope's signal generator.
+- PicoScope **blocks**: short captures at up to 100 MS/s around the scope's own trigger, for
+  what is too fast to stream.
+- The PicoScope's settings follow the model that is plugged in: the ranges a 2204A or 2205A
+  has, and no signal generator for a 2202.
 - *Tools > Settings > History*: how much of each channel is kept, from a second to ten
   minutes.
 - **Demo signals**: two analog and four digital channels, with no hardware.

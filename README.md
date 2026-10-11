@@ -37,7 +37,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 ## Instruments
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
-- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously. Tried on a 2204A: both channels at 1 MS/s, with voltages and timing checked against its own signal generator.
+- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. Tried on a 2204A: both channels at 1 MS/s, with voltages and timing checked against its own signal generator.
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 

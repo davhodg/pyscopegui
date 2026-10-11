@@ -70,6 +70,10 @@ class Record:
         self._end += new
         self.count = min(self.count + new, self.capacity)
 
+    def empty(self) -> None:
+        """Hold nothing, and count from nought again."""
+        self._end = self.total = self.count = 0
+
     def skip(self, missing: int) -> None:
         """Samples that never arrived: held as a gap, so later ones keep their time."""
         blank = np.nan if self._buffer.dtype.kind == "f" else 0
@@ -103,14 +107,19 @@ class Capture(QObject):
         self.history_s = history_s
         self.records: dict[str, Record] = {}
 
-    def set_channels(self, channels: list[Channel], rate: float) -> None:
+    def set_channels(
+        self, channels: list[Channel], rate: float, capacity: int | None = None
+    ) -> None:
         """Start again, empty, for these channels at this rate.
 
-        MemoryError if the history asked for is more than there is room for;
-        what was held before is gone either way.
+        Room for the history's worth of samples, unless a capacity is given:
+        an instrument that sends sweeps holds one sweep, whatever its length.
+        MemoryError if that is more than there is room for; what was held
+        before is gone either way.
         """
         self.records = {}
-        capacity = int(rate * self.history_s)
+        if capacity is None:
+            capacity = int(rate * self.history_s)
         try:
             self.records = {c.key: Record(c, rate, capacity) for c in channels}
         finally:
@@ -134,6 +143,9 @@ class Capture(QObject):
             self.records[key] = Record(record.channel, record.rate, record.capacity)
 
     def add(self, block: Block) -> None:
+        if block.sweep:
+            self._take_sweep(block)
+            return
         missing = 0
         for key, samples in block.data.items():
             if (record := self.records.get(key)) is None:
@@ -146,6 +158,18 @@ class Capture(QObject):
         # nothing to warn about.
         if missing and not block.after_pause:
             self.gap.emit(missing)
+
+    def _take_sweep(self, block: Block) -> None:
+        """Hold this sweep in place of whatever was held, at its own rate and length."""
+        for key, samples in block.data.items():
+            if (record := self.records.get(key)) is None:
+                continue
+            if record.rate != block.rate or record.capacity != len(samples):
+                record = Record(record.channel, block.rate, len(samples))
+                self.records[key] = record
+            else:
+                record.empty()
+            record.append(samples)
 
     def newest(self) -> float | None:
         """The time of the latest sample held, in seconds, or None if there are none."""

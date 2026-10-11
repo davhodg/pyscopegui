@@ -49,8 +49,10 @@ set.
 A digital channel has only one level, between its 0 and its 1, so the level box is not
 offered for one.
 
-The trigger is found by pyscopegui, in the samples as they arrive, and not by the
-instrument. So it is the same for every instrument, the samples either side of a trigger are
+An instrument that sends short captures taken around a trigger of its own -- a
+[PicoScope reading blocks](picoscope.md) -- is handed these settings and does the
+triggering. For everything else the trigger is found by pyscopegui, in the samples as they
+arrive, and not by the instrument. So it is the same for every instrument, the samples either side of a trigger are
 all still there to go back over, and it finds nothing the instrument cannot stream: on a
 PicoScope 2204A, nothing faster than 1 MS/s shows.
 

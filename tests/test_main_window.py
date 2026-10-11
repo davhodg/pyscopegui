@@ -241,7 +241,7 @@ def test_a_saved_history_that_is_not_one_of_the_choices_is_the_default(window):
 
 
 def test_a_history_there_is_no_room_for_is_said_and_nothing_is_started(window, monkeypatch):
-    def no_room(channels, rate):
+    def no_room(channels, rate, capacity=None):
         raise MemoryError
 
     monkeypatch.setattr(window.capture, "set_channels", no_room)
@@ -253,6 +253,7 @@ def test_a_history_there_is_no_room_for_is_said_and_nothing_is_started(window, m
 
 def test_lengths_of_time_and_memory_are_said_the_way_they_are_spoken():
     assert [short_time(s) for s in (1, 30, 60, 600)] == ["1 s", "30 s", "1 min", "10 min"]
+    assert [short_time(s) for s in (2.3742, 0.001, 80e-6, 0)] == ["2.37 s", "1 ms", "80 us", "0 s"]
     assert short_bytes(120_000_000) == "120 MB"
     assert short_bytes(7_200_000_000) == "7.2 GB"
     assert short_bytes(9_000) == "9 kB"

@@ -17,11 +17,12 @@ different windows are both held still by the same edge.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
-from pyscopegui.backends.base import ANALOG
+from pyscopegui.backends.base import ANALOG, Block
 from pyscopegui.core.capture import Capture, Record
 
 STOP, SINGLE, NORMAL, AUTO = "stop", "single", "normal", "auto"
@@ -36,6 +37,17 @@ HYSTERESIS = 0.02
 AUTO_S = 0.25
 #: The most triggers remembered. Only the newest few are ever drawn from.
 MOST_TRIGGERS = 4096
+
+
+@dataclass(frozen=True)
+class Sweep:
+    """A capture an instrument took around its own trigger."""
+
+    #: The sample its trigger is at, or None if it was taken without one.
+    trigger: int | None
+    length: int
+    #: Whether the signal crossed the level, or the instrument gave up waiting.
+    triggered: bool
 
 
 def find_triggers(
@@ -143,6 +155,9 @@ class Acquisition(QObject):
 
     def _forget(self, from_now: bool) -> None:
         self._triggers = np.empty(0, dtype=np.int64)
+        #: The last sweep an instrument sent, if it sends sweeps: its own
+        #: trigger stands in for any found here.
+        self.sweep: Sweep | None = None
         record = self.record()
         self._scanned = record.total if from_now and record is not None else 0
         self._armed = False
@@ -175,8 +190,19 @@ class Acquisition(QObject):
         margin = HYSTERESIS * record.channel.full_scale
         return self.level, self.level - margin if self.rising else self.level + margin
 
-    def examine(self) -> None:
-        """Look for triggers in whatever has arrived since the last look."""
+    def examine(self, block: Block | None = None) -> None:
+        """Look for triggers in whatever has arrived since the last look.
+
+        Given the block that arrived, a sweep is taken as it is: the
+        instrument has triggered already, and says where.
+        """
+        if block is not None and block.sweep:
+            self.sweep = Sweep(block.trigger, len(block), block.triggered)
+            if self.mode == SINGLE and not self._single_said:
+                self._single_said = True
+                self._frozen = block.trigger or 0
+                self.single_done.emit()
+            return
         record = self.record()
         if record is not None and record.total > self._scanned:
             if self._scanned < record.first:
@@ -229,6 +255,8 @@ class Acquisition(QObject):
         """
         if self._frozen is not None:
             return self._frozen
+        if self.sweep is not None:
+            return self.sweep.trigger
         newest = self._newest()
         if self.mode == SINGLE:
             ready = self._single is not None and self._single + after <= newest

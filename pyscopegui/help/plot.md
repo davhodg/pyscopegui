@@ -46,6 +46,9 @@ Beside the time controls the plot says what it is doing: *Triggered*; *Waiting f
 with what was last drawn left on screen; *Auto*, when no trigger has come and it is showing
 what there is; or *Stopped*.
 
+An instrument that triggers itself sends one capture at a time, and the plot then shows the
+whole of each: the box beside **Time** has no say in it.
+
 Dragging or zooming still chooses **Manual**, and the plot stays where you put it, measured
 from the trigger. Choosing a trigger, or going back to none, puts it back to **Follow**.
 

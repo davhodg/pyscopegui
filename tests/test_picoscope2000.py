@@ -32,6 +32,15 @@ class FakeLibrary:
         self.streams = True
         self.generates = True
         self.streaming = False
+        #: Which channels are on, as the scope was last told: 0 is A, 1 is B.
+        self.enabled = {0: True, 1: True}
+        #: For blocks: whether one is in yet, and what each channel reads in
+        #: one, in counts, given its length. A step up through nought at the
+        #: middle, unless a test says otherwise.
+        self.ready = 1
+        self.takes_blocks = True
+        self.slowest = 19
+        self.block_wave = lambda n: np.where(np.arange(n) < n // 2, -16000, 16000)
         self.overrun = False
 
     def ps2000_open_unit(self):
@@ -45,11 +54,41 @@ class FakeLibrary:
 
     def ps2000_set_channel(self, handle, channel, enabled, dc, code):
         self.calls.append(("channel", channel, bool(enabled), bool(dc), code))
-        return 0 if code in self.refused_ranges else 1
+        if code in self.refused_ranges:
+            return 0
+        self.enabled[channel] = bool(enabled)
+        return 1
 
     def ps2000_set_trigger(self, handle, source, threshold, direction, delay, auto_ms):
-        self.calls.append(("trigger", source))
+        if source == pico.NO_TRIGGER:
+            self.calls.append(("trigger", source))
+        else:
+            self.calls.append(("trigger", source, threshold, direction, delay, auto_ms))
         return 1
+
+    def ps2000_get_timebase(self, handle, timebase, samples, interval, units, oversample, most):
+        """As a 2204A: 10 ns at its fastest, doubling, with 8000 samples shared
+        between the channels that are on, and no fastest timebase with both on."""
+        on = sum(self.enabled.values()) or 1
+        if timebase > self.slowest or (on == 2 and timebase == 0):
+            return 0
+        interval._obj.value = 10 * 2**timebase
+        most._obj.value = 8000 // on
+        return 1
+
+    def ps2000_run_block(self, handle, samples, timebase, oversample, taken):
+        self.calls.append(("block", samples, timebase))
+        self.streaming = False
+        return 1 if self.takes_blocks else 0
+
+    def ps2000_ready(self, handle):
+        return self.ready
+
+    def ps2000_get_values(self, handle, a, b, c, d, overflow, samples):
+        for buffer in (a, b):
+            if buffer is not None:
+                np.ctypeslib.as_array(buffer)[:] = self.block_wave(samples)
+        return samples
 
     def ps2000_run_streaming_ns(self, handle, interval, units, most, auto_stop, per, overview):
         self.calls.append(("stream", interval, units, most, auto_stop, per, overview))
@@ -484,6 +523,19 @@ def test_a_second_run_does_not_open_the_scope_again():
     assert ("close",) not in library.calls
 
 
+def test_what_was_asked_for_after_a_start_was_is_not_lost_when_the_start_happens(app, monkeypatch):
+    """The start is done on the scope's thread, a moment after it was asked for."""
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000", None, {"mode": "block"})
+    instrument.set_trigger("A", 0.0, True, 0.5, auto=False)
+    instrument.start()
+    instrument.set_trigger("A", 0.0, True, 0.5, auto=True)  # before the thread has started
+    waits = lambda: [c[-1] for c in library.calls if c[0] == "trigger" and len(c) > 2]  # noqa: E731
+    run_for(app, instrument, lambda: pico.AUTO_TRIGGER_MS in waits())
+    instrument.close()
+
+
 def test_a_scope_with_no_generator_warns_only_when_one_is_asked_for():
     library = FakeLibrary()
     library.generates = False
@@ -539,6 +591,260 @@ def test_every_setting_offered_is_one_the_back_end_reads():
             assert vars(changed) != vars(plain), setting.key
 
 
+# --- blocks, around the scope's own trigger ----------------------------------------------------
+def blocks(library, options=None, trigger=None, clock=None):
+    """A stream set to read blocks, opened and started."""
+    reading = stream(library, {"mode": "block"} | (options or {}), clock)
+    reading.open()
+    reading.start(trigger=trigger)
+    return reading
+
+
+def test_a_block_is_as_fast_as_the_scopes_memory_allows_for_its_length():
+    """Two channels share 8000 samples, so 1 ms needs 320 ns a sample: timebase 5."""
+    library = FakeLibrary()
+    reading = blocks(library, {"block_ms": 1.0})
+    assert (reading._timebase, reading._block_samples) == (5, 3125)
+    assert reading._block_rate == pytest.approx(3_125_000)
+    assert ("Blocks of 3125 samples at 3,125,000 a second: 1 ms each.", False) in reading.notes
+
+
+def test_one_channel_has_all_the_memory_and_the_fastest_timebase():
+    library = FakeLibrary()
+    reading = blocks(library, {"block_ms": 0.05, "enabled_b": False})
+    assert (reading._timebase, reading._block_samples) == (0, 5000)
+    assert reading._block_rate == pytest.approx(100e6)
+
+
+def test_a_block_longer_than_the_scope_can_take_is_its_longest_and_says_so():
+    library = FakeLibrary()
+    library.slowest = 10  # about 10 us a sample, so 82 ms of memory
+    reading = blocks(library, {"block_ms": 1000.0, "enabled_b": False})
+    assert reading._timebase == 10 and reading._block_samples == 8000
+    warnings = [text for text, is_warning in reading.notes if is_warning]
+    assert len(warnings) == 1 and "longest block the scope can take" in warnings[0]
+
+
+def test_the_first_poll_asks_for_a_block_and_the_next_brings_it_in():
+    library = FakeLibrary()
+    reading = blocks(library, trigger=pico.Trigger("A", 0.0, True, 0.5, auto=False))
+    library.calls.clear()
+    assert reading.poll() is None
+    assert library.calls == [
+        ("trigger", pico.CHANNEL_A, 0, pico.RISING, -50, 0),
+        ("block", 3125, 5),
+    ]
+    block = reading.poll()
+    assert block.sweep and block.first == 0 and len(block) == 3125
+    assert block.rate == pytest.approx(3_125_000)
+    assert block.trigger == 1562 and block.triggered
+    assert block.data["A"][0] == pytest.approx(-16000 * 5 / pico.MAX_VALUE)
+    assert block.data["A"].dtype == np.float32
+    # ...and the poll after that asks for the next one.
+    assert reading.poll() is None
+    assert library.calls[-1] == ("block", 3125, 5)
+
+
+def test_a_block_that_is_not_in_yet_is_waited_for():
+    library = FakeLibrary()
+    reading = blocks(library)
+    library.ready = 0
+    assert reading.poll() is None and reading.poll() is None and reading.poll() is None
+    assert library.calls.count(("block", 3125, 5)) == 1, "asked for once, not at every poll"
+    library.ready = 1
+    assert reading.poll().sweep
+
+
+def test_the_trigger_is_given_in_counts_of_the_range_the_channel_is_on():
+    library = FakeLibrary()
+    reading = blocks(
+        library,
+        {"range_b": "2V"},
+        pico.Trigger("B", level=1.0, rising=False, position=0.2, auto=True),
+    )
+    reading.poll()
+    half_scale = round(pico.MAX_VALUE / 2)
+    assert ("trigger", pico.CHANNEL_B, half_scale, pico.FALLING, -20, pico.AUTO_TRIGGER_MS) in (
+        library.calls
+    )
+
+
+def test_normal_waits_for_ever_and_auto_gives_up_after_a_while():
+    library = FakeLibrary()
+    waiting = blocks(library, trigger=pico.Trigger("A", auto=False))
+    waiting.poll()
+    assert library.calls[-2][-1] == 0, "nought is for ever"
+    library = FakeLibrary()
+    giving_up = blocks(library, {"block_ms": 200.0}, pico.Trigger("A", auto=True))
+    giving_up.poll()
+    assert library.calls[-2][-1] == 400, "twice the block's length, when that is longer"
+
+
+def test_with_no_trigger_blocks_are_taken_one_after_another():
+    library = FakeLibrary()
+    reading = blocks(library, trigger=pico.Trigger(None))
+    reading.poll()
+    assert ("trigger", pico.NO_TRIGGER) in library.calls
+    block = reading.poll()
+    assert block.sweep and block.trigger is None and not block.triggered
+
+
+def test_a_trigger_on_a_channel_that_is_off_is_no_trigger():
+    library = FakeLibrary()
+    reading = blocks(library, {"enabled_b": False}, pico.Trigger("B"))
+    reading.poll()
+    assert library.calls[-2] == ("trigger", pico.NO_TRIGGER)
+    assert reading.poll().trigger is None
+
+
+def test_a_block_taken_because_nothing_came_is_not_called_triggered():
+    library = FakeLibrary()
+    library.block_wave = lambda n: np.full(n, -16000)  # never near the level
+    reading = blocks(library, trigger=pico.Trigger("A", level=0.0, auto=True))
+    reading.poll()
+    block = reading.poll()
+    assert block.trigger == 1562 and not block.triggered
+
+
+def test_a_new_trigger_gives_up_the_block_being_waited_for():
+    """In Normal it would otherwise be waited for for ever, with the old level."""
+    library = FakeLibrary()
+    reading = blocks(library, trigger=pico.Trigger("A", level=4.0, auto=False))
+    library.ready = 0
+    reading.poll()
+    library.calls.clear()
+    reading.wanted_trigger = pico.Trigger("A", level=0.0, auto=False)
+    reading.poll()
+    assert library.calls == [
+        ("stop",),
+        ("trigger", pico.CHANNEL_A, 0, pico.RISING, -50, 0),
+        ("block", 3125, 5),
+    ]
+
+
+def test_a_range_change_between_blocks_is_taken_up_without_opening_again():
+    library = FakeLibrary()
+    reading = blocks(library, {"range_a": "5V"}, pico.Trigger("A", level=1.0))
+    reading.poll()
+    library.calls.clear()
+    reading.wanted = pico.Settings({"mode": "block", "range_a": "2V"})
+    reading.poll()
+    assert ("channel", pico.CHANNEL_A, True, True, 7) in library.calls
+    assert ("open",) not in library.calls
+    # The level is now half of the new range, not a fifth.
+    assert ("trigger", pico.CHANNEL_A, round(pico.MAX_VALUE / 2), pico.RISING, -50, 100) in (
+        library.calls
+    )
+    assert reading.poll().data["A"][-1] == pytest.approx(16000 * 2 / pico.MAX_VALUE)
+
+
+def test_a_scope_that_was_unplugged_while_a_block_was_waited_for_is_said():
+    library = FakeLibrary()
+    reading = blocks(library)
+    reading.poll()
+    library.ready = -1
+    with pytest.raises(pico.ScopeError, match="unplugged"):
+        reading.poll()
+
+
+def test_a_block_the_scope_will_not_take_is_said():
+    library = FakeLibrary()
+    library.takes_blocks = False
+    reading = blocks(library)
+    with pytest.raises(pico.ScopeError, match="would not take a block"):
+        reading.poll()
+
+
+def test_stopping_gives_up_the_block_and_leaves_the_scope_open():
+    library = FakeLibrary()
+    reading = blocks(library)
+    reading.poll()
+    reading.stop()
+    assert library.calls[-1] == ("stop",) and not reading.streaming
+    reading.start()
+    reading.poll()
+    assert library.calls.count(("open",)) == 1
+
+
+@pytest.mark.parametrize(
+    ("samples", "rising", "found"),
+    [
+        ([-1, -1, -1, 1, 1, 1, 1], True, True),
+        ([1, 1, 1, -1, -1, -1, -1], False, True),
+        ([-1, -1, -1, 1, 1, 1, 1], False, False),
+        ([-1, -1, -1, -1, -1, -1, -1], True, False),
+        ([2, 2, 2, 2, 2, 2, 2], True, False),
+    ],
+)
+def test_whether_the_signal_crossed_the_level_where_the_trigger_should_be(samples, rising, found):
+    assert pico.crossed(np.array(samples, dtype=np.float32), 3, 0.0, rising) is found
+
+
+def test_the_instrument_sends_sweeps_and_is_told_its_trigger(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000", None, {"mode": "block"})
+    assert instrument.sweeps
+    blocks_in = []
+    instrument.block.connect(blocks_in.append)
+    instrument.set_trigger("A", 0.0, True, 0.25, auto=False)
+    instrument.start()
+    run_for(app, instrument, lambda: len(blocks_in) >= 2)
+    assert all(block.sweep and block.trigger == 781 for block in blocks_in)
+    assert instrument.rate == pytest.approx(3_125_000), "the rate the scope chose"
+    instrument.set_trigger("A", 0.0, True, 0.75, auto=False)
+    run_for(app, instrument, lambda: blocks_in[-1].trigger == 2344)
+    instrument.close()
+
+
+# --- which model it is -------------------------------------------------------------------------
+def test_before_a_scope_is_open_the_ranges_offered_are_a_2204as():
+    ranges = [value for value, _label in setting("range_a", pico.settings_for(None)).choices]
+    assert ranges[0] == "50mV" and ranges[-1] == "20V" and "20mV" not in ranges
+
+
+def setting(key, settings):
+    return next(s for s in settings if s.key == key)
+
+
+def test_a_model_that_is_known_is_offered_what_it_has():
+    for model in ("2204A", "2205A"):
+        offered = pico.settings_for(model)
+        assert "20mV" not in [v for v, _ in setting("range_b", offered).choices]
+        assert any(s.key == "gen_wave" for s in offered)
+
+
+def test_a_scope_with_no_generator_is_not_offered_one():
+    offered = pico.settings_for("2202")
+    assert not any(s.key.startswith("gen_") for s in offered)
+    assert any(s.key == "range_a" for s in offered)
+
+
+def test_a_model_nobody_has_checked_is_offered_every_range():
+    """And refuses the ones it lacks, which is said when it does."""
+    offered = pico.settings_for("2203")
+    assert [v for v, _ in setting("range_a", offered).choices] == list(pico.RANGES)
+    assert any(s.key == "gen_wave" for s in offered)
+
+
+def test_every_model_named_has_ranges_the_driver_knows():
+    for model in pico.MODELS.values():
+        assert set(model.ranges) <= set(pico.RANGES)
+
+
+def test_the_instrument_offers_what_its_model_has_once_it_is_open(app, monkeypatch):
+    library = FakeLibrary(info={pico.INFO_VARIANT: b"2202"})
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    assert any(s.key == "gen_wave" for s in instrument.settings_offered())
+    opened = []
+    instrument.opened_changed.connect(opened.append)
+    instrument.open()
+    run_for(app, instrument, lambda: opened == [True])
+    assert not any(s.key == "gen_wave" for s in instrument.settings_offered())
+    instrument.close()
+
+
 def test_what_is_taken_up_as_it_runs_and_what_starts_the_run_again():
     """A range, the coupling and the generator leave the samples what they
     were; the rate and which channels are read do not."""
@@ -553,7 +859,13 @@ def test_what_is_taken_up_as_it_runs_and_what_starts_the_run_again():
         "gen_amplitude",
         "gen_offset",
     }
-    assert {s.key for s in pico.SETTINGS} - live == {"rate", "enabled_a", "enabled_b"}
+    assert {s.key for s in pico.SETTINGS} - live == {
+        "mode",
+        "rate",
+        "block_ms",
+        "enabled_a",
+        "enabled_b",
+    }
 
 
 # --- the library -----------------------------------------------------------------------------

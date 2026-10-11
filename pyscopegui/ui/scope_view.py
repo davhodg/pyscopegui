@@ -147,6 +147,9 @@ class ScopeView(QWidget):
         self._origin = 0.0
         #: Whether the axis is measured from a trigger at the moment.
         self._relative = False
+        #: The ends of the sweep on the time axis, while an instrument is
+        #: sending sweeps: all of one is what there is to show.
+        self._sweep_ends: tuple[float, float] | None = None
         self._ctx = ctx
         self._key = key
         self._curves: dict[str, pg.PlotDataItem] = {}
@@ -377,6 +380,19 @@ class ScopeView(QWidget):
         being waited for, and what was drawn last is what there is to show.
         """
         acquisition = self.acquisition
+        sweep = acquisition.sweep if acquisition is not None else None
+        held = next(iter(self.capture.records.values()), None)
+        if sweep is not None and held is not None:
+            # The instrument triggered, and says where: nothing to find here.
+            self._relative = sweep.trigger is not None
+            origin = (sweep.trigger or 0) / held.rate
+            self._sweep_ends = (-origin, sweep.length / held.rate - origin)
+            if acquisition.mode == STOP:
+                return origin, STOPPED
+            if not self._relative:
+                return origin, ""
+            return origin, TRIGGERED if sweep.triggered else FREE
+        self._sweep_ends = None
         record = acquisition.record() if acquisition is not None else None
         if record is None:
             self._relative = False
@@ -421,6 +437,9 @@ class ScopeView(QWidget):
         """Move the time axis to where Follow or All says it should be."""
         choice = self.time.currentText()
         if choice == MANUAL:
+            return
+        if self._sweep_ends is not None:
+            self.analog.setXRange(*self._sweep_ends, padding=0)
             return
         if self._relative:
             # Around the trigger, which is at nought: All has no meaning of

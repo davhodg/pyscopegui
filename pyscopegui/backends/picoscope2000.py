@@ -6,10 +6,13 @@ The older two-channel 2000 Series scopes -- 2202, 2203, 2204, 2204A, 2205 and
 2205A -- use the ``ps2000`` driver, not ``ps2000a``. The library comes with
 Pico's software and is not bundled: this looks for it where Pico installs it.
 
-Read in what Pico calls fast streaming: the scope samples continuously and
-the driver hands over whatever has arrived each time it is asked. That is the
-mode for anything slower than a few hundred microseconds a division, where
-the scope's own 8 kS buffer holds too little for block mode to be any use.
+Read in one of two ways. In what Pico calls fast streaming the scope samples
+continuously and the driver hands over whatever has arrived each time it is
+asked: up to a million samples a second, for as long as it is left running,
+with the trigger found by pyscopegui in the samples. In block mode the scope
+triggers itself and fills its own memory at up to a hundred million samples a
+second, which is a few thousand samples and so a short stretch of time: the
+mode for what is too fast to stream.
 
 Everything that talks to the scope runs on a thread of its own, because
 opening it takes seconds -- the driver loads the scope's firmware every time
@@ -23,11 +26,13 @@ from __future__ import annotations
 import copy
 import ctypes
 import ctypes.util
+import math
 import os
 import queue
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -77,6 +82,21 @@ WAVES = {"off": 5, "sine": 0, "square": 1, "triangle": 2}
 GENERATOR_VOLTS = 2.0
 GENERATOR_HZ = 100_000.0
 
+#: Trigger directions, as the driver numbers them.
+RISING, FALLING = 0, 1
+#: The slowest timebase any of these scopes has. Each is twice the interval
+#: of the one before, from the scope's fastest at nought.
+MAX_TIMEBASE = 23
+#: How long the scope waits for a trigger in Auto before taking the block
+#: anyway, in milliseconds, at the least.
+AUTO_TRIGGER_MS = 100
+#: The fewest samples a block is asked to hold, however short it is.
+FEWEST_SAMPLES = 16
+#: Either side of where the trigger should be, how many samples are looked
+#: at to see whether the signal really crossed the level there.
+NEAR_TRIGGER = 3
+STREAM, BLOCKS = "stream", "block"
+
 # --- how it is read ----------------------------------------------------------------------
 #: Samples a second on each channel, unless the settings say otherwise. Half
 #: the 1 MS/s the 2204A can stream, since whether that is shared between two
@@ -125,95 +145,194 @@ PROTOTYPES = {
     "ps2000_get_streaming_last_values": (_INT16, [_INT16, OverviewCallback]),
     "ps2000_overview_buffer_status": (_INT16, [_INT16, ctypes.POINTER(_INT16)]),
     "ps2000_stop": (_INT16, [_INT16]),
+    "ps2000_get_timebase": (
+        _INT16,
+        [
+            _INT16,
+            _INT16,
+            _INT32,
+            ctypes.POINTER(_INT32),
+            ctypes.POINTER(_INT16),
+            _INT16,
+            ctypes.POINTER(_INT32),
+        ],
+    ),
+    "ps2000_run_block": (_INT16, [_INT16, _INT32, _INT16, _INT16, ctypes.POINTER(_INT32)]),
+    "ps2000_ready": (_INT16, [_INT16]),
+    "ps2000_get_values": (
+        _INT32,
+        [_INT16, *[ctypes.POINTER(_INT16)] * 4, ctypes.POINTER(_INT16), _INT32],
+    ),
     "ps2000_set_sig_gen_built_in": (
         _INT16,
         [_INT16, _INT32, _UINT32, _INT32, *[ctypes.c_float] * 4, _INT32, _UINT32],
     ),
 }
 
-#: The 2204A starts at 50 mV. settings.json can still ask for 20 mV.
-_RANGE_CHOICES = tuple(
-    (name, f"±{name[:-2]} mV" if name.endswith("mV") else f"±{name[:-1]} V")
-    for name in RANGES
-    if name != "20mV"
-)
 _COUPLING = (("DC", "DC"), ("AC", "AC"))
 _GENERATOR = {"group": "Signal generator", "live": True}
-SETTINGS = (
-    Setting(
-        "rate",
-        "Sample rate",
-        500_000,
-        choices=(
-            (1_000_000, "1 MS/s"),
-            (500_000, "500 kS/s"),
-            (200_000, "200 kS/s"),
-            (100_000, "100 kS/s"),
-            (50_000, "50 kS/s"),
-            (20_000, "20 kS/s"),
-            (10_000, "10 kS/s"),
+
+
+@dataclass(frozen=True)
+class Model:
+    """What one model of scope has, where that is known."""
+
+    #: The ranges it has. Empty where that has not been checked: every range
+    #: is then offered, and the scope refuses the ones it lacks.
+    ranges: tuple[str, ...] = ()
+    generator: bool = True
+
+
+#: From 50 mV up, which is what the 2204A and 2205A have.
+_FROM_50MV = tuple(name for name in RANGES if name != "20mV")
+#: By the name the scope gives itself. The ranges of the 2204A and 2205A are
+#: from Pico's specifications; that the 2202 has no signal generator is from
+#: Pico's programmer's guide. A scope not here is offered everything.
+MODELS: dict[str, Model] = {
+    "2204A": Model(_FROM_50MV),
+    "2205A": Model(_FROM_50MV),
+    "2202": Model(generator=False),
+}
+
+
+def _range_label(name: str) -> str:
+    return f"±{name[:-2]} mV" if name.endswith("mV") else f"±{name[:-1]} V"
+
+
+def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ...]:
+    """The settings to offer for a scope with these ranges, and a generator or none."""
+    choices = tuple((name, _range_label(name)) for name in ranges)
+    made = [
+        Setting(
+            "mode",
+            "Reading",
+            STREAM,
+            choices=((STREAM, "Streaming, to 1 MS/s"), (BLOCKS, "Blocks, to 100 MS/s")),
+            group="Sampling",
+            tip=(
+                "Streaming reads continuously, for as long as it runs, and pyscopegui\n"
+                "finds the trigger. Blocks are short stretches taken at up to the\n"
+                "scope's full rate, each around the scope's own trigger: for what\n"
+                "is too fast to stream."
+            ),
         ),
-        group="Sampling",
-        tip="Samples a second on each channel.",
-    ),
-    Setting(
-        "enabled_a",
-        "Enabled",
-        True,
-        group="Channel A",
-        tip="Whether channel A is read at all.",
-    ),
-    Setting("range_a", "Range", "5V", choices=_RANGE_CHOICES, group="Channel A", live=True),
-    Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A", live=True),
-    Setting(
-        "enabled_b",
-        "Enabled",
-        True,
-        group="Channel B",
-        tip="Whether channel B is read at all.",
-    ),
-    Setting("range_b", "Range", "5V", choices=_RANGE_CHOICES, group="Channel B", live=True),
-    Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B", live=True),
-    Setting(
-        "gen_wave",
-        "Output",
-        "off",
-        choices=(("off", "Off"), ("sine", "Sine"), ("square", "Square"), ("triangle", "Triangle")),
-        tip="What the scope's signal generator output puts out. Off is zero volts.",
-        **_GENERATOR,
-    ),
-    Setting(
-        "gen_frequency",
-        "Frequency",
-        1000.0,
-        minimum=1.0,
-        maximum=GENERATOR_HZ,
-        unit="Hz",
-        **_GENERATOR,
-    ),
-    Setting(
-        "gen_amplitude",
-        "Peak to peak",
-        2.0,
-        maximum=2 * GENERATOR_VOLTS,
-        decimals=2,
-        step=0.1,
-        unit="V",
-        tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
-        **_GENERATOR,
-    ),
-    Setting(
-        "gen_offset",
-        "Offset",
-        0.0,
-        minimum=-GENERATOR_VOLTS,
-        maximum=GENERATOR_VOLTS,
-        decimals=2,
-        step=0.1,
-        unit="V",
-        **_GENERATOR,
-    ),
-)
+        Setting(
+            "rate",
+            "Sample rate",
+            500_000,
+            choices=(
+                (1_000_000, "1 MS/s"),
+                (500_000, "500 kS/s"),
+                (200_000, "200 kS/s"),
+                (100_000, "100 kS/s"),
+                (50_000, "50 kS/s"),
+                (20_000, "20 kS/s"),
+                (10_000, "10 kS/s"),
+            ),
+            group="Sampling",
+            tip="When streaming: samples a second on each channel.",
+        ),
+        Setting(
+            "block_ms",
+            "Block length",
+            1.0,
+            minimum=0.001,
+            maximum=1000.0,
+            decimals=3,
+            unit="ms",
+            group="Sampling",
+            tip=(
+                "When reading blocks: how long a stretch each one is. The scope's\n"
+                "memory holds a few thousand samples, so a shorter block is sampled\n"
+                "faster. The Event Log says what rate a length came to."
+            ),
+        ),
+        Setting(
+            "enabled_a", "Enabled", True, group="Channel A", tip="Whether channel A is read at all."
+        ),
+        Setting("range_a", "Range", "5V", choices=choices, group="Channel A", live=True),
+        Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A", live=True),
+        Setting(
+            "enabled_b", "Enabled", True, group="Channel B", tip="Whether channel B is read at all."
+        ),
+        Setting("range_b", "Range", "5V", choices=choices, group="Channel B", live=True),
+        Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B", live=True),
+    ]
+    if generator:
+        made += [
+            Setting(
+                "gen_wave",
+                "Output",
+                "off",
+                choices=(
+                    ("off", "Off"),
+                    ("sine", "Sine"),
+                    ("square", "Square"),
+                    ("triangle", "Triangle"),
+                ),
+                tip="What the scope's signal generator output puts out. Off is zero volts.",
+                **_GENERATOR,
+            ),
+            Setting(
+                "gen_frequency",
+                "Frequency",
+                1000.0,
+                minimum=1.0,
+                maximum=GENERATOR_HZ,
+                unit="Hz",
+                **_GENERATOR,
+            ),
+            Setting(
+                "gen_amplitude",
+                "Peak to peak",
+                2.0,
+                maximum=2 * GENERATOR_VOLTS,
+                decimals=2,
+                step=0.1,
+                unit="V",
+                tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
+                **_GENERATOR,
+            ),
+            Setting(
+                "gen_offset",
+                "Offset",
+                0.0,
+                minimum=-GENERATOR_VOLTS,
+                maximum=GENERATOR_VOLTS,
+                decimals=2,
+                step=0.1,
+                unit="V",
+                **_GENERATOR,
+            ),
+        ]
+    return tuple(made)
+
+
+#: What is offered before a scope is open and has said which model it is:
+#: what the 2204A has.
+SETTINGS = make_settings(_FROM_50MV, generator=True)
+
+
+def settings_for(model: str | None) -> tuple[Setting, ...]:
+    """What to offer for the model a scope says it is, or for none yet."""
+    if model is None:
+        return SETTINGS
+    known = MODELS.get(model, Model())
+    return make_settings(known.ranges or tuple(RANGES), known.generator)
+
+
+@dataclass(frozen=True)
+class Trigger:
+    """What the scope itself is to trigger on, when it is reading blocks."""
+
+    #: "A", "B" or None for no trigger.
+    source: str | None = None
+    level: float = 0.0
+    rising: bool = True
+    #: Where the trigger sits in the block, from 0 at its start to 1 at its end.
+    position: float = 0.5
+    #: Take the block anyway when no trigger comes.
+    auto: bool = True
 
 
 class ScopeError(Exception):
@@ -307,6 +426,10 @@ class Settings:
             "A": bool(options.get("enabled_a", True)),
             "B": bool(options.get("enabled_b", True)),
         }
+        #: Blocks around the scope's own trigger, and not a stream.
+        self.blocks = options.get("mode") == BLOCKS
+        #: How long a stretch each block is, in seconds.
+        self.block_s = min(max(self._number(options.get("block_ms"), 1.0), 0.001), 1000.0) / 1000
         wave = options.get("gen_wave", "off")
         #: Waveform, frequency in hertz, volts peak to peak, volts of offset.
         self.generator: tuple[str, float, float, float] = (
@@ -355,8 +478,20 @@ class Stream:
         self._sent = 0
         self._started = 0.0
         self._rate_checked = False
-        #: Whether the scope is streaming now.
+        #: Whether the scope is reading now, as a stream or in blocks.
         self.streaming = False
+        #: What it is called by itself, once open: "2204A".
+        self.model: str | None = None
+        #: The trigger for blocks, and one waiting to replace it, set from
+        #: the GUI thread as ``wanted`` is.
+        self.trigger = Trigger()
+        self.wanted_trigger: Trigger | None = None
+        #: In blocks: whether one has been asked for and is not yet in, and
+        #: the timebase, length and rate they are taken at.
+        self._block_pending = False
+        self._timebase = 0
+        self._block_samples = 0
+        self._block_rate = 0.0
         #: True until the next block: reading stopped for a moment, on purpose.
         self._paused = False
         #: Whether the generator has been set to anything but off.
@@ -388,9 +523,8 @@ class Stream:
         if handle <= 0:
             raise ScopeError(self._why_not_opened(handle))
         self._handle = handle
-        self.notes.append(
-            (f"PicoScope {self._info(INFO_VARIANT)}, {self._info(INFO_SERIAL)}.", False)
-        )
+        self.model = self._info(INFO_VARIANT)
+        self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
 
     def _info(self, line: int) -> str:
         text = ctypes.create_string_buffer(64)
@@ -409,8 +543,8 @@ class Stream:
         return f"The PicoScope would not open: {reason or 'driver error ' + code}."
 
     # --- running ---------------------------------------------------------------------------
-    def start(self, settings: Settings | None = None) -> None:
-        """Set the scope up and start it streaming, counting samples from zero.
+    def start(self, settings: Settings | None = None, trigger: Trigger | None = None) -> None:
+        """Set the scope up and start it reading, counting samples from zero.
 
         The scope stays open whether or not this works, so a setting it
         refuses can be put right and tried again without opening it again.
@@ -418,10 +552,19 @@ class Stream:
         self.stop()
         if settings is not None:
             self.settings = settings
+        if trigger is not None:
+            self.trigger = trigger
         if not self.settings.keys():
             raise ScopeError("Both channels are switched off, so there is nothing to read.")
         self._set_channels()
         self.set_generator(self.settings.generator)
+        # What is waiting to be taken up is left waiting: it was asked for
+        # after this start was, and is newer than what this start was given.
+        if self.settings.blocks:
+            self._choose_timebase()
+            self._block_pending = False
+            self.streaming = True
+            return
         # No trigger: streaming is everything, from the moment it starts.
         self._library.ps2000_set_trigger(self._handle, NO_TRIGGER, 0, 0, 0, 0)
         self._start_streaming()
@@ -429,7 +572,6 @@ class Stream:
         self._started = self._clock()
         self._rate_checked = False
         self._paused = False
-        self.wanted = None
 
     def _set_channels(self) -> None:
         settings = self.settings
@@ -463,10 +605,161 @@ class Stream:
         self.streaming = True
 
     def stop(self) -> None:
-        """Stop streaming and leave the scope open. Safe when it is not streaming."""
+        """Stop reading and leave the scope open. Safe when it is not reading."""
         if self.streaming:
             self._library.ps2000_stop(self._handle)
         self.streaming = False
+        self._block_pending = False
+
+    # --- blocks ----------------------------------------------------------------------------
+    def _choose_timebase(self) -> None:
+        """The fastest timebase at which the scope's memory holds a block this long.
+
+        The scope is asked about each in turn, as Pico's guide says to: what
+        it has depends on the model and on how many channels are on.
+        """
+        wanted_ns = self.settings.block_s * 1e9
+        interval, units, most = ctypes.c_int32(0), ctypes.c_int16(0), ctypes.c_int32(0)
+        found: tuple[int, int, int] | None = None
+        for timebase in range(MAX_TIMEBASE + 1):
+            usable = self._library.ps2000_get_timebase(
+                self._handle,
+                timebase,
+                1,
+                ctypes.byref(interval),
+                ctypes.byref(units),
+                1,
+                ctypes.byref(most),
+            )
+            if not usable or interval.value <= 0 or most.value <= 0:
+                continue
+            found = (timebase, interval.value, most.value)
+            if interval.value * most.value >= wanted_ns:
+                break
+        if found is None:
+            raise ScopeError("The scope offered no timebase to read a block at.")
+        self._timebase, interval_ns, most_samples = found
+        samples = max(FEWEST_SAMPLES, math.ceil(wanted_ns / interval_ns))
+        self._block_samples = min(samples, most_samples)
+        self._block_rate = 1e9 / interval_ns
+        length = self._block_samples * interval_ns / 1e9
+        self.notes.append(
+            (
+                f"Blocks of {self._block_samples} samples at {self._block_rate:,.0f} a second: "
+                f"{length * 1e3:g} ms each.",
+                False,
+            )
+        )
+        if samples > most_samples:
+            self.notes.append(
+                (
+                    f"That is the longest block the scope can take: {length * 1e3:g} ms of "
+                    f"the {wanted_ns / 1e6:g} ms asked for. Streaming reads for longer.",
+                    True,
+                )
+            )
+
+    def _arm(self) -> None:
+        """Tell the scope what to trigger on, and start it filling a block."""
+        trigger, settings = self.trigger, self.settings
+        source = {"A": CHANNEL_A, "B": CHANNEL_B}.get(trigger.source, NO_TRIGGER)
+        if trigger.source is None or not settings.enabled.get(trigger.source, False):
+            source = NO_TRIGGER
+        counts = 0
+        if source != NO_TRIGGER:
+            _code, volts = RANGES[settings.ranges[trigger.source]]
+            counts = round(min(max(trigger.level / volts, -1.0), 1.0) * MAX_VALUE)
+        # How long to wait for a trigger before taking the block anyway:
+        # nought is for ever, which is what Normal and Single mean.
+        wait_ms = max(AUTO_TRIGGER_MS, round(2e3 * settings.block_s)) if trigger.auto else 0
+        self._library.ps2000_set_trigger(
+            self._handle,
+            source,
+            counts,
+            RISING if trigger.rising else FALLING,
+            # As a share of the block, back from its start: -50 is the middle.
+            -round(trigger.position * 100),
+            min(wait_ms, 32767),
+        )
+        taken = ctypes.c_int32(0)
+        started = self._library.ps2000_run_block(
+            self._handle, self._block_samples, self._timebase, 1, ctypes.byref(taken)
+        )
+        if not started:
+            raise ScopeError(
+                f"The scope would not take a block of {self._block_samples} samples. "
+                "Try a different block length."
+            )
+        self._block_pending = True
+
+    def _poll_block(self) -> Block | None:
+        """The block that was asked for, if it is in; and ask for the next."""
+        wanted, self.wanted = self.wanted, None
+        trigger, self.wanted_trigger = self.wanted_trigger, None
+        if wanted is not None or trigger is not None:
+            # A block being waited for was asked for with the old settings,
+            # and in Normal may be waited for for ever: give it up.
+            if self._block_pending:
+                self._library.ps2000_stop(self._handle)
+                self._block_pending = False
+            if trigger is not None:
+                self.trigger = trigger
+            if wanted is not None:
+                self._take_up_between_blocks(wanted)
+        if not self._block_pending:
+            self._arm()
+            return None
+        ready = self._library.ps2000_ready(self._handle)
+        if ready < 0:
+            raise ScopeError("The scope stopped answering: it may have been unplugged.")
+        if ready == 0:
+            return None
+        self._block_pending = False
+        return self._read_block()
+
+    def _take_up_between_blocks(self, wanted: Settings) -> None:
+        before, self.settings = self.settings, wanted
+        try:
+            if (wanted.ranges, wanted.dc) != (before.ranges, before.dc):
+                self._set_channels()
+        except ScopeError as exc:
+            self.settings = replace_setup(wanted, before)
+            self._set_channels()
+            self.notes.append((f"{exc} It is still set as it was.", True))
+        if wanted.generator != before.generator:
+            self.set_generator(wanted.generator)
+
+    def _read_block(self) -> Block | None:
+        settings, samples = self.settings, self._block_samples
+        buffers = {
+            key: (ctypes.c_int16 * samples)() if settings.enabled[key] else None
+            for key in ("A", "B")
+        }
+        overflow = ctypes.c_int16(0)
+        count = self._library.ps2000_get_values(
+            self._handle, buffers["A"], buffers["B"], None, None, ctypes.byref(overflow), samples
+        )
+        if count <= 0:
+            return None
+        data = {}
+        for key, buffer in buffers.items():
+            if buffer is None:
+                continue
+            _code, volts = RANGES[settings.ranges[key]]
+            raw = np.ctypeslib.as_array(buffer)[:count]
+            data[key] = raw.astype(np.float32) * np.float32(volts / MAX_VALUE)
+        trigger = self.trigger
+        if trigger.source not in data:
+            return Block(0, self._block_rate, data, sweep=True)
+        at = min(round(trigger.position * samples), count - 1)
+        return Block(
+            0,
+            self._block_rate,
+            data,
+            sweep=True,
+            trigger=at,
+            triggered=crossed(data[trigger.source], at, trigger.level, trigger.rising),
+        )
 
     def _take_up(self, wanted: Settings) -> None:
         """Change a range, the coupling or the generator while streaming.
@@ -543,6 +836,8 @@ class Stream:
 
     def poll(self) -> Block | None:
         """Whatever has arrived since the last poll, or None if nothing has."""
+        if self.settings.blocks:
+            return self._poll_block()
         # Taken and cleared in one step: it is set from the GUI thread.
         wanted, self.wanted = self.wanted, None
         if wanted is not None:
@@ -608,6 +903,22 @@ class Stream:
         self._handle = 0
 
 
+def crossed(samples: np.ndarray, at: int, level: float, rising: bool) -> bool:
+    """Whether the signal goes through the level at this sample, the way asked for.
+
+    The driver does not say whether a block was triggered or taken because
+    nothing came, so the samples either side of where the trigger should be
+    are looked at instead.
+    """
+    before = samples[max(at - NEAR_TRIGGER, 0) : at + 1]
+    after = samples[at : at + NEAR_TRIGGER + 1]
+    if not len(before) or not len(after):
+        return False
+    if rising:
+        return bool(before.min() <= level <= after.max()) and bool(before.min() < after.max())
+    return bool(after.min() <= level <= before.max()) and bool(after.min() < before.max())
+
+
 def replace_setup(wanted: Settings, before: Settings) -> Settings:
     """``wanted``, with the ranges and coupling ``before`` had: for a change the scope refused."""
     kept = copy.copy(wanted)
@@ -627,7 +938,8 @@ class _Reader(QThread):
     note = Signal(str)
     warning = Signal(str)
     failed = Signal(str)
-    opened = Signal()
+    #: The model the scope says it is.
+    opened = Signal(str)
     #: The run that has started, or stopped.
     started_run = Signal(int)
     stopped_run = Signal(int)
@@ -638,7 +950,7 @@ class _Reader(QThread):
         self._asked: queue.SimpleQueue = queue.SimpleQueue()
 
     def ask(self, *command) -> None:
-        """("start", settings, run), ("stop",) or ("close",): done in the order asked."""
+        """("start", settings, run, trigger), ("stop",) or ("close",): done in the order asked."""
         self._asked.put(command)
 
     def _say(self) -> None:
@@ -652,7 +964,7 @@ class _Reader(QThread):
         try:
             stream.open()
             self._say()
-            self.opened.emit()
+            self.opened.emit(stream.model or "")
             while True:
                 try:
                     # Waiting to be asked is also the pause between two polls.
@@ -669,7 +981,7 @@ class _Reader(QThread):
                     if command[0] == "start":
                         run = command[2]
                         try:
-                            stream.start(command[1])
+                            stream.start(command[1], command[3])
                             self._say()
                             self.started_run.emit(run)
                         except ScopeError as exc:
@@ -715,6 +1027,29 @@ class PicoScope2000(Instrument):
         #: Which run the blocks that count belong to. One more at each start,
         #: so that what a run sends after it was replaced is told apart.
         self._run = 0
+        #: The model the scope said it is, once it has been opened.
+        self._model: str | None = None
+        self._trigger = Trigger()
+        #: The rate the last block was taken at, which the scope chooses.
+        self._block_rate = 0.0
+
+    def settings_offered(self) -> tuple[Setting, ...]:
+        return settings_for(self._model)
+
+    @property
+    def sweeps(self) -> bool:
+        return self.settings.blocks
+
+    def set_trigger(
+        self, source: str | None, level: float, rising: bool, position: float, auto: bool
+    ) -> None:
+        """What the scope is to trigger on, when it is reading blocks."""
+        wanted = Trigger(source, level, rising, position, auto)
+        if wanted == self._trigger:
+            return
+        self._trigger = wanted
+        if self._running and self._stream is not None and self.settings.blocks:
+            self._stream.wanted_trigger = wanted
 
     def set(self, key: str, value: object) -> None:
         """Take up a setting: now if it is running, and at the next start if not."""
@@ -738,6 +1073,9 @@ class PicoScope2000(Instrument):
 
     @property
     def rate(self) -> float:
+        if self.settings.blocks:
+            # Chosen by the scope for the block length, so known once a block is in.
+            return self._block_rate or 1e9 / max(self.settings.block_s * 1e9 / 4000, 10)
         return self.settings.rate
 
     @property
@@ -773,8 +1111,9 @@ class PicoScope2000(Instrument):
         # Opening cannot be interrupted, so this can be most of its few seconds.
         self._reader.wait(10_000)
 
-    def _on_opened(self) -> None:
+    def _on_opened(self, model: str) -> None:
         self._is_open = True
+        self._model = model or None
         self.opened_changed.emit(True)
 
     def _on_finished(self) -> None:
@@ -794,7 +1133,10 @@ class PicoScope2000(Instrument):
         self.open()
         self._run += 1
         self._running = True
-        self._reader.ask("start", self.settings, self._run)
+        self._block_rate = 0.0
+        # Nothing asked for before now is still waiting: this start carries it all.
+        self._stream.wanted = self._stream.wanted_trigger = None
+        self._reader.ask("start", self.settings, self._run, self._trigger)
 
     def stop(self) -> None:
         if not self._running or self._reader is None:
@@ -807,6 +1149,8 @@ class PicoScope2000(Instrument):
 
     def _on_block(self, run: int, block: Block) -> None:
         if run == self._run and self._running:
+            if block.sweep:
+                self._block_rate = block.rate
             self.block.emit(block)
 
     def _on_started(self, run: int) -> None:

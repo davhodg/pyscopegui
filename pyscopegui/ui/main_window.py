@@ -71,10 +71,11 @@ HISTORY_TIP = (
 
 
 def short_time(seconds: float) -> str:
-    """600 -> "10 min": a length of time as it is said."""
-    if seconds >= 60:
-        return f"{seconds / 60:g} min"
-    return f"{seconds:g} s"
+    """600 -> "10 min", 0.001 -> "1 ms": a length of time as it is said."""
+    for unit, size in (("min", 60.0), ("s", 1.0), ("ms", 1e-3)):
+        if seconds >= size:
+            return f"{seconds / size:.3g} {unit}"
+    return f"{seconds * 1e6:.3g} us" if seconds > 0 else "0 s"
 
 
 def short_bytes(count: int) -> str:
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         #: Stop, Single, Normal or Auto, and the trigger they wait for.
         self.acquisition = Acquisition(self.capture, parent=self)
         self.acquisition.single_done.connect(self._on_single_done)
+        self.acquisition.changed.connect(self._tell_trigger)
         self.acquisition.longest_window = self._longest_window
         #: Whichever back end was last opened, kept until another is chosen.
         self.instrument: Instrument | None = None
@@ -261,9 +263,13 @@ class MainWindow(QMainWindow):
         if not self._have(self.instrument_bar.current()):
             self._show_mode(STOP)
             return
-        if not self.instrument.running and not self._begin():
-            self._show_mode(STOP)
-            return
+        if not self.instrument.running:
+            # Before it starts, so that an instrument that triggers itself is
+            # told from the first whether to wait for ever or not.
+            self.acquisition.set_mode(mode)
+            if not self._begin():
+                self._show_mode(STOP)
+                return
         self.instrument_bar.set_open(True)
         self._show_mode(mode)
 
@@ -288,7 +294,12 @@ class MainWindow(QMainWindow):
     def _make_records(self) -> bool:
         """Empty records for the instrument's channels. False, and said, if there is no room."""
         try:
-            self.capture.set_channels(self.instrument.channels(), self.instrument.rate)
+            self.capture.set_channels(
+                self.instrument.channels(),
+                self.instrument.rate,
+                # One sweep at a time, whatever its length turns out to be.
+                capacity=1 if self.instrument.sweeps else None,
+            )
         except MemoryError:
             self.events.error(
                 f"There is not enough memory to keep {short_time(self.capture.history_s)} of "
@@ -302,13 +313,29 @@ class MainWindow(QMainWindow):
         """Start a run, from an empty plot with time counted from zero. False if it could not."""
         if not self._make_records():
             return False
-        self.events.information(
-            f"Keeping the last {short_time(self.capture.history_s)} of each channel: up to "
-            f"{short_bytes(self.capture.memory_bytes())} of memory at this rate."
-        )
+        if not self.instrument.sweeps:
+            self.events.information(
+                f"Keeping the last {short_time(self.capture.history_s)} of each channel: up to "
+                f"{short_bytes(self.capture.memory_bytes())} of memory at this rate."
+            )
         self.acquisition.reset()
+        self._tell_trigger()
         self.instrument.start()
         return True
+
+    def _tell_trigger(self) -> None:
+        """Tell the instrument what is being waited for, in case it triggers itself."""
+        if self.instrument is None:
+            return
+        acquisition = self.acquisition
+        self.instrument.set_trigger(
+            acquisition.source,
+            acquisition.level,
+            acquisition.rising,
+            acquisition.position,
+            # Normal and Single wait for a trigger however long it takes.
+            auto=acquisition.mode == AUTO,
+        )
 
     def _restart(self, change=None) -> None:
         """Stop the run, make a change that needs it stopped, and run again as it was."""
@@ -331,7 +358,7 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _on_block(self, block) -> None:
         self.capture.add(block)
-        self.acquisition.examine()
+        self.acquisition.examine(block)
 
     @Slot()
     def _on_single_done(self) -> None:
@@ -393,7 +420,12 @@ class MainWindow(QMainWindow):
         if self.sender() is not self.instrument:
             return
         self.instrument_bar.set_open(is_open)
-        if not is_open:
+        if is_open:
+            # Now that it knows which model it is: the ranges that one has.
+            self.instrument_view.show_settings(
+                self.instrument.settings_offered(), self._options(self._instrument_name)
+            )
+        else:
             self._show_mode(STOP)
         self._update_status()
 
@@ -433,7 +465,7 @@ class MainWindow(QMainWindow):
             doing = "open, stopped" if self.instrument.is_open else "closed"
         self.status.setText(
             f"{backends.title(self._instrument_name)}: {doing}, "
-            f"{short_rate(self.instrument.rate)}, {held:.1f} s held"
+            f"{short_rate(self.instrument.rate)}, {short_time(held)} held"
         )
 
     # --- panes ---------------------------------------------------------------------------

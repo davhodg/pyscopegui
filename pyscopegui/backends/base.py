@@ -87,6 +87,16 @@ class Block:
     #: stopped reading for a moment to do something else. Drawn as a gap like
     #: any other, and not reported as samples lost.
     after_pause: bool = False
+    #: A capture complete in itself, taken by the instrument around its own
+    #: trigger, rather than the next stretch of a stream. It takes the place
+    #: of whatever was held; ``first`` is nought.
+    sweep: bool = False
+    #: In a sweep, the sample the instrument's trigger is at, or None if it
+    #: was set to take the sweep without one.
+    trigger: int | None = None
+    #: In a sweep, whether the signal crossed the level there, as opposed to
+    #: the instrument giving up waiting and taking the sweep anyway.
+    triggered: bool = False
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))
@@ -112,8 +122,27 @@ class Instrument(QObject):
     #: It is still running, but what it is sending is not what was asked for.
     warning = Signal(str)
 
-    #: What can be set, in the order it should be listed.
+    #: What can be set, in the order it should be listed, before anything
+    #: is known about the instrument that is plugged in.
     SETTINGS: tuple[Setting, ...] = ()
+
+    def settings_offered(self) -> tuple[Setting, ...]:
+        """What can be set on this one. Asked again once it is open, when a
+        back end may know more: which ranges this model has."""
+        return self.SETTINGS
+
+    @property
+    def sweeps(self) -> bool:
+        """Whether it sends sweeps, each complete in itself, rather than a stream."""
+        return False
+
+    def set_trigger(
+        self, source: str | None, level: float, rising: bool, position: float, auto: bool
+    ) -> None:
+        """What to trigger on, for an instrument that sends sweeps and so
+        triggers itself. ``auto`` is to take a sweep anyway when no trigger
+        comes. An instrument that streams is triggered by pyscopegui, and
+        need do nothing here."""
 
     def set(self, key: str, value: object) -> None:
         """Take up a setting. A ``live`` one may arrive while running; any
