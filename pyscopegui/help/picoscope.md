@@ -56,10 +56,10 @@ channel list on the plot says what that came to.
 
 ## Before you start
 
-- **Install Pico's software.** The PicoSDK or PicoScope 7, from
-  [picotech.com/downloads](https://www.picotech.com/downloads). pyscopegui uses the
-  `ps2000` library that comes with either, and does not include it.
-- **Close PicoScope 7.** Only one program can have the scope open.
+- **Install the PicoSDK**, from [picotech.com/downloads](https://www.picotech.com/downloads).
+  pyscopegui uses the `ps2000` library that comes with it, and does not include it.
+- **Close PicoScope 7**, Pico's own program, if it is running. Only one program can have
+  the scope open.
 - **Plug the scope straight into the computer.** Opening it loads its firmware, and the
   scope leaves the USB bus and comes back while that happens. A virtual machine that has
   been handed the scope by its USB address loses it at that moment.

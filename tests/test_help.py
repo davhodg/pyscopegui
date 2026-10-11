@@ -662,3 +662,36 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     assert "mode=auto trigger=none" in report
     assert "shown=['demo:B', 'demo:D0', 'demo:D1', 'demo:D2', 'demo:D3']" in report
     window.stop()
+
+
+def test_a_pip_installation_finds_its_licence_among_its_own_metadata(tmp_path, monkeypatch):
+    """A wheel carries LICENSE and NOTICE in its dist-info, and nowhere else."""
+    from importlib import metadata
+
+    from pyscopegui.ui import help_menu
+
+    licences = tmp_path / "pyscopegui-0.1.0.dist-info" / "licenses"
+    licences.mkdir(parents=True)
+    (licences / "NOTICE").write_text("the notice", encoding="utf-8")
+
+    class Installed:
+        files = (metadata.PackagePath("pyscopegui-0.1.0.dist-info/licenses/NOTICE"),)
+
+        def locate_file(self, file):
+            return tmp_path / file
+
+    monkeypatch.setattr(metadata, "distribution", lambda _name: Installed())
+    assert help_menu._find_installed("NOTICE") == licences / "NOTICE"
+    assert help_menu._find_installed("LICENSE") is None
+
+
+def test_no_installation_at_all_is_not_an_error(monkeypatch):
+    from importlib import metadata
+
+    from pyscopegui.ui import help_menu
+
+    def missing(_name):
+        raise metadata.PackageNotFoundError
+
+    monkeypatch.setattr(metadata, "distribution", missing)
+    assert help_menu._find_installed("LICENSE") is None

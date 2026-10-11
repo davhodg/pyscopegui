@@ -38,7 +38,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger.
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. The logic inputs and signal generator that some models have are not used yet. Nothing of Rigol's needs installing.
 
-Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
+Pico's library is not bundled. Install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads). If Pico's own PicoScope 7 is running, close it first, since only one program can have the scope open.
 
 The **Instrument** pane sets the scope up: sample rate, and each channel's scale in volts a division, probe, coupling and whether it is read at all. The scope is opened once and kept open, so starting, stopping and changing a setting are quick.
 

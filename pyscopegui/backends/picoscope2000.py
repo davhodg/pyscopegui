@@ -430,8 +430,9 @@ def library_candidates(platform: str | None = None, environ=None) -> list[Path]:
                 continue
             pico = Path(base) / "Pico Technology"
             found.append(pico / "SDK" / "lib" / "ps2000.dll")
-            # PicoScope 7 keeps a copy beside its own program, in a folder
-            # named for the edition.
+            # Looked for beside Pico's own programs too, each in a folder of
+            # its own: a copy there serves as well. Not promised anywhere,
+            # since which of them carry one is Pico's business.
             found.extend(sorted(pico.glob("*/ps2000.dll")))
         return found
     return [Path("/opt/picoscope/lib/libps2000.so.2"), Path("/opt/picoscope/lib/libps2000.so")]
@@ -457,8 +458,8 @@ def load_library():
     path = find_library()
     if path is None:
         raise ImportError(
-            "Pico's ps2000 library was not found. It comes with the PicoSDK, and with "
-            "PicoScope 7, from picotech.com/downloads; or set "
+            "Pico's ps2000 library was not found. It comes with the PicoSDK, from "
+            "picotech.com/downloads; or set "
             f"{LIBRARY_ENV} to the full path of ps2000.dll (libps2000.so on Linux)."
         )
     try:

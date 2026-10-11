@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import platform
 import sys
+from importlib import metadata
 from pathlib import Path
 from typing import NamedTuple
 
@@ -76,9 +77,9 @@ LICENCE_FILES = (
 def _find(name: str) -> Path | None:
     """Locate a file shipped alongside the application.
 
-    Three places, because the same code runs from a checkout and from an
-    installed build, where PyInstaller puts data next to the executable or in
-    its _internal folder depending on the version.
+    Four places, because the same code runs from a checkout, from a pip
+    installation and from an installed build, where PyInstaller puts data
+    next to the executable or in its _internal folder depending on the version.
     """
     roots = []
     if getattr(sys, "frozen", False):
@@ -90,6 +91,24 @@ def _find(name: str) -> Path | None:
         candidate = root / name
         if candidate.is_file():
             return candidate
+    return _find_installed(name)
+
+
+def _find_installed(name: str) -> Path | None:
+    """A licence file as pip installs it: among the package's own metadata.
+
+    A wheel carries LICENSE and NOTICE in ``pyscopegui-<version>.dist-info/licenses``
+    and nowhere else, so a pip installation has nothing beside the package.
+    """
+    try:
+        installed = metadata.distribution("pyscopegui")
+    except metadata.PackageNotFoundError:
+        return None
+    for file in installed.files or ():
+        if file.name == name and "licenses" in file.parts:
+            path = Path(str(installed.locate_file(file)))
+            if path.is_file():
+                return path
     return None
 
 
