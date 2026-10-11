@@ -5,7 +5,7 @@
 Each is a module imported only when it is asked for, which is how python-can
 keeps its adapters: a back end may need a maker's library that is not on this
 machine, and one that cannot load must not take the others with it. The
-maker's library is never bundled. Install it, and its back end finds it.
+maker's library is never bundled: it is installed separately.
 """
 
 from __future__ import annotations

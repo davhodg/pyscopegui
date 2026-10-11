@@ -124,9 +124,9 @@ Settings are remembered for each instrument separately, in [your files](files.md
 
 ## A maker's library
 
-An instrument that needs its maker's library -- a driver, an SDK -- does not come with it.
-Install the maker's software and pyscopegui finds the library at run time. If it cannot, the
-[Event Log](event-log.md) says which library it looked for and where to get it.
+An instrument that needs its maker's library -- a driver, an SDK -- does not come with it:
+install it from the maker. If it is missing, the [Event Log](event-log.md) says which
+library was looked for and where to get it.
 
 ## Demo signals
 

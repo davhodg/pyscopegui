@@ -67,8 +67,8 @@ class InstrumentBar(QToolBar):
         self.instrument.setToolTip(
             "Which instrument Open, the Instrument pane and the trigger are about.\n"
             "Several can be open at once: choose another and open that too.\n"
-            "A maker's own library is not included: install it, and its\n"
-            "instrument is found here."
+            "A maker's own library is not included: it has to be installed\n"
+            "for its instrument to open."
         )
         saved = ctx.settings.get(SETTING, backends.DEFAULT)
         if (index := self.instrument.findData(saved)) >= 0:
