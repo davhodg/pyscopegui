@@ -12,6 +12,10 @@ A scope's channels all have the same settings, and four of them one under
 another is a pane to scroll through. So they are shown one at a time, under
 a row of tabs. How every channel is set is read in the plot's channel list,
 all at once; clicking one there brings its settings up here.
+
+With more than one instrument in use there is a tab for each across the top,
+so that going from one scope's settings to another's is one click, here,
+where they are changed.
 """
 
 from __future__ import annotations
@@ -47,11 +51,29 @@ CHANNEL = "Channel "
 class InstrumentView(QWidget):
     #: Key, the new value, and whether it takes effect without a restart.
     changed = Signal(str, object, bool)
+    #: Another instrument's tab was pressed: its name.
+    instrument_chosen = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(6, 6, 6, 6)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 6, 6, 6)
+        #: One tab for each instrument in use, when there is more than one.
+        self.instruments = QTabBar()
+        self.instruments.setExpanding(False)
+        self.instruments.setDrawBase(False)
+        self.instruments.setToolTip(
+            "The instruments in use. The settings below, Open and the trigger\n"
+            "toolbar are about the one chosen here."
+        )
+        self.instruments.hide()
+        self.instruments.currentChanged.connect(self._on_instrument)
+        outer.addWidget(self.instruments)
+        inner = QWidget()
+        outer.addWidget(inner, 1)
+        #: What is shown of the instrument chosen, rebuilt when another is.
+        self._layout = QVBoxLayout(inner)
+        self._layout.setContentsMargins(0, 0, 0, 0)
         #: Setting key -> the control showing it.
         self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox | QLineEdit] = {}
         self._settings: tuple[Setting, ...] = ()
@@ -65,6 +87,24 @@ class InstrumentView(QWidget):
         self._group = ""
         self.changed.connect(self._show_needed)
         self.show_settings((), {})
+
+    def set_instruments(self, listed: list[tuple[str, str]], chosen: str) -> None:
+        """Offer these instruments as tabs -- (name, what to call it) -- with
+        this one chosen. Fewer than two is nothing to choose between."""
+        bar = self.instruments
+        bar.blockSignals(True)
+        while bar.count():
+            bar.removeTab(0)
+        for name, title in listed:
+            bar.setTabData(bar.addTab(title), name)
+            if name == chosen:
+                bar.setCurrentIndex(bar.count() - 1)
+        bar.blockSignals(False)
+        bar.setVisible(len(listed) > 1)
+
+    def _on_instrument(self, index: int) -> None:
+        if (name := self.instruments.tabData(index)) is not None:
+            self.instrument_chosen.emit(name)
 
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
         """Show these settings, at the values saved for them or their defaults."""

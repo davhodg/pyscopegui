@@ -42,7 +42,8 @@ are open. The channels of all of them are on the one plot, each named for whose 
 *Pico A*, *Rigol CH1*.
 
 The list chooses which instrument **Open**, the Instrument pane and the trigger toolbar are
-about. The four run buttons are for every instrument that is open: **Auto** runs them all,
+about. So do the tabs across the top of the Instrument pane, which has one for each
+instrument in use -- *Pico*, *Rigol* -- once there is more than one. The four run buttons are for every instrument that is open: **Auto** runs them all,
 **Stop** stops them all, and **Single** stops once each has its capture.
 
 **Each instrument keeps time for itself**, and nothing says when one started by another's

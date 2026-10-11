@@ -145,6 +145,7 @@ class MainWindow(QMainWindow):
         # every saved layout and setting knows it by.
         self.instrument_view = self.panes.view(self.panes.add("instrument"))
         self.instrument_view.changed.connect(self._on_setting)
+        self.instrument_view.instrument_chosen.connect(self._choose)
         self.instrument_bar.instrument.currentIndexChanged.connect(lambda _i: self._on_chosen())
         self._on_chosen()
         self.scope = self.panes.view(self.panes.add("scope"))
@@ -313,6 +314,21 @@ class MainWindow(QMainWindow):
         self.instrument_bar.mark_open(
             {u.name for u in self.session.units.values() if u.wanted_open or u.is_open}
         )
+        # A tab in the Instrument pane for each in use, and for the one chosen.
+        self.instrument_view.set_instruments(
+            [
+                (u.name, u.short)
+                for u in self.session.units.values()
+                if u is unit or u.instrument is not None
+            ],
+            unit.name,
+        )
+
+    def _choose(self, name: str) -> None:
+        """Choose the instrument called this, as picking it in the toolbar would."""
+        box = self.instrument_bar.instrument
+        if name != self.instrument_bar.current() and box.findData(name) >= 0:
+            box.setCurrentIndex(box.findData(name))
 
     @Slot(str)
     def set_mode(self, mode: str) -> None:
@@ -598,9 +614,7 @@ class MainWindow(QMainWindow):
 
     def _on_channel_picked(self, instrument: str, group: str) -> None:
         """A channel was clicked on a plot: show its settings, to be changed."""
-        box = self.instrument_bar.instrument
-        if instrument != self.instrument_bar.current() and box.findData(instrument) >= 0:
-            box.setCurrentIndex(box.findData(instrument))
+        self._choose(instrument)
         self.instrument_view.select_group(group)
         self.panes.show("instrument")
 

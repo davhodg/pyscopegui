@@ -38,7 +38,8 @@ Nothing has been released yet. This is what the first version will have.
 - A PicoScope channel is set by **volts a division and probe**, as a bench scope is, and
   the scope is put on the range that holds it.
 - How each channel is set is read beside it in the plot's channel list, and channels are
-  set one at a time in the Instrument pane: click one in the list to bring it up.
+  set one at a time in the Instrument pane: click one in the list to bring it up. With
+  several instruments in use the pane has a tab for each.
 - *Tools > Settings > History*: how much of each channel is kept, from a second to ten
   minutes.
 - **Demo signals**: two analog and four digital channels, with no hardware.

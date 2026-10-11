@@ -341,3 +341,42 @@ def test_a_setting_that_starts_the_run_again_says_so(both):
     assert RESTARTS in view.controls["enabled_1"].toolTip()
     assert RESTARTS not in view.controls["scale_1"].toolTip()
     assert RESTARTS not in view.controls["address"].toolTip(), "which says when it is taken up"
+
+
+# --- a tab for each instrument in the pane -------------------------------------------------------
+def tab_names(window):
+    bar = window.instrument_view.instruments
+    return [bar.tabText(i) for i in range(bar.count())]
+
+
+def test_one_instrument_has_no_tabs_to_choose_between(window):
+    window.instrument_bar.open.click()
+    assert window.instrument_view.instruments.isHidden()
+
+
+def test_the_pane_has_a_tab_for_each_instrument_in_use(both):
+    window = both
+    bar = window.instrument_view.instruments
+    assert not bar.isHidden()
+    assert tab_names(window) == ["Demo", "Rigol"] and bar.tabText(bar.currentIndex()) == "Rigol"
+
+
+def test_a_tab_chooses_its_instrument_as_the_list_does(both):
+    window = both
+    bar = window.instrument_view.instruments
+    bar.setCurrentIndex(0)
+    assert window.instrument_bar.current() == "demo"
+    assert "address" not in window.instrument_view.controls
+    assert window.trigger_bar.label.text() == " Trigger, Demo: "
+    assert tab_names(window) == ["Demo", "Rigol"], "still both"
+    assert bar.currentIndex() == 0
+    choose(window, RIGOL)
+    assert bar.tabText(bar.currentIndex()) == "Rigol", "and the list moves the tab"
+
+
+def test_an_instrument_only_chosen_has_a_tab_while_it_is(both):
+    window = both
+    choose(window, "picoscope2000")
+    assert tab_names(window) == ["Demo", "Rigol", "Pico"]
+    choose(window, "demo")
+    assert tab_names(window) == ["Demo", "Rigol"]
