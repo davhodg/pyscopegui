@@ -120,11 +120,11 @@ def test_the_pane_follows_the_instrument_chosen(window):
 
 def test_a_change_is_saved_under_the_instrument_it_belongs_to(window):
     pick_picoscope(window)
-    choose(window.instrument_view, "range_a", "1V")
-    assert window.ctx.settings.get("instrument.picoscope2000") == {"range_a": "1V"}
+    choose(window.instrument_view, "scale_a", 0.2)
+    assert window.ctx.settings.get("instrument.picoscope2000") == {"scale_a": 0.2}
     choose(window.instrument_view, "rate", 100_000)
     assert window.ctx.settings.get("instrument.picoscope2000") == {
-        "range_a": "1V",
+        "scale_a": 0.2,
         "rate": 100_000,
     }
 
@@ -132,9 +132,10 @@ def test_a_change_is_saved_under_the_instrument_it_belongs_to(window):
 def test_a_setup_change_while_stopped_is_used_at_the_next_run(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
-    choose(window.instrument_view, "range_a", "200mV")
+    choose(window.instrument_view, "scale_a", 0.05)
     window.set_mode("auto")
-    assert window.instrument.channels()[0].name == "A: ±200mV"
+    assert window.instrument.channels()[0].detail == "50 mV/div, 1x, DC"
+    assert window.instrument.settings.ranges["A"] == "200mV"
     window.stop()
 
 
@@ -216,9 +217,9 @@ def test_a_range_change_while_running_keeps_what_is_on_the_plot(window, monkeypa
         time.sleep(0.005)
     held = window.capture.stored()
     assert held == 100
-    choose(window.instrument_view, "range_a", "1V")
+    choose(window.instrument_view, "scale_a", 0.2)
     assert window.capture.stored() == held, "nothing was thrown away"
-    assert window.capture.records["A"].channel.name == "A: ±1V"
+    assert window.capture.records["A"].channel.detail == "200 mV/div, 1x, DC"
     assert window.capture.records["A"].channel.full_scale == 1.0
     assert window.instrument.running
     window.close_instrument()
@@ -237,8 +238,8 @@ def test_the_voltage_axis_fits_the_signal_unless_told_otherwise(window):
 def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
-    choose(window.instrument_view, "range_a", "1V")
-    choose(window.instrument_view, "range_b", "10V")
+    choose(window.instrument_view, "scale_a", 0.2)
+    choose(window.instrument_view, "scale_b", 2.0)
     window.scope.auto_y.setChecked(False)
     window.set_mode("auto")
     low, high = y_range(window.scope)

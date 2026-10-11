@@ -28,7 +28,8 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes if you ask, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
 - **Several instruments at once**: open one, choose another and open that too. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
-- **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has.
+- **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has. A scope's channels are set one at a time, and how every channel is set is read beside its name in the plot's list: click one there to change it.
+- **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours.
 - **Light and dark** themes, or whichever the system is set to.
@@ -43,7 +44,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 
-The **Instrument** pane sets the scope up: sample rate, and each channel's range, coupling and whether it is read at all. The scope is opened once and kept open, so starting, stopping and changing a setting are quick.
+The **Instrument** pane sets the scope up: sample rate, and each channel's scale in volts a division, probe, coupling and whether it is read at all. The scope is opened once and kept open, so starting, stopping and changing a setting are quick.
 
 The pane also drives the scope's **signal generator** output: off, sine, square or triangle, with frequency, peak-to-peak amplitude and offset. It is off until you choose a waveform, and changes take effect while the scope runs, with a short gap in the plot while it is set.
 

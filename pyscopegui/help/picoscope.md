@@ -20,14 +20,39 @@ end needs, and are not supported either.
 
 Once a scope is open pyscopegui knows which model it is, and offers what that model has:
 
-| Model | Ranges offered | Signal generator |
-|-------|----------------|------------------|
+| Model | Ranges it has | Signal generator |
+|-------|---------------|------------------|
 | 2204A, 2205A | ±50 mV to ±20 V | Yes |
 | 2202 | Every range | No |
 | 2203, 2204, 2205 | Every range | Yes |
 
 "Every range" is for the models whose ranges have not been checked: ±20 mV to ±20 V are all
 offered, and the scope refuses any it does not have, which the Event Log says.
+
+## Scale and probe
+
+A PicoScope has ranges -- ±5 V -- where a bench scope has volts a division. pyscopegui sets
+every scope the bench scope's way, so that two of them side by side are set alike, and puts
+the PicoScope on the range that holds eight divisions of the scale chosen:
+
+| Scale, with a 1x probe | Range the scope is put on |
+|------------------------|---------------------------|
+| 5 mV/div | ±20 mV |
+| 10 mV/div | ±50 mV |
+| 20 mV/div | ±100 mV |
+| 50 mV/div | ±200 mV |
+| 100 mV/div | ±500 mV |
+| 200 mV/div | ±1 V |
+| 500 mV/div | ±2 V |
+| 1 V/div | ±5 V |
+| 2 V/div | ±10 V |
+| 5 V/div | ±20 V |
+
+**Probe** is what the probe divides by, as the switch on it says: 1x, 10x or 100x. The scope
+cannot tell, so say it here, and voltages are multiplied by it to be what is at the probe's
+tip. The scale has the probe counted: 10 V/div through a 10x probe is the ±5 V range. A
+scale the scope cannot reach through the probe chosen is the nearest it can, and the
+channel list on the plot says what that came to.
 
 ## Before you start
 
@@ -100,15 +125,17 @@ In the [Instrument](instruments.md) pane.
 | Reading | Streaming, or blocks: see above |
 | Sample rate | When streaming: samples a second on each channel, from 10 kS/s to 1 MS/s |
 | Block length | When reading blocks: how long each is, from 1 us to 1 s |
-| Range | The most the input can measure, either side of zero: ±50 mV to ±20 V |
+| Scale | Volts a division, with the probe counted: see above |
 | Coupling | DC, or AC to remove a steady voltage and look at what is on top of it |
+| Probe | What the probe divides by: 1x, 10x or 100x |
 | Enabled | Whether the channel is read at all. One of the two has to be |
 
-Choose the smallest range the signal fits in. The scope's converter has 8 bits, so a ±1 V
-signal on the ±10 V range is measured in about twenty-six steps and looks like a staircase;
-on ±1 V or ±2 V it is smooth. A signal larger than the range is clipped at the range.
+Choose the smallest scale the signal fits in. The scope's converter has 8 bits, so a ±1 V
+signal at 2 V/div, which is the ±10 V range, is measured in about twenty-six steps and
+looks like a staircase; at 200 or 500 mV/div it is smooth. A signal larger than the range
+is clipped at the range.
 
-A range or the coupling is taken up as the scope runs: reading stops for a moment while it
+A scale, a probe or the coupling is taken up as the scope runs: reading stops for a moment while it
 is set, drawn as a gap in the plot, and what was on the plot is kept. **Reading**, the
 sample rate, the block length and **Enabled** change what the samples are, so they start the
 run again from an empty plot. None of them opens the scope again.
@@ -132,7 +159,7 @@ scope is run. **The output is a real voltage on the connector**: know what it is
 to before switching it on.
 
 Connecting the output to channel A is a quick check of the whole chain. A 1000 Hz sine of
-2 V peak to peak, on the ±2 V range, should read between -1 V and +1 V with a period of 1 ms.
+2 V peak to peak, at 500 mV/div, should read between -1 V and +1 V with a period of 1 ms.
 
 ## What the Event Log may say
 

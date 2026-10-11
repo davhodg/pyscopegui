@@ -65,6 +65,23 @@ RANGES: dict[str, tuple[int, float]] = {
     "10V": (9, 10.0),
     "20V": (10, 20.0),
 }
+#: Range name -> volts a division, of eight up a screen, with a 1x probe. The
+#: scope has ranges and no divisions; a range is set by its scale, as on a
+#: bench scope, so that every instrument is set the same way. Each range is
+#: at least the eight divisions its scale would fill.
+SCALES: dict[str, float] = {
+    "20mV": 0.005,
+    "50mV": 0.01,
+    "100mV": 0.02,
+    "200mV": 0.05,
+    "500mV": 0.1,
+    "1V": 0.2,
+    "2V": 0.5,
+    "5V": 1.0,
+    "10V": 2.0,
+    "20V": 5.0,
+}
+PROBES = (1, 10, 100)
 ERRORS = {
     1: "too many scopes are open",
     2: "the computer is out of memory",
@@ -199,9 +216,36 @@ def _range_label(name: str) -> str:
     return f"±{name[:-2]} mV" if name.endswith("mV") else f"±{name[:-1]} V"
 
 
+def scale_label(volts: float) -> str:
+    """0.05 -> "50 mV/div"."""
+    return f"{volts * 1000:g} mV/div" if volts < 1 else f"{volts:g} V/div"
+
+
+def scales_for(ranges: tuple[str, ...]) -> tuple[float, ...]:
+    """Every scale these ranges give with one probe or another, smallest first."""
+    return tuple(sorted({round(SCALES[name] * probe, 6) for name in ranges for probe in PROBES}))
+
+
+def range_for(scale: float, probe: int) -> str:
+    """The range that this scale is, through this probe: the nearest there is."""
+    return min(SCALES, key=lambda name: abs(math.log(SCALES[name] * probe / scale)))
+
+
+_SCALE_TIP = (
+    "Volts a division, of eight up a scope's screen, with the probe counted.\n"
+    "The scope is set to the range that holds that: 1 V/div is its ±5 V range.\n"
+    "A scale the scope cannot reach through this probe is the nearest it can."
+)
+_PROBE_TIP = (
+    "What the probe divides by, as its switch says. The scope cannot tell:\n"
+    "voltages are multiplied by this to be what is at the probe's tip."
+)
+
+
 def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ...]:
     """The settings to offer for a scope with these ranges, and a generator or none."""
-    choices = tuple((name, _range_label(name)) for name in ranges)
+    choices = tuple((scale, scale_label(scale)) for scale in scales_for(ranges))
+    probes = tuple((probe, f"{probe}x") for probe in PROBES)
     made = [
         Setting(
             "mode",
@@ -252,13 +296,47 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
         Setting(
             "enabled_a", "Enabled", True, group="Channel A", tip="Whether channel A is read at all."
         ),
-        Setting("range_a", "Range", "5V", choices=choices, group="Channel A", live=True),
+        Setting(
+            "scale_a",
+            "Scale",
+            1.0,
+            choices=choices,
+            group="Channel A",
+            live=True,
+            tip=_SCALE_TIP,
+        ),
         Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A", live=True),
+        Setting(
+            "probe_a",
+            "Probe",
+            1,
+            choices=probes,
+            group="Channel A",
+            live=True,
+            tip=_PROBE_TIP,
+        ),
         Setting(
             "enabled_b", "Enabled", True, group="Channel B", tip="Whether channel B is read at all."
         ),
-        Setting("range_b", "Range", "5V", choices=choices, group="Channel B", live=True),
+        Setting(
+            "scale_b",
+            "Scale",
+            1.0,
+            choices=choices,
+            group="Channel B",
+            live=True,
+            tip=_SCALE_TIP,
+        ),
         Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B", live=True),
+        Setting(
+            "probe_b",
+            "Probe",
+            1,
+            choices=probes,
+            group="Channel B",
+            live=True,
+            tip=_PROBE_TIP,
+        ),
     ]
     if generator:
         made += [
@@ -416,9 +494,16 @@ class Settings:
         #: used everywhere else is the one that interval really gives.
         self.interval_ns = max(1, round(1e9 / rate)) if rate > 0 else round(1e9 / DEFAULT_RATE)
         self.rate = 1e9 / self.interval_ns
+        #: What each probe divides by.
+        self.probe = {
+            "A": self._probe(options.get("probe_a")),
+            "B": self._probe(options.get("probe_b")),
+        }
+        #: The scope's own range for each channel, which is what its scale
+        #: comes to through its probe.
         self.ranges = {
-            "A": self._range(options.get("range_a")),
-            "B": self._range(options.get("range_b")),
+            "A": self._range(options.get("scale_a"), self.probe["A"], options.get("range_a")),
+            "B": self._range(options.get("scale_b"), self.probe["B"], options.get("range_b")),
         }
         self.dc = {
             "A": options.get("coupling_a", "DC") != "AC",
@@ -452,8 +537,26 @@ class Settings:
             return default
 
     @staticmethod
-    def _range(name) -> str:
-        return name if name in RANGES else DEFAULT_RANGE
+    def _probe(value) -> int:
+        return value if value in PROBES and not isinstance(value, bool) else 1
+
+    @staticmethod
+    def _range(scale, probe: int, name) -> str:
+        """The range for this scale. A range saved by name, from before
+        there were scales, is used where no scale is."""
+        try:
+            scale = float(scale)
+        except (TypeError, ValueError):
+            return name if name in RANGES else DEFAULT_RANGE
+        return range_for(scale, probe) if scale > 0 else DEFAULT_RANGE
+
+    def volts(self, key: str) -> float:
+        """Full scale at the probe's tip, in volts: the range, through the probe."""
+        return RANGES[self.ranges[key]][1] * self.probe[key]
+
+    def scale(self, key: str) -> float:
+        """Volts a division at the probe's tip, as the scope is really set."""
+        return SCALES[self.ranges[key]] * self.probe[key]
 
     def keys(self) -> list[str]:
         """The channels switched on, in order."""
@@ -669,7 +772,7 @@ class Stream:
             source = NO_TRIGGER
         counts = 0
         if source != NO_TRIGGER:
-            _code, volts = RANGES[settings.ranges[trigger.source]]
+            volts = settings.volts(trigger.source)
             counts = round(min(max(trigger.level / volts, -1.0), 1.0) * MAX_VALUE)
         # How long to wait for a trigger before taking the block anyway:
         # nought is for ever, which is what Normal and Single mean.
@@ -747,7 +850,7 @@ class Stream:
         for key, buffer in buffers.items():
             if buffer is None:
                 continue
-            _code, volts = RANGES[settings.ranges[key]]
+            volts = settings.volts(key)
             raw = np.ctypeslib.as_array(buffer)[:count]
             data[key] = raw.astype(np.float32) * np.float32(volts / MAX_VALUE)
         trigger = self.trigger
@@ -851,7 +954,7 @@ class Stream:
         count = min(len(samples) for samples in self._arrived.values())
         data = {}
         for key, raw in self._arrived.items():
-            _code, volts = RANGES[self.settings.ranges[key]]
+            volts = self.settings.volts(key)
             scaled = raw[:count].astype(np.float32) * np.float32(volts / MAX_VALUE)
             scaled[raw[:count] == LOST_DATA] = np.nan
             data[key] = scaled
@@ -1067,8 +1170,13 @@ class PicoScope2000(Instrument):
         return [
             Channel(
                 key,
-                f"{key}: ±{self.settings.ranges[key]}",
-                full_scale=RANGES[self.settings.ranges[key]][1],
+                key,
+                full_scale=self.settings.volts(key),
+                detail=(
+                    f"{scale_label(self.settings.scale(key))}, {self.settings.probe[key]}x, "
+                    f"{'DC' if self.settings.dc[key] else 'AC'}"
+                ),
+                group=f"Channel {key}",
             )
             for key in self.settings.keys()
         ]

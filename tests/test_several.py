@@ -286,3 +286,58 @@ def test_diagnostics_tell_of_every_instrument_in_use(both):
     assert "chosen=Rigol DS1000Z series (network)" in report
     assert "also in use=Demo signals (demo)" in report
     assert "Samples held, Demo" in report and "Samples held, Rigol" in report
+
+
+# --- how each channel is set, and changing it ----------------------------------------------------
+def test_the_plots_list_says_how_each_channel_is_set(both):
+    from pyscopegui.ui.scope_view import DETAIL
+
+    window = both
+    items = window.scope.channel_list._items
+    assert items[f"{RIGOL}:CH1"].text(DETAIL) == "1 V/div, 10x, DC"
+    assert items["demo:A"].text(DETAIL) == "", "the demo has nothing to set"
+    box = window.instrument_view.controls["offset_1"]
+    box.setValue(-1.5)
+    assert window.scope.channel_list._items[f"{RIGOL}:CH1"].text(DETAIL) == (
+        "1 V/div, 10x, DC, offset -1.5 V"
+    )
+
+
+def test_channels_are_set_one_at_a_time_under_tabs(both, app):
+    view = both.instrument_view
+    app.processEvents()  # new controls are shown when the event loop gets to them
+    assert [view.tabs.tabText(i) for i in range(view.tabs.count())] == ["1", "2", "3", "4"]
+    assert view.controls["scale_1"].isVisibleTo(view)
+    assert not view.controls["scale_3"].isVisibleTo(view)
+    view.tabs.setCurrentIndex(2)
+    assert view.controls["scale_3"].isVisibleTo(view)
+    assert not view.controls["scale_1"].isVisibleTo(view)
+    assert view.controls["address"].isVisibleTo(view), "what is not a channel's is always there"
+
+
+def test_the_channel_being_set_is_kept_when_the_settings_are_shown_again(both):
+    window = both
+    window.instrument_view.tabs.setCurrentIndex(1)
+    window._show_settings()
+    assert window.instrument_view.tabs.currentIndex() == 1
+
+
+def test_clicking_a_channel_on_the_plot_brings_its_settings_up(both, app):
+    window = both
+    choose(window, "demo")
+    assert window.instrument_view.tabs is None
+    item = window.scope.channel_list._items[f"{RIGOL}:CH1"]
+    window.scope.channel_list.itemClicked.emit(item, 0)
+    assert window.instrument_bar.current() == RIGOL, "the instrument it belongs to is chosen"
+    assert window.instrument_view.tabs.currentIndex() == 0
+    app.processEvents()  # new controls are shown when the event loop gets to them
+    assert window.instrument_view.controls["scale_1"].isVisibleTo(window.instrument_view)
+
+
+def test_a_setting_that_starts_the_run_again_says_so(both):
+    from pyscopegui.ui.instrument_view import RESTARTS
+
+    view = both.instrument_view
+    assert RESTARTS in view.controls["enabled_1"].toolTip()
+    assert RESTARTS not in view.controls["scale_1"].toolTip()
+    assert RESTARTS not in view.controls["address"].toolTip(), "which says when it is taken up"

@@ -583,13 +583,26 @@ class MainWindow(QMainWindow):
                 "scope",
                 "Channels and Plot",
                 Qt.TopDockWidgetArea,
-                lambda name: ScopeView(self.session, self.ctx, key=name),
+                self._make_scope,
                 several=True,
             )
         )
         self.panes.register(
             PaneKind("log", "Event Log", Qt.BottomDockWidgetArea, lambda _name: self.log)
         )
+
+    def _make_scope(self, name: str) -> ScopeView:
+        view = ScopeView(self.session, self.ctx, key=name)
+        view.channel_picked.connect(self._on_channel_picked)
+        return view
+
+    def _on_channel_picked(self, instrument: str, group: str) -> None:
+        """A channel was clicked on a plot: show its settings, to be changed."""
+        box = self.instrument_bar.instrument
+        if instrument != self.instrument_bar.current() and box.findData(instrument) >= 0:
+            box.setCurrentIndex(box.findData(instrument))
+        self.instrument_view.select_group(group)
+        self.panes.show("instrument")
 
     def _view_order(self) -> list[str]:
         """The panes in the order they were registered, extras after the first of a kind."""

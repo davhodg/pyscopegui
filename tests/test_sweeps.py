@@ -232,5 +232,5 @@ def test_the_settings_offered_follow_the_model_once_it_is_open(window, monkeypat
     window.instrument_bar.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "gen_wave" not in window.instrument_view.controls
-    assert "range_a" in window.instrument_view.controls
+    assert "scale_a" in window.instrument_view.controls
     window.close_instrument()

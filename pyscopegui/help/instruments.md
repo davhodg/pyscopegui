@@ -98,12 +98,20 @@ are remembered.
 The pane shows what the instrument chosen lets you set, and nothing when it has nothing: the
 demo has no settings.
 
-There are two kinds of setting, and the pane says so at the bottom:
+A scope's channels all have the same settings, so they are shown one channel at a time,
+under a row of tabs: **1 2 3 4**. How every channel is set can be read at once in the
+[plot's channel list](plot.md), and clicking a channel there brings its settings up here,
+whichever instrument it belongs to.
+
+Every scope is set the same way, whoever made it: **Scale** in volts a division, **Probe**
+for what the probe divides by, and **Coupling**.
+
+There are two kinds of setting, and a setting's tip says which it is:
 
 - **What the samples are** -- how many a second, of which channels. Changing one while the
   instrument is running starts the run again, from an empty plot; changed while it is
   stopped, it is used the next time it is run.
-- **What changes as it runs** -- a range, a signal generator. These take effect with what is
+- **What changes as it runs** -- a scale, a signal generator. These take effect with what is
   on the plot kept.
 
 Neither closes the instrument, so neither costs the time it took to open.

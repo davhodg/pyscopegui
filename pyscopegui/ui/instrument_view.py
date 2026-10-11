@@ -7,6 +7,11 @@ instrument, so a new one gets its controls by describing them and every
 instrument's look the same. The pane only says what was changed: saving it,
 and deciding whether the instrument has to be started again, is the window's
 business.
+
+A scope's channels all have the same settings, and four of them one under
+another is a pane to scroll through. So they are shown one at a time, under
+a row of tabs. How every channel is set is read in the plot's channel list,
+all at once; clicking one there brings its settings up here.
 """
 
 from __future__ import annotations
@@ -20,7 +25,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
-    QSizePolicy,
+    QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -32,10 +38,10 @@ NOTHING = "This instrument has nothing to set."
 #: Behind what has been typed and not yet taken up: Enter, or leaving the
 #: box, takes it up. The amber pycangui uses for the same thing.
 PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
-RESTARTS = (
-    "Some changes here start the instrument again, from an empty plot. The rest "
-    "are taken up as it runs."
-)
+#: Added to the tip of a setting that is not taken up as the instrument runs.
+RESTARTS = "A change starts a run again, from an empty plot."
+#: What a group's heading starts with when it is one channel's settings.
+CHANNEL = "Channel "
 
 
 class InstrumentView(QWidget):
@@ -50,6 +56,13 @@ class InstrumentView(QWidget):
         self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox | QLineEdit] = {}
         self._settings: tuple[Setting, ...] = ()
         self._forms: dict[str, QFormLayout] = {}
+        #: The tabs, one for each channel, and the settings under them.
+        self.tabs: QTabBar | None = None
+        self._pages: QStackedWidget | None = None
+        #: Channel group -> which tab is its.
+        self._tab_of: dict[str, int] = {}
+        #: The channel last looked at, kept when the settings are shown again.
+        self._group = ""
         self.changed.connect(self._show_needed)
         self.show_settings((), {})
 
@@ -62,6 +75,7 @@ class InstrumentView(QWidget):
                 widget.deleteLater()
         self.controls = {}
         self._settings, self._forms = settings, {}
+        self.tabs, self._pages, self._tab_of = None, None, {}
         if not settings:
             self._layout.addWidget(QLabel(NOTHING))
             self._layout.addStretch()
@@ -69,24 +83,58 @@ class InstrumentView(QWidget):
         forms = self._forms
         for setting in settings:
             if setting.group not in forms:
-                box = QGroupBox(setting.group)
-                forms[setting.group] = QFormLayout(box)
-                self._layout.addWidget(box)
+                forms[setting.group] = self._form(setting.group)
             control = self._control(setting, values.get(setting.key, setting.default))
-            control.setToolTip(setting.tip)
+            tip = setting.tip
+            if not setting.live and not isinstance(control, QLineEdit):
+                tip = f"{tip}\n{RESTARTS}" if tip else RESTARTS
+            control.setToolTip(tip)
             self.controls[setting.key] = control
             if isinstance(control, QCheckBox):
                 forms[setting.group].addRow(control)  # it carries its own label
             else:
                 forms[setting.group].addRow(setting.label + ":", control)
-        note = QLabel(RESTARTS)
-        note.setWordWrap(True)
-        # As wide as the controls above it and no wider: a wrapped label asks
-        # for the width of its whole text, and the pane grew a scroll bar for it.
-        note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._layout.addWidget(note)
         self._layout.addStretch()
+        self.select_group(self._group)
         self._show_needed()
+
+    def _form(self, group: str) -> QFormLayout:
+        """Somewhere to list a group's settings: a box of its own, or for a
+        channel, a tab beside the other channels'."""
+        if not group.startswith(CHANNEL):
+            box = QGroupBox(group)
+            self._layout.addWidget(box)
+            return QFormLayout(box)
+        if self.tabs is None:
+            box = QGroupBox(CHANNEL.strip())
+            column = QVBoxLayout(box)
+            self.tabs = QTabBar()
+            self.tabs.setExpanding(False)
+            self.tabs.setDrawBase(False)
+            self.tabs.setToolTip(
+                "Which channel's settings are below. How every channel is set is\n"
+                "in the plot's channel list: click one there to bring it up here."
+            )
+            self._pages = QStackedWidget()
+            self.tabs.currentChanged.connect(self._on_tab)
+            column.addWidget(self.tabs)
+            column.addWidget(self._pages)
+            self._layout.addWidget(box)
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 6, 0, 0)
+        self._pages.addWidget(page)
+        self._tab_of[group] = self.tabs.addTab(group[len(CHANNEL) :])
+        return form
+
+    def _on_tab(self, index: int) -> None:
+        self._pages.setCurrentIndex(index)
+        self._group = next((g for g, i in self._tab_of.items() if i == index), self._group)
+
+    def select_group(self, group: str) -> None:
+        """Bring this channel's settings up, if there is such a channel."""
+        if self.tabs is not None and group in self._tab_of:
+            self.tabs.setCurrentIndex(self._tab_of[group])
 
     def _show_pending(self, line: QLineEdit) -> None:
         waiting = line.text().strip() != line.property("taken")

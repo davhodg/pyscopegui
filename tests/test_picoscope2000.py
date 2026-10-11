@@ -797,10 +797,50 @@ def test_the_instrument_sends_sweeps_and_is_told_its_trigger(app, monkeypatch):
     instrument.close()
 
 
+# --- a scale and a probe, for a scope that has ranges ----------------------------------------
+def test_a_scale_is_the_range_that_holds_eight_divisions_of_it():
+    for name, scale in pico.SCALES.items():
+        assert pico.RANGES[name][1] >= 4 * scale, name
+        assert pico.range_for(scale, 1) == name
+        assert pico.range_for(scale * 10, 10) == name
+
+
+def test_a_scale_out_of_reach_through_a_probe_is_the_nearest_there_is():
+    assert pico.range_for(100.0, 1) == "20V"
+    assert pico.range_for(0.01, 100) == "20mV"
+    assert pico.Settings({"scale_a": "x", "probe_a": 7}).ranges["A"] == pico.DEFAULT_RANGE
+
+
+def test_a_range_saved_by_name_is_used_until_a_scale_is_chosen():
+    assert pico.Settings({"range_a": "1V"}).ranges["A"] == "1V"
+    assert pico.Settings({"range_a": "1V", "scale_a": 2.0}).ranges["A"] == "10V"
+
+
+def test_a_probe_multiplies_what_is_read_and_divides_the_trigger_level():
+    library = FakeLibrary()
+    library.waiting += [([16384], [16384])]
+    reading = stream(library, {"scale_a": 10.0, "probe_a": 10, "scale_b": 1.0})
+    assert reading.settings.ranges == {"A": "5V", "B": "5V"}
+    block = reading.poll()
+    assert block.data["A"][0] == pytest.approx(25.0, rel=1e-3)
+    assert block.data["B"][0] == pytest.approx(2.5, rel=1e-3)
+    assert reading.settings.volts("A") == 50.0 and reading.settings.scale("A") == 10.0
+    reading.close()
+    library = FakeLibrary()
+    reading = blocks(
+        library, {"scale_a": 10.0, "probe_a": 10}, pico.Trigger("A", level=25.0, auto=False)
+    )
+    reading.poll()
+    half_scale = round(pico.MAX_VALUE / 2)
+    assert ("trigger", pico.CHANNEL_A, half_scale, pico.RISING, -50, 0) in library.calls
+    reading.close()
+
+
 # --- which model it is -------------------------------------------------------------------------
 def test_before_a_scope_is_open_the_ranges_offered_are_a_2204as():
-    ranges = [value for value, _label in setting("range_a", pico.settings_for(None)).choices]
-    assert ranges[0] == "50mV" and ranges[-1] == "20V" and "20mV" not in ranges
+    scales = [value for value, _label in setting("scale_a", pico.settings_for(None)).choices]
+    # From its ±50 mV range through a 1x probe to its ±20 V range through a 100x one.
+    assert scales[0] == 0.01 and scales[-1] == 500 and 0.005 not in scales
 
 
 def setting(key, settings):
@@ -810,20 +850,20 @@ def setting(key, settings):
 def test_a_model_that_is_known_is_offered_what_it_has():
     for model in ("2204A", "2205A"):
         offered = pico.settings_for(model)
-        assert "20mV" not in [v for v, _ in setting("range_b", offered).choices]
+        assert 0.005 not in [v for v, _ in setting("scale_b", offered).choices]
         assert any(s.key == "gen_wave" for s in offered)
 
 
 def test_a_scope_with_no_generator_is_not_offered_one():
     offered = pico.settings_for("2202")
     assert not any(s.key.startswith("gen_") for s in offered)
-    assert any(s.key == "range_a" for s in offered)
+    assert any(s.key == "scale_a" for s in offered)
 
 
 def test_a_model_nobody_has_checked_is_offered_every_range():
     """And refuses the ones it lacks, which is said when it does."""
     offered = pico.settings_for("2203")
-    assert [v for v, _ in setting("range_a", offered).choices] == list(pico.RANGES)
+    assert setting("scale_a", offered).choices[0][0] == pico.SCALES["20mV"]
     assert any(s.key == "gen_wave" for s in offered)
 
 
@@ -850,10 +890,12 @@ def test_what_is_taken_up_as_it_runs_and_what_starts_the_run_again():
     were; the rate and which channels are read do not."""
     live = {s.key for s in pico.SETTINGS if s.live}
     assert live == {
-        "range_a",
+        "scale_a",
         "coupling_a",
-        "range_b",
+        "probe_a",
+        "scale_b",
         "coupling_b",
+        "probe_b",
         "gen_wave",
         "gen_frequency",
         "gen_amplitude",
@@ -913,7 +955,10 @@ def test_the_instrument_streams_on_its_thread_and_closes_the_scope(app, monkeypa
     library.waiting += [([100] * 10, [200] * 10), ([300] * 5, [400] * 5)]
     monkeypatch.setattr(pico, "load_library", lambda: library)
     instrument = backends.create("picoscope2000", None, {"range_a": "1V"})
-    assert [c.name for c in instrument.channels()] == ["A: ±1V", "B: ±5V"]
+    assert [(c.name, c.detail) for c in instrument.channels()] == [
+        ("A", "200 mV/div, 1x, DC"),
+        ("B", "1 V/div, 1x, DC"),
+    ]
     blocks, states, opened, notes = [], [], [], []
     instrument.block.connect(blocks.append)
     instrument.state_changed.connect(states.append)

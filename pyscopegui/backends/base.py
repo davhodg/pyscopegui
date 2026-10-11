@@ -38,6 +38,11 @@ class Channel:
     #: The most an analog channel can read, either side of zero, as it is set
     #: up now: 5.0 on a range of ±5 V. Zero where there is no such limit.
     full_scale: float = 0.0
+    #: How it is set up, in a line, to be read beside its name: "1 V/div, 10x, DC".
+    detail: str = ""
+    #: The group its settings are listed under, so that choosing the channel
+    #: can show them: "Channel A". Empty where it has none.
+    group: str = ""
 
 
 @dataclass(frozen=True)
@@ -65,7 +70,9 @@ class Setting:
     #: How far its arrows move it. Zero is through 1, 2, 5, 10, 20, 50: for a
     #: number that runs over many powers of ten, where no one step suits.
     step: float = 0.0
-    #: The heading it is listed under.
+    #: The heading it is listed under. Headings that start "Channel " are
+    #: the same settings over again for each channel, and are shown one
+    #: channel at a time.
     group: str = ""
     #: Taken up as the instrument runs, with what is on the plot kept.
     #: Anything else starts the run again, from an empty plot.

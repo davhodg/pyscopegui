@@ -606,11 +606,23 @@ class Rigol1000Z(Instrument):
         return [
             Channel(
                 key,
-                f"{key}: {_engineering(self.settings.scale[key], 'V/div')}",
+                key,
                 full_scale=self.settings.scale[key] * UP / 2,
+                detail=self._detail(key),
+                group=f"Channel {key[2:]}",
             )
             for key in self.settings.keys()
         ]
+
+    def _detail(self, key: str) -> str:
+        settings = self.settings
+        said = (
+            f"{_engineering(settings.scale[key], 'V/div')}, {settings.probe[key]}x, "
+            f"{settings.coupling[key]}"
+        )
+        if settings.offset[key]:
+            said += f", offset {settings.offset[key]:g} V"
+        return said
 
     @property
     def rate(self) -> float:

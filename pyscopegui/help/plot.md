@@ -16,6 +16,10 @@ A tick shows a channel and unticking hides it; which are hidden is remembered. T
 in the colour its trace is drawn in, and **Value** is what the channel reads now, a few times
 a second.
 
+**Settings** is how the channel is set up, in a line -- *1 V/div, 10x, DC* -- for every
+channel of every instrument at once. Click a channel to bring its settings up in the
+[Instrument pane](instruments.md), where they are changed.
+
 ## Time
 
 Time is counted from when the instrument was started, in seconds. It comes from the number

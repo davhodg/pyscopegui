@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPalette
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -50,8 +50,9 @@ from pyscopegui.ui import fonts
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
 
-# Enough for a channel name and its value; the plot takes whatever is left.
-LIST_WIDTH = 220
+# Enough for a channel's name, how it is set and its value; the plot takes
+# whatever is left.
+LIST_WIDTH = 360
 
 COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
 
@@ -81,13 +82,14 @@ AUTO_Y_TIP = (
 #: whole of it, so a signal at full scale is not drawn on the edge of the plot.
 RANGE_MARGIN = 0.05
 
+PICK_TIP = "How the channel is set up. Click it to change that in the Instrument pane."
 #: Thirty redraws a second: smooth, and each one is a few thousand points.
 REDRAW_MS = 33
 #: The latest value of each channel is for reading, so it changes more slowly.
 VALUES_MS = 250
 #: How much of a lane a digital channel's high level fills.
 LANE_HEIGHT = 0.7
-NAME, VALUE = 0, 1
+NAME, VALUE, DETAIL = 0, 1, 2
 
 
 @dataclass
@@ -106,22 +108,34 @@ class ChannelList(QTreeWidget):
 
     #: Channel key, and whether it is to be shown.
     shown_changed = Signal(str, bool)
+    #: A channel was clicked: its key.
+    picked = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
-        self.setHeaderLabels(["Channel", "Value"])
+        self.setHeaderLabels(["Channel", "Value", "Settings"])
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self._items: dict[str, QTreeWidgetItem] = {}
         self.itemChanged.connect(self._on_changed)
+        self.itemClicked.connect(
+            lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
+        )
 
-    def fill(self, names: dict[str, str], colours: dict[str, str], hidden: set[str]) -> None:
-        """List these channels: id -> what to call it."""
+    def fill(
+        self,
+        names: dict[str, str],
+        colours: dict[str, str],
+        hidden: set[str],
+        details: dict[str, str] | None = None,
+    ) -> None:
+        """List these channels: id -> what to call it, and how each is set up."""
         self.blockSignals(True)
         self.clear()
         self._items = {}
         for key, name in names.items():
-            item = QTreeWidgetItem([name, ""])
+            item = QTreeWidgetItem([name, "", (details or {}).get(key, "")])
+            item.setToolTip(DETAIL, PICK_TIP)
             item.setData(NAME, Qt.UserRole, key)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(NAME, Qt.Unchecked if key in hidden else Qt.Checked)
@@ -132,6 +146,9 @@ class ChannelList(QTreeWidget):
             self._items[key] = item
         self.blockSignals(False)
         self.resizeColumnToContents(NAME)
+        # Room for the longest a value gets, so the column does not jump about
+        # as the reading changes, and the settings have what is left.
+        self.setColumnWidth(VALUE, QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V "))
 
     def _on_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column == NAME:
@@ -145,6 +162,10 @@ class ChannelList(QTreeWidget):
 
 
 class ScopeView(QWidget):
+    #: A channel was clicked in the list: whose it is, by the instrument's
+    #: name, and the group its settings are under.
+    channel_picked = Signal(str, str)
+
     def __init__(
         self,
         source: Session | Capture,
@@ -208,6 +229,7 @@ class ScopeView(QWidget):
 
         self.channel_list = ChannelList()
         self.channel_list.shown_changed.connect(self._on_shown)
+        self.channel_list.picked.connect(self._on_picked)
 
         self.time = QComboBox()
         self.time.addItems(TIME_CHOICES)
@@ -324,7 +346,8 @@ class ScopeView(QWidget):
         channels = [record.channel for _key, _unit, record in entries]
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
-        self.channel_list.fill(self._names, self._colours, self._hidden)
+        details = {key: record.channel.detail for key, _unit, record in entries}
+        self.channel_list.fill(self._names, self._colours, self._hidden, details)
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
         while len(self._level_lines) < len(self.session.shown()):
@@ -371,6 +394,14 @@ class ScopeView(QWidget):
             self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
         else:
             self.analog.setYRange(-most, most, padding=RANGE_MARGIN)
+
+    def _on_picked(self, key: str) -> None:
+        if (owner := self._owners.get(key)) is None:
+            return
+        unit, channel = owner
+        record = unit.capture.records.get(channel)
+        if record is not None and record.channel.group:
+            self.channel_picked.emit(unit.name, record.channel.group)
 
     def _on_shown(self, key: str, on: bool) -> None:
         self._hidden.discard(key) if on else self._hidden.add(key)
