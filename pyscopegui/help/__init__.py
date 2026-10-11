@@ -44,6 +44,7 @@ PAGES = (
     "plot.md",
     "instruments.md",
     "picoscope.md",
+    "rigol.md",
     "event-log.md",
     "about.md",
     "changelog.md",

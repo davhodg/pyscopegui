@@ -19,7 +19,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 
 ![pyscopegui on its demo instrument: a sine and a ramp on the analog plot, four logic channels in lanes under it, the Instrument pane and the Event Log](pyscopegui/help/main-window.png)
 
-**This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and a first back end for the PicoScope 2204A.
+**This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and back ends for the PicoScope 2204A and the Rigol DS1000Z series.
 
 ## What it does
 
@@ -38,6 +38,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
 - **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. Tried on a 2204A: both channels at 1 MS/s, with voltages and timing checked against its own signal generator.
+- **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. The logic inputs and signal generator that some models have are not used yet. Nothing of Rigol's needs installing. Tried on a DS1054Z: voltages, timing and the place of the trigger checked against its own probe-compensation output.
 
 Pico's library is not bundled. Install the PicoSDK or PicoScope 7 from [picotech.com/downloads](https://www.picotech.com/downloads) and pyscopegui finds it; close PicoScope 7 first, since only one program can have the scope open.
 

@@ -38,6 +38,7 @@ body:
       options:
         - None -- Demo signals
         - PicoScope 2204A, or another on the ps2000 driver
+        - Rigol DS1000Z series (DS1054Z and the like)
         - Another -- say which above
     validations:
       required: true

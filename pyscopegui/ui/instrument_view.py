@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QLineEdit,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -29,8 +30,8 @@ from pyscopegui.ui.spin import SequenceSpin
 
 NOTHING = "This instrument has nothing to set."
 RESTARTS = (
-    "A change here starts the instrument again, from an empty plot, unless it is "
-    "to the signal generator, which changes as it runs."
+    "Some changes here start the instrument again, from an empty plot. The rest "
+    "are taken up as it runs."
 )
 
 
@@ -43,7 +44,7 @@ class InstrumentView(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(6, 6, 6, 6)
         #: Setting key -> the control showing it.
-        self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox] = {}
+        self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox | QLineEdit] = {}
         self._settings: tuple[Setting, ...] = ()
         self._forms: dict[str, QFormLayout] = {}
         self.changed.connect(self._show_needed)
@@ -89,6 +90,8 @@ class InstrumentView(QWidget):
             return control.isChecked()
         if isinstance(control, QComboBox):
             return control.currentData()
+        if isinstance(control, QLineEdit):
+            return control.text()
         return control.value()
 
     def _show_needed(self, *_changed) -> None:
@@ -103,7 +106,9 @@ class InstrumentView(QWidget):
             if (label := self._forms[setting.group].labelForField(control)) is not None:
                 label.setEnabled(on)
 
-    def _control(self, setting: Setting, value) -> QCheckBox | QComboBox | QDoubleSpinBox:
+    def _control(
+        self, setting: Setting, value
+    ) -> QCheckBox | QComboBox | QDoubleSpinBox | QLineEdit:
         if isinstance(setting.default, bool) and not setting.choices:
             # On or off is a tick, not a list of two to open and choose from.
             tick = QCheckBox(setting.label)
@@ -126,6 +131,13 @@ class InstrumentView(QWidget):
                 lambda _i, s=setting, b=box: self.changed.emit(s.key, b.currentData(), s.live)
             )
             return box
+        if isinstance(setting.default, str):
+            line = QLineEdit(value if isinstance(value, str) else setting.default)
+            # Once it is finished with, not at every letter typed on the way.
+            line.editingFinished.connect(
+                lambda s=setting, e=line: self.changed.emit(s.key, e.text().strip(), s.live)
+            )
+            return line
         spin = QDoubleSpinBox() if setting.step else SequenceSpin()
         if setting.step:
             spin.setSingleStep(setting.step)

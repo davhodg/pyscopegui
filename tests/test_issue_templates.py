@@ -75,4 +75,5 @@ def test_every_instrument_can_be_named_in_a_bug_report():
     """The form's list has a way to say each one, or to say it is another."""
     form = read("bug_report.yml")
     assert "Demo signals" in form and "ps2000" in form and "Another" in form
-    assert len(backends.names()) == 2, "a new instrument wants an entry in bug_report.yml"
+    assert "DS1000Z" in form
+    assert len(backends.names()) == 3, "a new instrument wants an entry in bug_report.yml"

@@ -47,7 +47,8 @@ class Setting:
     Described rather than drawn, so that a back end needs no widgets of its
     own and every instrument's settings look alike. A setting with choices is
     a list to pick from, one whose default is True or False is a tick box,
-    and anything else is a number.
+    one whose default is text is a box to type in, and anything else is a
+    number.
     """
 
     #: What it is saved under, and what the instrument is handed it as.

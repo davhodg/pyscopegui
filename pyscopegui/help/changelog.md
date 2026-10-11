@@ -31,6 +31,8 @@ Nothing has been released yet. This is what the first version will have.
   what is too fast to stream.
 - The PicoScope's settings follow the model that is plugged in: the ranges a 2204A or 2205A
   has, and no signal generator for a 2202.
+- **Rigol DS1000Z series**, over the network: the four analog channels,
+  a sweep at a time around the scope's own trigger, from its screen or its whole memory.
 - *Tools > Settings > History*: how much of each channel is kept, from a second to ten
   minutes.
 - **Demo signals**: two analog and four digital channels, with no hardware.
