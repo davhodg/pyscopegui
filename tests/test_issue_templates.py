@@ -77,3 +77,9 @@ def test_every_instrument_can_be_named_in_a_bug_report():
     assert "Demo signals" in form and "ps2000" in form and "Another" in form
     assert "DS1000Z" in form
     assert len(backends.names()) == 3, "a new instrument wants an entry in bug_report.yml"
+
+
+def test_questions_are_sent_to_discussions():
+    discussions = "https://github.com/davhodg/pyscopegui/discussions"
+    assert discussions in read("config.yml")
+    assert discussions in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")

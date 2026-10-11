@@ -67,6 +67,7 @@ The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/m
 
 - [Source, issues and releases](https://github.com/davhodg/pyscopegui)
 - [Standalone Windows installer](https://github.com/davhodg/pyscopegui/releases)
+- [Questions and ideas](https://github.com/davhodg/pyscopegui/discussions)
 - [Manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md)
 - [Changelog](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/changelog.md)
 

@@ -4,10 +4,6 @@
 
 # pyscopegui
 
-<!--
-The CI, release and PyPI badges are live. While the repository is private they cannot be read from outside it, and until there is a release and a package on PyPI the last two say there is none. The Python, platform and licence badges are checked against pyproject.toml by tests/test_readme.py.
--->
-
 [![CI](https://github.com/davhodg/pyscopegui/actions/workflows/ci.yml/badge.svg)](https://github.com/davhodg/pyscopegui/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/davhodg/pyscopegui?include_prereleases)](https://github.com/davhodg/pyscopegui/releases)
 [![PyPI](https://img.shields.io/pypi/v/pyscopegui)](https://pypi.org/project/pyscopegui/)

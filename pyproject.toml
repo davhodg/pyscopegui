@@ -56,6 +56,7 @@ Homepage = "https://github.com/davhodg/pyscopegui"
 Documentation = "https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md"
 Repository = "https://github.com/davhodg/pyscopegui"
 Issues = "https://github.com/davhodg/pyscopegui/issues"
+Discussions = "https://github.com/davhodg/pyscopegui/discussions"
 Releases = "https://github.com/davhodg/pyscopegui/releases"
 Changelog = "https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/changelog.md"
 
