@@ -13,10 +13,6 @@ them and are what pyscopegui reads.
 | DS1074Z-S Plus, DS1104Z-S Plus | Logic inputs and a signal generator | The analog channels; neither of the others yet |
 | MSO1074Z, MSO1104Z, and the -S of each | Sixteen logic inputs; a signal generator on the -S | The analog channels; neither of the others yet |
 
-It has been tried on a DS1054Z, with voltages, timing and the place of the trigger checked
-against the scope's own 1 kHz probe-compensation output. The other models take the same
-commands, and have not been tried.
-
 The older DS1000E and DS1000D scopes -- the DS1052E -- are a different series with
 different commands, and are not supported.
 

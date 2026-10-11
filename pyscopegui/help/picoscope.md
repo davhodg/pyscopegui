@@ -3,7 +3,7 @@
 # PicoScope 2204A
 
 For the two-channel PicoScope 2000 Series scopes that use Pico's older `ps2000` driver: the
-2202, 2203, 2204, 2204A, 2205 and 2205A. It has been tried on a 2204A.
+2202, 2203, 2204, 2204A, 2205 and 2205A.
 
 The rest of the 2000 Series use a different driver, `ps2000a`, and are **not supported
 yet**. The model number alone does not say which: a 2205A is on `ps2000` and a 2205A MSO is
@@ -26,8 +26,8 @@ Once a scope is open pyscopegui knows which model it is, and offers what that mo
 | 2202 | Every range | No |
 | 2203, 2204, 2205 | Every range | Yes |
 
-"Every range" is for the models whose ranges have not been checked: ±20 mV to ±20 V are all
-offered, and the scope refuses any it does not have, which the Event Log says.
+"Every range" is for the models pyscopegui holds no list of ranges for: ±20 mV to ±20 V are
+all offered, and the scope refuses any it does not have, which the Event Log says.
 
 ## Scale and probe
 

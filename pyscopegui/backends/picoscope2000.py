@@ -194,7 +194,7 @@ _GENERATOR = {"group": "Signal generator", "live": True}
 class Model:
     """What one model of scope has, where that is known."""
 
-    #: The ranges it has. Empty where that has not been checked: every range
+    #: The ranges it has. Empty where there is no list of them: every range
     #: is then offered, and the scope refuses the ones it lacks.
     ranges: tuple[str, ...] = ()
     generator: bool = True
