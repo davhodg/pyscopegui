@@ -19,6 +19,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -129,3 +131,20 @@ def test_every_instrument_in_the_readme_is_on_the_pypi_page():
         r"^- \*\*([^*]+)\*\*", README.split("## Instruments")[1].split("##")[0], re.M
     )
     assert named and all(f"**{name}**" in PYPI for name in named)
+
+
+def test_every_classifier_is_one_pypi_knows():
+    """PyPI refuses an upload with a classifier it does not know, and the
+    upload is the last step of a release: better found here."""
+    import tomllib
+
+    trove = pytest.importorskip("trove_classifiers")
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert [c for c in project["classifiers"] if c not in trove.classifiers] == []
+
+
+def test_the_summary_pypi_shows_is_how_the_pages_open():
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["description"] in README and project["description"] in PYPI

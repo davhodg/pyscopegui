@@ -281,7 +281,8 @@ class AboutDialog(QDialog):
         self.setWindowTitle(f"About {APP_NAME}")
         heading = QLabel(
             f"<h3>{APP_NAME} {__version__}</h3>"
-            "<p>Oscilloscopes and logic analysers in one time-aligned view.</p>"
+            "<p>Oscilloscopes and logic analysers in one view: analog and logic channels "
+            "from separate instruments, on one time axis.</p>"
         )
         heading.setTextFormat(Qt.RichText)
         details = QPlainTextEdit(environment_report())

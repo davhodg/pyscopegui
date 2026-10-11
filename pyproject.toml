@@ -7,7 +7,8 @@ name = "pyscopegui"
 # From __version__ in pyscopegui/__init__.py, the one copy -- read without
 # importing the package. The installer takes it from there too.
 dynamic = ["version"]
-description = "Oscilloscopes and logic analysers in one time-aligned view"
+# The same words as the README and the repository open with.
+description = "Oscilloscopes and logic analysers in one view: analog and logic channels from separate instruments, on one time axis"
 # The page PyPI shows: the README's pictures and links are relative to the
 # repository, and PyPI can follow neither.
 readme = "PYPI.md"
@@ -15,14 +16,17 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "davhodg" }]
+# What PyPI shows as tags, and searches on.
 keywords = [
     "oscilloscope", "logic analyzer", "logic analyser", "mixed signal", "PicoScope",
-    "test and measurement", "embedded", "Qt",
+    "Rigol", "DS1054Z", "SCPI", "test and measurement", "embedded", "Qt",
 ]
-# No licence classifier: the licence expression above replaces them, and
-# setuptools refuses both.
+# Checked against the official list by tests/test_readme.py: PyPI refuses an
+# upload with a classifier it does not know, which is the last step of a
+# release. No licence classifier: the licence expression above replaces them,
+# and setuptools refuses both.
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Natural Language :: English",
@@ -61,6 +65,8 @@ dev = [
     "pytest",
     "pytest-xdist",
     "ruff==0.16.*",
+    # The official list of classifiers, for the test that checks ours against it.
+    "trove-classifiers",
 ]
 
 # gui-scripts, not scripts: on Windows the launcher pip makes for a script is a
