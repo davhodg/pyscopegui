@@ -44,6 +44,9 @@ class InstrumentView(QWidget):
         self._layout.setContentsMargins(6, 6, 6, 6)
         #: Setting key -> the control showing it.
         self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox] = {}
+        self._settings: tuple[Setting, ...] = ()
+        self._forms: dict[str, QFormLayout] = {}
+        self.changed.connect(self._show_needed)
         self.show_settings((), {})
 
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
@@ -52,11 +55,12 @@ class InstrumentView(QWidget):
             if (widget := item.widget()) is not None:
                 widget.deleteLater()
         self.controls = {}
+        self._settings, self._forms = settings, {}
         if not settings:
             self._layout.addWidget(QLabel(NOTHING))
             self._layout.addStretch()
             return
-        forms: dict[str, QFormLayout] = {}
+        forms = self._forms
         for setting in settings:
             if setting.group not in forms:
                 box = QGroupBox(setting.group)
@@ -76,6 +80,28 @@ class InstrumentView(QWidget):
         note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self._layout.addWidget(note)
         self._layout.addStretch()
+        self._show_needed()
+
+    def value(self, key: str) -> object:
+        """What the control for this setting is at."""
+        control = self.controls[key]
+        if isinstance(control, QCheckBox):
+            return control.isChecked()
+        if isinstance(control, QComboBox):
+            return control.currentData()
+        return control.value()
+
+    def _show_needed(self, *_changed) -> None:
+        """Grey out what has no say while another setting is as it is."""
+        for setting in self._settings:
+            if setting.needs is None or setting.needs[0] not in self.controls:
+                continue
+            key, value = setting.needs
+            control = self.controls[setting.key]
+            on = self.value(key) == value
+            control.setEnabled(on)
+            if (label := self._forms[setting.group].labelForField(control)) is not None:
+                label.setEnabled(on)
 
     def _control(self, setting: Setting, value) -> QCheckBox | QComboBox | QDoubleSpinBox:
         if isinstance(setting.default, bool) and not setting.choices:

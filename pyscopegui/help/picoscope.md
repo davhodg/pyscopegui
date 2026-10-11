@@ -55,6 +55,8 @@ scope while pyscopegui has it open.
 ## Streaming or blocks
 
 **Reading**, in the Instrument pane, chooses between the two ways the scope can be read.
+**Sample rate** is for streaming and **Block length** for blocks, and whichever has no say
+is greyed out.
 
 **Streaming** reads continuously -- what Pico calls fast streaming -- every sample from the
 moment a run starts, at up to 1 MS/s on each channel, for as long as it runs. The

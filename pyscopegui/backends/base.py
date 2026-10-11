@@ -69,6 +69,9 @@ class Setting:
     #: Taken up as the instrument runs, with what is on the plot kept.
     #: Anything else starts the run again, from an empty plot.
     live: bool = False
+    #: (key, value) of another setting this one depends on: it has a say only
+    #: while that one is at that value, and is greyed out otherwise.
+    needs: tuple[str, object] | None = None
     tip: str = ""
 
 

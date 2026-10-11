@@ -133,6 +133,9 @@ def test_a_block_is_drawn_whole_with_nought_at_the_scopes_trigger(scope_window, 
     assert window.capture.records["A"].rate == pytest.approx(3_125_000)
     window._update_status()
     assert "3.125 MS/s, 1 ms held" in window.status.text()
+    assert not window.scope.window_s.isEnabled(), "the whole block is shown"
+    assert "2 channels in blocks" in window.log.toPlainText()
+    assert not window.instrument_view.controls["rate"].isEnabled()
 
 
 def test_what_the_trigger_toolbar_says_is_what_the_scope_is_told(scope_window, app):
@@ -213,6 +216,9 @@ def test_going_back_to_streaming_is_a_stream_again(scope_window, app):
     assert window.capture.records["A"].rate == pico.DEFAULT_RATE
     assert window.instrument.running
     assert window.library.calls.count(("open",)) == 1
+    window.scope.redraw()
+    assert window.scope.window_s.isEnabled()
+    assert window.instrument_view.controls["rate"].isEnabled()
 
 
 def test_the_settings_offered_follow_the_model_once_it_is_open(window, monkeypatch, app):

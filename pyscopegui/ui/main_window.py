@@ -438,8 +438,12 @@ class MainWindow(QMainWindow):
         title = backends.title(self._instrument_name)
         if running:
             count = len(self.instrument.channels())
-            rate = short_rate(self.instrument.rate)
-            self.events.information(f"{title}: running, {count} channels at {rate}.")
+            if self.instrument.sweeps:
+                # The rate is the instrument's to choose, and it says what it chose.
+                self.events.information(f"{title}: running, {count} channels in blocks.")
+            else:
+                rate = short_rate(self.instrument.rate)
+                self.events.information(f"{title}: running, {count} channels at {rate}.")
         else:
             self.events.information(f"{title}: stopped.")
             if not self._restarting:

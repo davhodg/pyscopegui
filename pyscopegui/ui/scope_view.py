@@ -357,7 +357,10 @@ class ScopeView(QWidget):
         self.time.setCurrentText(MANUAL)
 
     def _show_time(self, *_args) -> None:
-        self.window_s.setEnabled(self.time.currentText() == FOLLOW or self._relative)
+        # A sweep is shown whole: how much to show is not asked.
+        wanted = self._sweep_ends is None and (self.time.currentText() == FOLLOW or self._relative)
+        if self.window_s.isEnabled() != wanted:
+            self.window_s.setEnabled(wanted)
 
     # --- the trigger ----------------------------------------------------------------------
     def _show_trigger(self) -> None:
@@ -464,6 +467,7 @@ class ScopeView(QWidget):
         was_relative = self._relative
         origin, state = self._find_origin()
         self._show_relative(was_relative)
+        self._show_time()
         if self.state.text() != state:
             self.state.setText(state)
         for line in self.trigger_lines:

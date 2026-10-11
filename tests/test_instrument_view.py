@@ -270,3 +270,15 @@ def test_the_plots_are_drawn_in_the_windows_own_colours(window, app):
     for plot in (scope.analog, scope.digital):
         assert plot.backgroundBrush().color().name() == "#101418"
         assert plot.getAxis("bottom").textPen().color().name() == "#e8e8e8"
+
+
+def test_a_setting_is_greyed_out_while_the_one_it_needs_is_at_something_else(app):
+    view = InstrumentView()
+    view.show_settings(pico.SETTINGS, {})
+    rate, length, mode = (view.controls[key] for key in ("rate", "block_ms", "mode"))
+    assert rate.isEnabled() and not length.isEnabled(), "streaming to start with"
+    mode.setCurrentIndex(mode.findData(pico.BLOCKS))
+    mode.activated.emit(mode.currentIndex())
+    assert not rate.isEnabled() and length.isEnabled()
+    view.show_settings(pico.SETTINGS, {"mode": pico.BLOCKS})
+    assert not view.controls["rate"].isEnabled(), "as it was saved"

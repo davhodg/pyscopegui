@@ -230,6 +230,7 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
                 (10_000, "10 kS/s"),
             ),
             group="Sampling",
+            needs=("mode", STREAM),
             tip="When streaming: samples a second on each channel.",
         ),
         Setting(
@@ -241,6 +242,7 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
             decimals=3,
             unit="ms",
             group="Sampling",
+            needs=("mode", BLOCKS),
             tip=(
                 "When reading blocks: how long a stretch each one is. The scope's\n"
                 "memory holds a few thousand samples, so a shorter block is sampled\n"
