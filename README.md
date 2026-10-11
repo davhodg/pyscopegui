@@ -15,7 +15,7 @@ The CI, release and PyPI badges are live. While the repository is private they c
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-Apache--2.0-green)
 
-Oscilloscopes and logic analysers in one time-aligned view: analog channels and logic channels from separate instruments, on one time axis. Apache-2.0.
+Oscilloscopes and logic analysers in one view: analog and logic channels from separate instruments, on one time axis. Apache-2.0.
 
 ![pyscopegui on its demo instrument: a sine and a ramp on the analog plot, four logic channels in lanes under it, the Instrument pane and the Event Log](pyscopegui/help/main-window.png)
 
