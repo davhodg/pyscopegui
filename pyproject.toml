@@ -8,7 +8,9 @@ name = "pyscopegui"
 # importing the package. The installer takes it from there too.
 dynamic = ["version"]
 description = "Oscilloscopes and logic analysers in one time-aligned view"
-readme = "README.md"
+# The page PyPI shows: the README's pictures and links are relative to the
+# repository, and PyPI can follow neither.
+readme = "PYPI.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"

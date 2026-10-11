@@ -95,3 +95,37 @@ def test_the_python_classifiers_start_at_the_floor():
 def test_the_licence_and_notice_are_links():
     assert "[LICENSE](LICENSE)" in README and "[NOTICE](NOTICE)" in README
     assert (ROOT / "LICENSE").is_file() and (ROOT / "NOTICE").is_file()
+
+
+# --- the page PyPI shows -------------------------------------------------------------------------
+PYPI = (ROOT / "PYPI.md").read_text(encoding="utf-8")
+
+
+def test_pypi_is_shown_the_page_written_for_it():
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["readme"] == "PYPI.md"
+
+
+def test_the_pypi_page_has_no_link_or_picture_pypi_cannot_follow():
+    """PyPI has only the page: anything relative to the repository is broken there."""
+    import re
+
+    targets = re.findall(r"\]\(([^)]+)\)", PYPI) + re.findall(r'src="([^"]+)"', PYPI)
+    assert targets, "there are links to check"
+    assert [t for t in targets if not t.startswith("https://")] == []
+
+
+def test_the_pypi_page_opens_as_the_readme_does():
+    opening = "Oscilloscopes and logic analysers in one view"
+    assert opening in README and opening in PYPI
+
+
+def test_every_instrument_in_the_readme_is_on_the_pypi_page():
+    import re
+
+    named = re.findall(
+        r"^- \*\*([^*]+)\*\*", README.split("## Instruments")[1].split("##")[0], re.M
+    )
+    assert named and all(f"**{name}**" in PYPI for name in named)
