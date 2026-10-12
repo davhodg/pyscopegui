@@ -24,9 +24,10 @@ Nothing of Tektronix's needs installing.
   with all its wires if hard flagging is to be used.
 - **On the scope**, press **Utility > Options > RS232 Setup**. Set the speed to the
   fastest there is, 19200, and flagging to **Hard**. Leave the end of line at LF.
-- **In the Instrument pane**, put the port's name in **Port** -- `COM3` on Windows, as
-  Device Manager lists it under *Ports*, or `/dev/ttyUSB0` on Linux -- and set **Speed** and
-  **Flow control** to what the scope has. Then press **Open**.
+- **In the Instrument pane**, choose the port from the list in **Port**, which shows the
+  serial ports there are at that moment -- `COM3` on Windows, `/dev/ttyUSB0` on Linux; a
+  name can be typed too -- and set **Speed** and **Flow control** to what the scope has.
+  Then press **Open**.
 
 The [Event Log](event-log.md) says which scope answered, and how many channels it has. The
 Instrument pane then offers that many.

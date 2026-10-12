@@ -85,6 +85,26 @@ AVERAGES = (4, 16, 64, 128)
 _ONLY_SET_UP = "\nUsed when the scope is set up from here, and not when it is read as it is."
 
 
+def serial_ports() -> list[tuple[str, str]]:
+    """The serial ports there are now, as (name, what to call it in a list).
+
+    Nothing where pyserial is not installed: opening says so.
+    """
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return []
+    found = []
+    for port in sorted(list_ports.comports(), key=lambda port: port.device):
+        said = port.description or ""
+        # Windows describes a port with its name at the end, which is said already.
+        if said and said != "n/a" and said != port.device:
+            found.append((port.device, f"{port.device}   {said}"))
+        else:
+            found.append((port.device, port.device))
+    return found
+
+
 def make_settings(channels: int = 4) -> tuple[Setting, ...]:
     """The settings to offer for a scope with this many channels."""
     made = [
@@ -93,9 +113,12 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             "Port",
             "",
             group="Connection",
+            found=serial_ports,
+            empty="Choose a port",
             tip=(
-                "The serial port the scope is on: COM3 on Windows, as Device Manager\n"
-                "lists it, or /dev/ttyUSB0 on Linux. Taken up at the next Open."
+                "The serial port the scope is on. The list is of the ports there are\n"
+                "now; a name can be typed too: COM3 on Windows, /dev/ttyUSB0 on\n"
+                "Linux. Taken up at the next Open."
             ),
         ),
         Setting(

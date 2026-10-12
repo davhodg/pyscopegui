@@ -411,7 +411,7 @@ def scope_window(window, port, monkeypatch):
 
 def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, port, app):
     window = scope_window
-    assert window.instrument_view.controls["port"].text() == "COM9"
+    assert window.instrument_view.controls["port"].currentText() == "COM9"
     window.instrument_bar.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "TPS 2014" in window.log.toPlainText()
@@ -477,3 +477,35 @@ def test_no_port_says_so_and_goes_back_to_closed(window, app):
     wait_for(app, lambda: "No port to open" in window.log.toPlainText())
     wait_for(app, lambda: window.instrument_bar.open.text() == "Open")
     assert not window.instrument.is_open
+
+
+# --- choosing the port --------------------------------------------------------------------------
+def test_the_ports_there_are_now_are_listed_by_name(monkeypatch):
+    from serial.tools import list_ports
+
+    class Port:
+        def __init__(self, device, description):
+            self.device, self.description = device, description
+
+    monkeypatch.setattr(
+        list_ports,
+        "comports",
+        lambda: [Port("COM6", "USB Serial Port (COM6)"), Port("COM1", "n/a"), Port("COM3", "")],
+    )
+    assert tek.serial_ports() == [
+        ("COM1", "COM1"),
+        ("COM3", "COM3"),
+        ("COM6", "COM6   USB Serial Port (COM6)"),
+    ]
+
+
+def test_the_port_box_is_a_list_with_a_hint_when_empty(window, app):
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("tektronix2000"))
+    picker = window.instrument_view.controls["port"]
+    assert picker.lineEdit().placeholderText() == "Choose a port"
+    picker.fill()  # whatever ports this machine has, after the empty choice
+    assert picker.itemData(0) == "" and picker.itemText(0) == "Choose a port"
+    picker.setEditText("COM7")
+    window.instrument_view.commit()
+    assert window.ctx.settings.get("instrument.tektronix2000")["port"] == "COM7"

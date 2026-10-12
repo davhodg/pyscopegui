@@ -42,7 +42,7 @@ BACKENDS: dict[str, Backend] = {
     "tektronix2000": Backend(
         "pyscopegui.backends.tektronix2000",
         "Tektronix2000",
-        "Tektronix TDS/TPS 2000 series (serial)",
+        "Tektronix TDS/TPS 2000 series",
         "Tek",
     ),
 }
