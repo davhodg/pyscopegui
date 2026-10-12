@@ -35,6 +35,8 @@ sys.path.insert(0, str(PROJECT))
 from pyscopegui.backends import BACKENDS  # noqa: E402
 
 HIDDEN = sorted({backend.module for backend in BACKENDS.values()})
+# pyvisa chooses the wrapper for the installed VISA library by name, at run time.
+HIDDEN += ["pyvisa", "pyvisa.ctwrapper"]
 
 # Qt modules that are GPL or commercial only. Shipping one would change the
 # licence of the whole application, so they are kept out deliberately.

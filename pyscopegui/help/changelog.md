@@ -15,6 +15,7 @@ since the last version, and comes out in the next one.
   and a file for each instrument.
 - *Tools > Settings > Add shortcut to desktop* on Windows; both shortcuts for a pip
   installation too.
+- Rigol over **USB**, through an installed VISA library, as well as over the network.
 - Rigol: a **20 MHz limit** for each channel, and the scope's **acquisition mode** --
   normal, high resolution or peak detect.
 

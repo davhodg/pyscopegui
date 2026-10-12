@@ -434,6 +434,188 @@ def test_a_scope_that_goes_away_is_said_in_words(fake):
     scope.close()
 
 
+# --- over USB ---------------------------------------------------------------------------------
+class FakeInstrument:
+    """A scope as a VISA library hands it over: the stand-in above, without the socket."""
+
+    def __init__(self, scope, pieces=1) -> None:
+        self._scope = scope
+        #: How many pieces a block is handed over in.
+        self._pieces = pieces
+        self._waiting = b""
+        self.timeout = None
+        self.write_termination = None
+        self.read_termination = "\n"
+        self.closed = False
+
+    def write(self, command: str) -> None:
+        self._waiting = self._scope.answer(command) or b""
+
+    def query(self, command: str) -> str:
+        self.write(command)
+        return self.read_raw().decode()
+
+    def read_raw(self) -> bytes:
+        if self.read_termination is not None:
+            raise AssertionError("a read would stop at the first new line in a waveform")
+        size = len(self._waiting)
+        if self._pieces > 1 and self._waiting[:1] == b"#" and size > 100:
+            # A block, handed over a part at a time; a line of text comes whole.
+            size = size // self._pieces
+            self._pieces -= 1
+        taken, self._waiting = self._waiting[:size], self._waiting[size:]
+        return taken
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeVisa:
+    def __init__(self, scope, listed=("USB0::0x1AB1::0x04CE::DS1ZA000000001::INSTR",)) -> None:
+        self.listed = listed
+        self.instrument = FakeInstrument(scope)
+        self.opened: list[str] = []
+        self.closed = False
+
+    def list_resources(self, _query: str):
+        return self.listed
+
+    def open_resource(self, name: str):
+        self.opened.append(name)
+        return self.instrument
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def visa(fake, monkeypatch):
+    library = FakeVisa(fake)
+    monkeypatch.setattr(rigol, "open_visa", lambda: library)
+    return library
+
+
+def over_usb(**options) -> rigol.Scope:
+    scope = rigol.Scope(rigol.Settings({"connection": "usb", **options}))
+    scope.open()
+    return scope
+
+
+def test_usb_is_chosen_in_the_settings_and_needs_no_address():
+    settings = rigol.Settings({"connection": "usb", "usb": " DS1ZA7 "})
+    assert settings.usb and settings.usb_device == "DS1ZA7"
+    assert not rigol.Settings().usb, "the network, unless it is said"
+    needs = {setting.key: setting.needs for setting in rigol.SETTINGS}
+    assert needs["address"] == ("connection", "lan") and needs["usb"] == ("connection", "usb")
+
+
+def test_the_first_of_rigols_is_found_among_what_is_plugged_in():
+    listed = (
+        "USB0::0x0957::0x1796::MY1::INSTR",
+        "USB0::0x1AB1::0x04CE::DS1ZA111::INSTR",
+        "USB0::0x1ab1::0x04CE::DS1ZA222::INSTR",
+    )
+    assert rigol.find_usb(listed, "") == listed[1]
+    assert rigol.find_usb(listed, "ds1za222") == listed[2], "by its serial number, in any case"
+    assert rigol.find_usb(listed, "DS1ZA999") is None
+    assert rigol.find_usb(("USB0::6833::1230::DS1ZA1::0::INSTR",), "") is not None, "in decimal too"
+    assert rigol.find_usb(listed[:1], "") is None, "somebody else's instrument is not a guess"
+
+
+def test_a_scope_on_usb_is_opened_and_named(visa):
+    scope = over_usb()
+    assert scope.model == "DS1054Z"
+    assert visa.opened == ["USB0::0x1AB1::0x04CE::DS1ZA000000001::INSTR"]
+    assert visa.instrument.read_termination is None and visa.instrument.write_termination == "\n"
+    scope.close()
+    assert visa.instrument.closed and visa.closed
+
+
+def test_a_sweep_over_usb_is_the_same_sweep(visa):
+    scope = over_usb(time_div=1e-3, scale_1=0.5)
+    scope.start(scope.settings, rigol.Trigger("CH1", 0.0, True, 0.5, auto=False))
+    block = sweep_of(scope)
+    assert len(block) == 1200 and block.rate == pytest.approx(100_000)
+    assert (block.trigger, block.triggered) == (600, True)
+    assert block.data["CH1"][0] == pytest.approx(-2.0)
+    scope.close()
+
+
+def test_a_block_that_arrives_in_pieces_is_put_together(visa):
+    scope = over_usb()
+    scope.start(scope.settings, rigol.Trigger())
+    visa.instrument._pieces = 3
+    block = sweep_of(scope)
+    assert visa.instrument._pieces < 3, "it was handed over a part at a time"
+    assert len(block) == 1200 and np.all(np.diff(block.data["CH1"]) >= 0)
+    scope.close()
+
+
+def test_the_memory_is_read_over_usb_too(visa):
+    scope = over_usb(read="memory")
+    scope.start(scope.settings, rigol.Trigger("CH1", auto=False))
+    assert len(sweep_of(scope)) == 600_000
+    scope.close()
+
+
+def test_no_scope_on_usb_says_what_was_found(visa):
+    visa.listed = ("USB0::0x0957::0x1796::MY1::INSTR",)
+    with pytest.raises(rigol.ScopeError, match="lists USB0::0x0957"):
+        over_usb()
+    assert visa.closed, "and the library is let go of"
+    visa.listed = ()
+    with pytest.raises(rigol.ScopeError, match="lists nothing"):
+        over_usb()
+    with pytest.raises(rigol.ScopeError, match="matching 'DS1ZA9'"):
+        over_usb(usb="DS1ZA9")
+
+
+def test_no_visa_library_says_where_one_comes_from(monkeypatch):
+    def none():
+        raise OSError("Could not locate a VISA implementation")
+
+    monkeypatch.setattr(rigol, "open_visa", none)
+    with pytest.raises(rigol.ScopeError, match="No VISA library was found"):
+        over_usb()
+
+
+def test_no_pyvisa_says_what_to_install(monkeypatch):
+    def missing():
+        raise ImportError("No module named 'pyvisa'")
+
+    monkeypatch.setattr(rigol, "open_visa", missing)
+    with pytest.raises(rigol.ScopeError, match="pip install pyvisa"):
+        over_usb()
+
+
+def test_a_scope_unplugged_from_usb_is_said_in_words(visa):
+    scope = over_usb()
+    scope.start(scope.settings, rigol.Trigger())
+
+    def gone(_command):
+        raise OSError("VI_ERROR_TMO")
+
+    visa.instrument.query = gone
+    with pytest.raises(rigol.ScopeError, match="on USB"):
+        sweep_of(scope)
+    scope.close()
+
+
+def test_the_window_greys_out_the_address_for_usb_and_opens_the_scope(window, visa, app):
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("rigol1000z"))
+    controls = window.instrument_view.controls
+    assert controls["address"].isEnabled() and not controls["usb"].isEnabled()
+    connection = controls["connection"]
+    connection.setCurrentIndex(connection.findData("usb"))
+    connection.activated.emit(connection.currentIndex())
+    assert not controls["address"].isEnabled() and controls["usb"].isEnabled()
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert "DS1054Z" in window.log.toPlainText()
+    window.close_instrument()
+
+
 # --- in the window --------------------------------------------------------------------------
 def wait_for(app, done, seconds=5.0):
     deadline = time.monotonic() + seconds

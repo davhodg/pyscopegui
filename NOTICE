@@ -12,6 +12,7 @@ under its own licence and installed as a separate package:
   (Qt for Python; the GPL-only add-on modules are not installed at all)
   pyqtgraph                            MIT         https://www.pyqtgraph.org
   numpy                                BSD-3-Clause  https://numpy.org
+  pyvisa                               MIT         https://github.com/pyvisa/pyvisa
   Python                               PSF-2.0     https://www.python.org
 
 The LGPL-licensed components are dynamically linked and separately replaceable;

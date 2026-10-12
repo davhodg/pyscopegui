@@ -2,7 +2,7 @@
 
 # Rigol DS1000Z
 
-For Rigol's DS1000Z series of four-channel scopes, over the network. The models differ in
+For Rigol's DS1000Z series of four-channel scopes, over the network or USB. The models differ in
 bandwidth and in what is added to the four analog channels, which are the same on all of
 them and are what pyscopegui reads.
 
@@ -16,12 +16,12 @@ them and are what pyscopegui reads.
 The older DS1000E and DS1000D scopes -- the DS1052E -- are a different series with
 different commands, and are not supported.
 
-Nothing of Rigol's needs installing. The scope is talked to in plain text over the network,
-which every one of them can do.
+The scope is talked to in plain text, over the network or over USB. **Connection**, in the
+Instrument pane, says which.
 
-## Connecting
+## Connecting over the network
 
-Plug the scope into the network, and on the scope press **Utility > IO > LAN Conf** to see
+Nothing needs installing. Plug the scope into the network, and on the scope press **Utility > IO > LAN Conf** to see
 the address it was given. Put that in **Address** in the Instrument pane -- `192.168.1.50`
 -- and press **Open**. The [Event Log](event-log.md) says which scope answered. The box is
 amber while what is typed in it has not been taken up yet: Enter, leaving the box, **Open**
@@ -30,7 +30,21 @@ or a run button takes it up.
 A scope plugged straight into the computer with one cable works too: leave *Auto IP* on in
 the same menu, and both ends give themselves an address starting `169.254`.
 
-USB is not supported yet.
+## Connecting over USB
+
+USB goes through a *VISA library*, which is the usual way programs talk to bench
+instruments and is not part of pyscopegui. Rigol's own software, UltraSigma, installs one;
+so do National Instruments' NI-VISA and Keysight's IO Libraries. Any one of them will do.
+
+- Plug the scope's USB **device** port, on its back, into the computer.
+- On the scope, **Utility > IO > USB Device** should say **Computer**.
+- Choose **USB** for **Connection** and press **Open**. The first Rigol scope the library
+  lists is used, and the [Event Log](event-log.md) says which answered.
+
+With more than one scope plugged in, put the serial number of the one wanted in **USB
+device**, or its whole name as the VISA library lists it. Left empty, it is the first found.
+
+The two ways in take the same commands, and everything below is the same for both.
 
 ## Sweeps
 
@@ -66,7 +80,9 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 
 | Setting | What it is |
 |---------|------------|
-| Address | Where the scope is on the network. Taken up at the next **Open** |
+| Connection | Network, or USB. Taken up at the next **Open** |
+| Address | For the network: where the scope is. Taken up at the next **Open** |
+| USB device | For USB: which scope, where there are several. Taken up at the next **Open** |
 | Reading | The screen, or the memory: see above |
 | Time | Seconds a division, of the twelve across the screen |
 | Acquisition | How each point is made from the samples taken: see below |
@@ -103,6 +119,11 @@ if the scope has one -- stays as the scope has it.
 - *No address to connect to* --- **Address** in the Instrument pane is empty.
 - *No scope answered at ...* --- the address is wrong, the scope is off or on another
   network, or something between the two blocks port 5555.
+- *No VISA library was found for USB* --- USB needs one installed: see above. The network
+  needs none.
+- *No scope of Rigol's was found on USB* --- the message lists what the library can see.
+  The cable is in the scope's USB host port on the front, which is for memory sticks, or
+  **Utility > IO > USB Device** is set to a printer.
 - *The scope stopped answering* --- it was unplugged or switched off, or another program
   sent it something that it is still busy with.
 - *This was written for the DS1000Z scopes* --- something else answered. It may work, as

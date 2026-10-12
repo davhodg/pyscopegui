@@ -19,7 +19,7 @@ authors = [{ name = "davhodg" }]
 # What PyPI shows as tags, and searches on.
 keywords = [
     "oscilloscope", "logic analyzer", "logic analyser", "mixed signal", "PicoScope",
-    "Rigol", "DS1054Z", "SCPI", "test and measurement", "embedded", "Qt",
+    "Rigol", "DS1054Z", "SCPI", "VISA", "USBTMC", "test and measurement", "embedded", "Qt",
 ]
 # Checked against the official list by tests/test_readme.py: PyPI refuses an
 # upload with a classifier it does not know, which is the last step of a
@@ -49,6 +49,9 @@ dependencies = [
     "PySide6-Essentials>=6.8",
     "pyqtgraph>=0.13",
     "numpy>=1.26",
+    # For a scope on USB, through whichever VISA library is installed. Imported
+    # only when one is opened that way.
+    "pyvisa>=1.13",
 ]
 
 [project.urls]
