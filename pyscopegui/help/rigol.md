@@ -41,8 +41,9 @@ so do National Instruments' NI-VISA and Keysight's IO Libraries. Any one of them
 - Choose **USB** for **Connection** and press **Open**. The first Rigol scope the library
   lists is used, and the [Event Log](event-log.md) says which answered.
 
-With more than one scope plugged in, put the serial number of the one wanted in **USB
-device**, or its whole name as the VISA library lists it. Left empty, it is the first found.
+**USB device** says which scope, and left empty it is the first Rigol found, which with one
+scope plugged in is all that is wanted. With more than one, open its list: it shows the
+scopes plugged in at that moment, by serial number. A serial number can be typed there too.
 
 The two ways in take the same commands, and everything below is the same for both.
 

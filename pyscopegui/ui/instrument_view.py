@@ -48,6 +48,42 @@ RESTARTS = "A change starts a run again, from an empty plot."
 CHANNEL = "Channel "
 
 
+class Picker(QComboBox):
+    """A box to type in, with a list of what was found when the list is opened.
+
+    For naming one of several instruments that are plugged in: the list is
+    made each time it is opened, so that one plugged in a moment ago is in it.
+    """
+
+    def __init__(self, setting: Setting, text: str) -> None:
+        super().__init__()
+        self._setting = setting
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self.lineEdit().setPlaceholderText(setting.empty)
+        self.setEditText(text)
+
+    def fill(self) -> None:
+        """List what there is now, with what leaving it empty means first."""
+        text = self.currentText()
+        self.blockSignals(True)
+        self.clear()
+        self.addItem(self._setting.empty or "(none)", "")
+        try:
+            found = self._setting.found() if self._setting.found is not None else []
+        except Exception:  # a list that cannot be made is an empty one
+            found = []
+        for value, label in found:
+            self.addItem(label, value)
+        self.setCurrentIndex(-1)
+        self.setEditText(text)
+        self.blockSignals(False)
+
+    def showPopup(self) -> None:
+        self.fill()
+        super().showPopup()
+
+
 class InstrumentView(QWidget):
     #: Key, the new value, and whether it takes effect without a restart.
     changed = Signal(str, object, bool)
@@ -126,7 +162,7 @@ class InstrumentView(QWidget):
                 forms[setting.group] = self._form(setting.group)
             control = self._control(setting, values.get(setting.key, setting.default))
             tip = setting.tip
-            if not setting.live and not isinstance(control, QLineEdit):
+            if not setting.live and not isinstance(control, QLineEdit | Picker):
                 tip = f"{tip}\n{RESTARTS}" if tip else RESTARTS
             control.setToolTip(tip)
             self.controls[setting.key] = control
@@ -188,11 +224,17 @@ class InstrumentView(QWidget):
         self._show_pending(line)
         self.changed.emit(setting.key, text, setting.live)
 
+    def _pick(self, setting: Setting, picker: Picker, value: object) -> None:
+        picker.setEditText(value if isinstance(value, str) else "")
+        self._take_text(setting, picker.lineEdit())
+
     def commit(self) -> None:
         """Take up anything typed and still waiting: before the instrument is opened or run."""
         for control in self.controls.values():
             if isinstance(control, QLineEdit):
                 control.editingFinished.emit()
+            elif isinstance(control, Picker):
+                control.lineEdit().editingFinished.emit()
             elif isinstance(control, QDoubleSpinBox):
                 control.interpretText()
 
@@ -201,6 +243,8 @@ class InstrumentView(QWidget):
         control = self.controls[key]
         if isinstance(control, QCheckBox):
             return control.isChecked()
+        if isinstance(control, Picker):
+            return control.currentText().strip()
         if isinstance(control, QComboBox):
             return control.currentData()
         if isinstance(control, QLineEdit):
@@ -244,8 +288,20 @@ class InstrumentView(QWidget):
                 lambda _i, s=setting, b=box: self.changed.emit(s.key, b.currentData(), s.live)
             )
             return box
+        if isinstance(setting.default, str) and setting.found is not None:
+            picker = Picker(setting, value if isinstance(value, str) else setting.default)
+            line = picker.lineEdit()
+            line.setProperty("taken", line.text())
+            line.textChanged.connect(lambda _t, e=line: self._show_pending(e))
+            line.editingFinished.connect(lambda s=setting, e=line: self._take_text(s, e))
+            # Chosen from the list: its value in the box, and taken up at once.
+            picker.activated.connect(
+                lambda index, s=setting, p=picker: self._pick(s, p, p.itemData(index))
+            )
+            return picker
         if isinstance(setting.default, str):
             line = QLineEdit(value if isinstance(value, str) else setting.default)
+            line.setPlaceholderText(setting.empty)
             line.setProperty("taken", line.text())
             # Taken up once it is finished with, not at every letter typed on
             # the way, and shown as waiting until then.

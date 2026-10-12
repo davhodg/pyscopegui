@@ -107,6 +107,36 @@ COUPLINGS = (("DC", "DC"), ("AC", "AC"), ("GND", "Ground"))
 ACQUISITIONS = (("NORM", "Normal"), ("HRES", "High resolution"), ("PEAK", "Peak detect"))
 
 
+def usb_scopes() -> list[tuple[str, str]]:
+    """The Rigol scopes on USB now, as (serial number, what to call it in a list).
+
+    Nothing where there is no VISA library, or none plugged in: the list is
+    then only "first found", and opening says what is wrong.
+    """
+    try:
+        manager = open_visa()
+    except Exception:  # no pyvisa, or no library: opening it says so
+        return []
+    try:
+        listed = tuple(manager.list_resources("USB?*INSTR"))
+    except Exception:
+        listed = ()
+    finally:
+        try:
+            manager.close()
+        except Exception:
+            pass
+    scopes = []
+    for name in listed:
+        if not any(mark in name.upper() for mark in RIGOL_USB):
+            continue
+        # USB0::0x1AB1::0x04CE::DS1ZA000000000::INSTR: the fourth part is the serial number.
+        parts = name.split("::")
+        serial = parts[3] if len(parts) > 3 else name
+        scopes.append((serial, f"{serial}   {name}"))
+    return scopes
+
+
 def make_settings() -> tuple[Setting, ...]:
     made = [
         Setting(
@@ -138,10 +168,12 @@ def make_settings() -> tuple[Setting, ...]:
             "",
             group="Connection",
             needs=("connection", USB),
+            found=usb_scopes,
+            empty="First Rigol found",
             tip=(
-                "Which scope, where more than one is plugged in: its serial number,\n"
-                "or its whole name as the VISA library has it. Left empty, the\n"
-                "first Rigol found is used. Taken up at the next Open."
+                "Which scope, where more than one is plugged in. The list is of\n"
+                "those plugged in now; a serial number can be typed too. Left\n"
+                "empty, the first Rigol found is used. Taken up at the next Open."
             ),
         ),
         Setting(
@@ -528,6 +560,7 @@ class Scope:
         if self.settings.usb:
             self._link = VisaLink(self.settings.usb_device)
             where = "on USB"
+            self.notes.append((f"On USB: {self._link.name}.", False))
         elif not self.settings.host:
             raise ScopeError(
                 "No address to connect to. Put the scope's address in the Instrument pane: "

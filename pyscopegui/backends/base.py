@@ -16,6 +16,7 @@ drawn as if the signal had it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -77,6 +78,13 @@ class Setting:
     #: Taken up as the instrument runs, with what is on the plot kept.
     #: Anything else starts the run again, from an empty plot.
     live: bool = False
+    #: For a setting that is text: asked for what there is to choose from
+    #: when its list is opened -- the instruments plugged in at that moment --
+    #: as (value, what the list calls it). It can still be typed.
+    found: Callable[[], list[tuple[str, str]]] | None = None
+    #: For a setting that is text: what leaving it empty means, shown in it
+    #: while it is empty, and offered first in its list.
+    empty: str = ""
     #: (key, value) of another setting this one depends on: it has a say only
     #: while that one is at that value, and is greyed out otherwise.
     needs: tuple[str, object] | None = None

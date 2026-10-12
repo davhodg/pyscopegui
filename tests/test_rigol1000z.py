@@ -718,3 +718,52 @@ def test_typing_back_what_was_there_is_not_waiting(window, app):
     assert line.styleSheet() == PENDING
     line.setText("")
     assert line.styleSheet() == ""
+
+
+# --- choosing which scope on USB ---------------------------------------------------------------
+def test_the_usb_box_lists_the_scopes_plugged_in_when_it_is_opened(window, visa, app):
+    visa.listed = (
+        "USB0::0x0957::0x1796::MY1::INSTR",
+        "USB0::0x1AB1::0x04CE::DS1ZA111::INSTR",
+        "USB0::0x1AB1::0x04CE::DS1ZA222::INSTR",
+    )
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("rigol1000z"))
+    picker = window.instrument_view.controls["usb"]
+    assert picker.lineEdit().placeholderText() == "First Rigol found"
+    assert picker.count() == 0, "nothing is asked of the library until the list is opened"
+    picker.fill()
+    assert [picker.itemData(i) for i in range(picker.count())] == ["", "DS1ZA111", "DS1ZA222"]
+    assert picker.itemText(0) == "First Rigol found" and "DS1ZA222" in picker.itemText(2)
+    assert visa.closed, "the library is let go of once it has been asked"
+    picker.activated.emit(2)
+    assert picker.currentText() == "DS1ZA222"
+    assert window.ctx.settings.get("instrument.rigol1000z")["usb"] == "DS1ZA222"
+    picker.fill()
+    picker.activated.emit(0)
+    assert (
+        picker.currentText() == "" and window.ctx.settings.get("instrument.rigol1000z")["usb"] == ""
+    )
+
+
+def test_a_serial_number_can_still_be_typed(window, visa, app):
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("rigol1000z"))
+    picker = window.instrument_view.controls["usb"]
+    picker.setEditText("ds1za0")
+    window.instrument_view.commit()
+    assert window.ctx.settings.get("instrument.rigol1000z")["usb"] == "ds1za0"
+
+
+def test_no_visa_library_is_an_empty_list_and_not_an_error(monkeypatch):
+    def none():
+        raise OSError("Could not locate a VISA implementation")
+
+    monkeypatch.setattr(rigol, "open_visa", none)
+    assert rigol.usb_scopes() == []
+
+
+def test_opening_over_usb_says_which_device(visa):
+    scope = over_usb()
+    assert ("On USB: USB0::0x1AB1::0x04CE::DS1ZA000000001::INSTR.", False) in scope.notes
+    scope.close()
