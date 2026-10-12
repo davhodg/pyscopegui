@@ -13,11 +13,15 @@ since the last version, and comes out in the next one.
 
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
+- *Tools > Settings > Add shortcut to desktop* on Windows; both shortcuts for a pip
+  installation too.
 - Rigol: a **20 MHz limit** for each channel, and the scope's **acquisition mode** --
   normal, high resolution or peak detect.
 
 ### Changed
 
+- The launchers no longer ask about a Start menu entry: the first start says in the Event
+  Log where a shortcut is made.
 - The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
   driver and not only the 2204A.
 

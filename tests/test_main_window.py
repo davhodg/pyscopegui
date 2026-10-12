@@ -265,3 +265,48 @@ def test_a_rate_is_said_the_way_it_is_spoken():
     assert short_rate(1_000_000) == "1 MS/s"
     assert short_rate(48_800) == "48.8 kS/s"
     assert short_rate(500) == "500 S/s"
+
+
+# --- where a shortcut is made, said once ---------------------------------------------------------
+def test_the_first_start_says_where_a_shortcut_is_made_and_the_next_does_not(window, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from pyscopegui.core import shortcut
+    from pyscopegui.ui.main_window import SHORTCUT_TOLD_KEY
+
+    monkeypatch.setattr(shortcut, "made", lambda *_a, **_k: False)
+    window.close()
+    QSettings().remove(SHORTCUT_TOLD_KEY)
+    first = MainWindow()
+    try:
+        assert "Tools > Settings > Add shortcut. This is said once." in first.log.toPlainText()
+    finally:
+        first.close()
+    again = MainWindow()
+    try:
+        assert "Add shortcut" not in again.log.toPlainText()
+    finally:
+        again.close()
+
+
+def test_it_is_not_said_where_there_is_a_shortcut_already(window, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from pyscopegui.core import shortcut
+    from pyscopegui.ui.main_window import SHORTCUT_TOLD_KEY
+
+    monkeypatch.setattr(shortcut, "made", lambda *_a, **_k: True)
+    window.close()
+    QSettings().remove(SHORTCUT_TOLD_KEY)
+    again = MainWindow()
+    try:
+        assert "Add shortcut" not in again.log.toPlainText()
+    finally:
+        again.close()
+
+
+def test_settings_offers_a_shortcut_in_each_place_there_is(window):
+    import sys
+
+    assert window.shortcut_action is not None, "a source folder has a launcher to point at"
+    assert (window.desktop_action is not None) == (sys.platform == "win32")

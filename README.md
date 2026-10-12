@@ -77,6 +77,8 @@ There are three options:
 
 3. **From a Git clone** -- clone the repository, then double-click `pyscopegui.cmd` (Windows) or run `./pyscopegui.sh` (Linux). This is the way to have the latest changes before they are released, or to contribute. Python 3.12 or newer must be on the PATH.
 
+   For a shortcut, *Tools > Settings > Add shortcut to Start menu* (the applications menu on Linux) and, on Windows, *Add shortcut to desktop*. The entry starts the launcher, so a start from it after a pull still picks up new libraries. A pip installation has the same two, and its shortcut starts the Python it is installed in.
+
    The first run sets itself up: it creates a *virtual environment* -- a folder called `.venv` holding its own copy of Python and only the libraries pyscopegui needs, so nothing else on the machine is touched -- and downloads a couple of hundred megabytes into it. That takes a few minutes once; every later start is immediate, and deleting `.venv` undoes the whole thing. If `uv` is installed it is used instead of pip.
 
 **On Linux**, however pyscopegui is installed, Qt needs a system library to draw the window, and Debian, Ubuntu, Linux Mint and the like often leave it out:
@@ -88,6 +90,14 @@ sudo apt install libxcb-cursor0
 pyscopegui names any that are missing as it starts.
 
 **Where your own files are kept** is the same whichever way it was installed: `%APPDATA%\pyscopegui` on Windows and `~/.config/pyscopegui` on Linux. Upgrading and uninstalling leave that folder alone.
+
+## Uninstalling
+
+- **The Windows installer:** *Settings > Apps* (or *Add or remove programs*), or *Uninstall pyscopegui* in its Start menu folder. It takes away its shortcuts too.
+- **pip:** `pip uninstall pyscopegui`, and any shortcut *Tools > Settings* added, as for a clone.
+- **A Git clone:** delete the folder. If *Tools > Settings* was used to add a shortcut, take that away as well: the shortcuts are `%APPDATA%\Microsoft\Windows\Start Menu\Programs\pyscopegui.lnk` and `pyscopegui.lnk` on the desktop (on Linux, `~/.local/share/applications/pyscopegui.desktop`).
+
+Your own files -- settings and the pane arrangement -- are never removed by uninstalling. To remove them too, delete the folder named above under *Where your own files are kept*.
 
 ## Supported systems
 

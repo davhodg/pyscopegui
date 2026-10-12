@@ -36,9 +36,12 @@ the same version, so that line is what tells one pull from another.
 
 Started from the source folder, `pyscopegui.cmd` and `pyscopegui.sh` install anything
 missing before they start pyscopegui, and a library that is still missing is reported in a
-window rather than as nothing happening. The menu entry made by
+window rather than as nothing happening. The entry made by
 *Tools > Settings > Add shortcut to Start menu* (*Add shortcut to applications menu* on
-Linux) starts the launcher too, so starting from the menu after a pull does the same.
+Linux), or by *Add shortcut to desktop* on Windows, starts the launcher too, so starting
+from it after a pull does the same. Installed with pip, the same two make a shortcut that
+starts pyscopegui with the Python it is installed in. The first start says where they are
+in the Event Log, once.
 
 On Linux, a library Qt needs to draw the window is named, with the package it comes in,
 before Qt is started: Qt itself says only that it could not load the "xcb" plugin.

@@ -61,6 +61,9 @@ DEFAULT_HEIGHT = 900
 
 STATUS_MS = 500
 
+#: In QSettings, not settings.json: whether this person has been told, on
+#: this machine, where a shortcut is made.
+SHORTCUT_TOLD_KEY = "shortcut/told"
 HISTORY_KEY = "capture.history_s"
 HISTORY_TIP = (
     "How much of each channel is kept, for the plot to go back over. Past it the\n"
@@ -192,17 +195,31 @@ class MainWindow(QMainWindow):
         settings_menu.addMenu(self.theme_menu)
         self.history_menu = self._history_menu()
         settings_menu.addMenu(self.history_menu)
-        if shortcut.launcher() is not None:
-            # Only for a source folder: the installer makes its own entry.
+        # For a source folder and for pip: the installer makes its own entries.
+        self.shortcut_action = self.desktop_action = None
+        if shortcut.start() is not None:
             settings_menu.addSeparator()
-            self.shortcut_action = settings_menu.addAction(
-                f"Add shortcut to {shortcut.menu_name()}", self._add_shortcut
-            )
+            for place in shortcut.places():
+                name = shortcut.place_name(place)
+                action = settings_menu.addAction(
+                    f"Add shortcut to {name}", lambda place=place: self._add_shortcut(place)
+                )
+                action.setToolTip(
+                    f"Start {APP_NAME} from the {name}. From a source folder the entry\n"
+                    "starts the launcher, so after a pull it still picks up new\n"
+                    "libraries, as double-clicking the launcher does. Replaces one\n"
+                    "made before."
+                )
+                if place == shortcut.ON_DESKTOP:
+                    self.desktop_action = action
+                else:
+                    self.shortcut_action = action
         folder = tools_menu.addAction("Open settings folder", self._open_settings_folder)
         folder.setToolTip("Where settings.json and the pane arrangement are kept.")
 
         self.help_menu = HelpMenu(self)
 
+        self._say_how_to_add_a_shortcut()
         self._restore_layout()
         self.panes.restore_state()
 
@@ -824,13 +841,30 @@ class MainWindow(QMainWindow):
                 self._restart(unit)
 
     # --- settings ------------------------------------------------------------------------
-    def _add_shortcut(self) -> None:
+    def _add_shortcut(self, place: str = shortcut.IN_MENU) -> None:
+        """Tools > Settings > Add shortcut to Start menu, or to desktop."""
+        name = shortcut.place_name(place)
         try:
-            path = shortcut.create()
+            path = shortcut.create(place=place)
         except OSError as exc:
-            self.events.warning(f"Could not add {APP_NAME} to the {shortcut.menu_name()}: {exc}")
+            self.events.warning(f"Could not add {APP_NAME} to the {name}: {exc}")
             return
-        self.events.information(f"Added {APP_NAME} to the {shortcut.menu_name()}: {path}")
+        self.events.information(f"Added {APP_NAME} to the {name}: {path}")
+
+    def _say_how_to_add_a_shortcut(self) -> None:
+        """Once for each person on a machine, for a source folder or pip: the
+        launcher no longer asks, and pip never did, so say where it is done.
+        Not where there is one already, nor for the installer, which made its own."""
+        if shortcut.start() is None or QSettings().value(SHORTCUT_TOLD_KEY) is not None:
+            return
+        QSettings().setValue(SHORTCUT_TOLD_KEY, True)
+        if shortcut.made():
+            return
+        names = " or the ".join(shortcut.place_name(place) for place in shortcut.places())
+        self.events.information(
+            f"To start {APP_NAME} from the {names}: Tools > Settings > Add shortcut. "
+            "This is said once."
+        )
 
     def _open_settings_folder(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.ctx.user_dir)))
