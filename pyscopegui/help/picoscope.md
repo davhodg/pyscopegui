@@ -1,6 +1,6 @@
 [&larr; Contents](manual.md)
 
-# PicoScope 2204A
+# PicoScope 2000 series
 
 For the two-channel PicoScope 2000 Series scopes that use Pico's older `ps2000` driver: the
 2202, 2203, 2204, 2204A, 2205 and 2205A.
@@ -69,7 +69,7 @@ To use a copy of the library somewhere else, set the environment variable
 
 ## Running it
 
-Choose **PicoScope 2204A (ps2000)** and press **Open**. Opening takes a few seconds, and
+Choose **PicoScope 2000 series (ps2000)** and press **Open**. Opening takes a few seconds, and
 Pico's driver shows a progress window of its own while it does. The
 [Event Log](event-log.md) then names the scope and its serial number.
 

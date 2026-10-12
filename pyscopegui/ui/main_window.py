@@ -161,6 +161,12 @@ class MainWindow(QMainWindow):
 
         # --- menus & layout persistence --------------------------------------
         file_menu = self.menuBar().addMenu("&File")
+        export_action = file_menu.addAction("Export CSV...", lambda: self.scope.ask_export())
+        export_action.setToolTip(
+            "Write what the first plot shows as CSV: one file for each instrument."
+        )
+        file_menu.setToolTipsVisible(True)
+        file_menu.addSeparator()
         quit_action = file_menu.addAction("Exit", self.close)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)

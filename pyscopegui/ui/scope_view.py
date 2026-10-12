@@ -23,6 +23,7 @@ axis is each one's own trigger: see pyscopegui.core.session.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -31,6 +32,7 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -42,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.backends.base import ANALOG, DIGITAL
+from pyscopegui.core import export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import Capture, min_max
 from pyscopegui.core.context import Context
@@ -82,6 +85,13 @@ AUTO_Y_TIP = (
 #: whole of it, so a signal at full scale is not drawn on the edge of the plot.
 RANGE_MARGIN = 0.05
 
+EXPORT_TIP = (
+    "Write what the plot shows as CSV: every sample of the channels that are\n"
+    "ticked, in the stretch of time in view. One file for each instrument.\n"
+    "Choose All beside Time first to write everything that is held."
+)
+#: Where the last export went, kept so the next one starts there.
+EXPORT_FOLDER = "export.folder"
 PICK_TIP = "How the channel is set up. Click it to change that in the Instrument pane."
 #: Thirty redraws a second: smooth, and each one is a few thousand points.
 REDRAW_MS = 33
@@ -258,7 +268,11 @@ class ScopeView(QWidget):
         bar.addWidget(self.auto_y)
         self.state = QLabel()
         bar.addWidget(self.state)
+        self.export_button = QPushButton("Export CSV...")
+        self.export_button.setToolTip(EXPORT_TIP)
+        self.export_button.clicked.connect(self.ask_export)
         bar.addStretch()
+        bar.addWidget(self.export_button)
         bar.addWidget(clear)
 
         self.plots = QSplitter(Qt.Vertical)
@@ -600,6 +614,60 @@ class ScopeView(QWidget):
             if key in self._lanes:
                 values = values.astype(np.float32) * LANE_HEIGHT + self._lanes[key]
             curve.setData(times, values)
+
+    # --- writing it out -------------------------------------------------------------------
+    def ask_export(self) -> None:
+        """Ask where to, and write what the plot shows as CSV."""
+        folder = self._ctx.settings.get(EXPORT_FOLDER) if self._ctx is not None else None
+        start = str(Path(folder) / "capture.csv") if isinstance(folder, str) else "capture.csv"
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self, "Export CSV", start, "Comma-separated values (*.csv)"
+        )
+        if not chosen:
+            return
+        path = Path(chosen)
+        if self._ctx is not None:
+            self._ctx.settings.set(EXPORT_FOLDER, str(path.parent))
+        self.export_csv(path)
+
+    def export_csv(self, path: Path) -> list[export.Written]:
+        """Write the channels that are ticked, in the stretch of time in view:
+        one file for each instrument. Says what was written, or why not."""
+        self.redraw()  # so that what is written is what is on the screen now
+        (t_from, t_to), _y = self.analog.getViewBox().viewRange()
+        wanted: dict[str, dict] = {}
+        for key, (unit, channel) in self._owners.items():
+            record = unit.capture.records.get(channel)
+            if key not in self._hidden and record is not None and record.count:
+                wanted.setdefault(unit.name, {})[record.channel.name] = record
+        units = {unit.name: unit for unit in self.session.shown()}
+        files = export.paths_for(path, [units[name].short or name for name in wanted])
+        written = []
+        for name, records in wanted.items():
+            unit = units[name]
+            timing = self._timings.get(name)
+            origin = timing.origin if timing is not None else 0.0
+            try:
+                done = export.write_csv(files[unit.short or name], records, origin, t_from, t_to)
+            except (OSError, ValueError) as exc:
+                self._say(f"{unit.short or 'The capture'} was not exported: {exc}.", problem=True)
+                continue
+            written.append(done)
+            self._say(
+                f"Exported {done.rows:,} samples of {done.channels} "
+                f"{'channel' if done.channels == 1 else 'channels'} to {done.path}."
+            )
+        if not wanted:
+            self._say("There is nothing on the plot to export.", problem=True)
+        return written
+
+    def _say(self, message: str, problem: bool = False) -> None:
+        if self._ctx is None:
+            return
+        if problem:
+            self._ctx.warn(message)
+        else:
+            self._ctx.log(message)
 
     def _show_values(self) -> None:
         if not self.isVisible():

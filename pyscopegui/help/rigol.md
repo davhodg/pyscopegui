@@ -69,17 +69,34 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 | Address | Where the scope is on the network. Taken up at the next **Open** |
 | Reading | The screen, or the memory: see above |
 | Time | Seconds a division, of the twelve across the screen |
+| Acquisition | How each point is made from the samples taken: see below |
 | Enabled | Whether the channel is on, and read |
 | Scale | Volts a division, of the eight up the screen, with the probe counted |
 | Offset | Moves nought volts up or down the screen |
 | Coupling | DC, AC or ground |
+| 20 MHz limit | Leaves out what is above 20 MHz, which for a slow signal is noise |
 | Probe | What the probe divides by: 1x, 10x or 100x |
 
 **Reading** and **Enabled** start the run again. The rest are taken up between two sweeps.
 
+**Acquisition** is the scope's own *Acquire > Mode*:
+
+| Acquisition | What it does |
+|-------------|--------------|
+| Normal | One sample for each point |
+| High resolution | Averages the samples either side of each point: quieter, and slower to follow an edge |
+| Peak detect | Keeps the lowest and the highest, so that nothing narrow is missed |
+
+The scope's averaging mode is not offered. It averages over several triggers, and each
+sweep here is one trigger.
+
+A trace that looks noisy beside another scope's is often only showing more: the whole of
+the memory at full bandwidth has noise in it that a slower scope never sees. The 20 MHz
+limit and High resolution are the two things that take it out.
+
 pyscopegui sets the scope up from this pane when a run starts, so the knobs on the scope
-are overridden for these settings. Everything else -- memory depth, bandwidth limit,
-averaging, and a signal generator if the scope has one -- stays as the scope has it.
+are overridden for these settings. Everything else -- memory depth, and a signal generator
+if the scope has one -- stays as the scope has it.
 
 ## When it does not work
 

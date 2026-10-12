@@ -32,7 +32,7 @@ are held. The instrument chosen is remembered.
 | Instrument | What it is |
 |------------|------------|
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
-| [PicoScope 2204A](picoscope.md) | Pico's two-channel scopes on the `ps2000` driver |
+| [PicoScope 2000 series](picoscope.md) | Pico's two-channel scopes on the `ps2000` driver |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network |
 
 ## Several instruments at once

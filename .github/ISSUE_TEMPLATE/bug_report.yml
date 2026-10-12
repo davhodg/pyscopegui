@@ -37,7 +37,7 @@ body:
       label: Instrument
       options:
         - None -- Demo signals
-        - PicoScope 2204A, or another on the ps2000 driver
+        - PicoScope 2000 series on the ps2000 driver (2204A and the like)
         - Rigol DS1000Z series (DS1054Z and the like)
         - Another -- say which above
     validations:

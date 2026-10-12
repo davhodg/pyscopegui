@@ -9,6 +9,18 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Added
+
+- **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
+  and a file for each instrument.
+- Rigol: a **20 MHz limit** for each channel, and the scope's **acquisition mode** --
+  normal, high resolution or peak detect.
+
+### Changed
+
+- The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
+  driver and not only the 2204A.
+
 ### Fixed
 
 - *Help > Licences* said the third-party file held the full text of every licence. It is a

@@ -10,6 +10,24 @@ Analog channels share one plot. Digital channels are stacked in lanes under it, 
 the top, **on the same time axis**: drag or zoom either plot and both move. With no digital
 channel shown, the lower plot is put away.
 
+## Exporting to CSV
+
+**Export CSV...**, above the plot and under *File*, writes what the plot shows to a file a
+spreadsheet or a script can read: every sample of the channels that are ticked, in the
+stretch of time in view. Not only the few points a plot draws of them: a million samples in
+view is a million rows.
+
+- The first column is time in seconds, as the plot's axis has it: from the trigger where
+  there is one.
+- Each channel is a column, headed with its name and what it is measured in. A logic
+  channel is 0 or 1. A gap is `nan`.
+- With several instruments open there is a file for each, named for it --
+  `capture-Pico.csv`, `capture-Rigol.csv` -- since two instruments' samples are not taken at
+  the same moments and cannot share rows.
+
+To write everything that is held and not only what is in view, choose **All** beside
+**Time** first. The [Event Log](event-log.md) says how many samples went where.
+
 ## The channel list
 
 A tick shows a channel and unticking hides it; which are hidden is remembered. The name is

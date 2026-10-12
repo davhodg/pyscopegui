@@ -94,6 +94,9 @@ TIMES = tuple(round(t, 10) for t in _steps(-9, 1) if 5e-9 <= t <= 50)
 SCALES = tuple(round(v, 4) for v in _steps(-3, 2) if v <= 100)
 PROBES = (1, 10, 100)
 COUPLINGS = (("DC", "DC"), ("AC", "AC"), ("GND", "Ground"))
+#: How the scope makes each point from the samples it takes. Not averaging:
+#: that is over several triggers, and each sweep here is one.
+ACQUISITIONS = (("NORM", "Normal"), ("HRES", "High resolution"), ("PEAK", "Peak detect"))
 
 
 def make_settings() -> tuple[Setting, ...]:
@@ -128,6 +131,20 @@ def make_settings() -> tuple[Setting, ...]:
             group="Sampling",
             live=True,
             tip="Seconds a division, of the twelve across the scope's screen.",
+        ),
+        Setting(
+            "acquire",
+            "Acquisition",
+            "NORM",
+            choices=ACQUISITIONS,
+            group="Sampling",
+            live=True,
+            tip=(
+                "How the scope makes each point from the samples it takes.\n"
+                "Normal keeps one sample for each. High resolution averages the\n"
+                "samples either side, which is quieter and slower to follow an edge.\n"
+                "Peak detect keeps the lowest and highest, so nothing narrow is missed."
+            ),
         ),
     ]
     for number in range(1, len(CHANNELS) + 1):
@@ -166,6 +183,17 @@ def make_settings() -> tuple[Setting, ...]:
                 f"coupling_{number}", "Coupling", "DC", choices=COUPLINGS, group=group, live=True
             ),
             Setting(
+                f"limit_{number}",
+                "20 MHz limit",
+                False,
+                group=group,
+                live=True,
+                tip=(
+                    "Leave out what is above 20 MHz, which for a slow signal is\n"
+                    "noise. Off, the channel has the scope's full bandwidth."
+                ),
+            ),
+            Setting(
                 f"probe_{number}",
                 "Probe",
                 10,
@@ -200,6 +228,10 @@ class Settings:
         self.port = int(port) if port.strip().isdigit() else PORT
         self.memory = options.get("read") == MEMORY
         self.time_div = _nearest(options.get("time_div"), TIMES, 1e-3)
+        acquire = options.get("acquire")
+        self.acquire = acquire if acquire in dict(ACQUISITIONS) else "NORM"
+        #: Whether each channel is held to 20 MHz.
+        self.limit: dict[str, bool] = {}
         self.enabled: dict[str, bool] = {}
         self.scale: dict[str, float] = {}
         self.offset: dict[str, float] = {}
@@ -216,6 +248,7 @@ class Settings:
             coupling = options.get(f"coupling_{number}")
             self.coupling[key] = coupling if coupling in ("DC", "AC", "GND") else "DC"
             self.probe[key] = int(_nearest(options.get(f"probe_{number}"), PROBES, 10))
+            self.limit[key] = options.get(f"limit_{number}") is True
 
     def keys(self) -> list[str]:
         """The channels that are on, in order."""
@@ -252,6 +285,8 @@ def setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
         wanted[name + ":COUP"] = settings.coupling[key]
         wanted[name + ":SCAL"] = f"{settings.scale[key]:g}"
         wanted[name + ":OFFS"] = f"{settings.offset[key]:g}"
+        wanted[name + ":BWL"] = "20M" if settings.limit[key] else "OFF"
+    wanted[":ACQ:TYPE"] = settings.acquire
     wanted[":TIM:MAIN:SCAL"] = f"{settings.time_div:g}"
     # The scope's offset is where the middle of its screen is, measured from
     # the trigger: nought has the trigger in the middle.
@@ -657,6 +692,8 @@ class Rigol1000Z(Instrument):
             f"{_engineering(settings.scale[key], 'V/div')}, {settings.probe[key]}x, "
             f"{settings.coupling[key]}"
         )
+        if settings.limit[key]:
+            said += ", 20 MHz"
         if settings.offset[key]:
             said += f", offset {settings.offset[key]:g} V"
         return said

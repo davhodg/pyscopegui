@@ -189,6 +189,27 @@ def test_a_trigger_on_a_channel_that_is_off_is_left_alone():
     assert ":TRIG:EDG:SOUR" not in wanted
 
 
+def test_a_bandwidth_limit_and_an_acquisition_mode_are_set_with_the_rest():
+    settings = rigol.Settings({"limit_1": True, "acquire": "HRES", "enabled_2": True})
+    wanted = rigol.setup(settings, rigol.Trigger())
+    assert wanted[":CHAN1:BWL"] == "20M" and wanted[":CHAN2:BWL"] == "OFF"
+    assert wanted[":ACQ:TYPE"] == "HRES"
+    assert ":CHAN3:BWL" not in wanted, "nothing is set on a channel that is off"
+
+
+def test_an_acquisition_mode_the_scope_has_not_got_is_normal():
+    for odd in ("AVER", "fast", None, 3):
+        assert rigol.Settings({"acquire": odd}).acquire == "NORM"
+    assert rigol.Settings({"limit_1": "yes"}).limit["CH1"] is False
+
+
+def test_a_limit_is_said_beside_the_channel(app):
+    from pyscopegui import backends
+
+    instrument = backends.create("rigol1000z", None, {"limit_1": True})
+    assert instrument.channels()[0].detail == "1 V/div, 10x, DC, 20 MHz"
+
+
 # --- the scope ------------------------------------------------------------------------------
 def test_no_address_is_said_in_words():
     with pytest.raises(rigol.ScopeError, match="Instrument pane"):
@@ -376,6 +397,20 @@ def test_a_scope_that_has_stopped_with_nothing_to_show_yet_is_asked_again(fake):
     assert len(sweep_of(scope)) == 1200
     scope._link.ask("*OPC?")
     assert fake.sent(":SING") == 2, "not armed again for having been early"
+    scope.close()
+
+
+def test_a_limit_changed_as_it_runs_is_sent_by_itself(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    assert fake.state[":CHAN1:BWL"] == "OFF" and fake.state[":ACQ:TYPE"] == "NORM"
+    before = len(fake.heard)
+    scope.wanted = rigol.Settings({"address": fake.address, "limit_1": True, "acquire": "PEAK"})
+    assert scope.poll() is None
+    scope._link.ask("*OPC?")
+    sent = [c for c in fake.heard[before:] if c.startswith((":CHAN", ":ACQ"))]
+    assert sent == [":CHAN1:BWL 20M", ":ACQ:TYPE PEAK"]
     scope.close()
 
 

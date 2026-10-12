@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""PicoScope 2204A and its relatives, through Pico's own ``ps2000`` library.
+"""PicoScope 2000 series scopes on Pico's own ``ps2000`` library: the 2204A and its relatives.
 
 The older two-channel 2000 Series scopes -- 2202, 2203, 2204, 2204A, 2205 and
 2205A -- use the ``ps2000`` driver, not ``ps2000a``. The library comes with

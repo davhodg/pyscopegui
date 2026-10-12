@@ -51,6 +51,7 @@ sudo apt install libxcb-cursor0
 - **Several instruments at once**: open one, choose another and open that too. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
 - **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
+- **Export to CSV**: every sample of what the plot shows, with time measured from the trigger.
 - **Deep captures stay quick**: what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered.
 - **Light and dark** themes, or whichever the system is set to.
@@ -60,7 +61,7 @@ The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/m
 ## Instruments
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
-- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver (2202, 2203, 2204, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger, and the scope's signal generator. Pico's library is not included: install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads).
+- **PicoScope 2000 series** on Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger, and the scope's signal generator. Pico's library is not included: install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads).
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. Nothing of Rigol's needs installing.
 
 ## More

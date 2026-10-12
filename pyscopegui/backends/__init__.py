@@ -31,7 +31,10 @@ class Backend(NamedTuple):
 BACKENDS: dict[str, Backend] = {
     "demo": Backend("pyscopegui.backends.demo", "DemoInstrument", "Demo signals", "Demo"),
     "picoscope2000": Backend(
-        "pyscopegui.backends.picoscope2000", "PicoScope2000", "PicoScope 2204A (ps2000)", "Pico"
+        "pyscopegui.backends.picoscope2000",
+        "PicoScope2000",
+        "PicoScope 2000 series (ps2000)",
+        "Pico",
     ),
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series (network)", "Rigol"
