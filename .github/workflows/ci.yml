@@ -132,10 +132,15 @@ jobs:
   # files get attestations of where they were built. Each index needs a
   # publisher registered for workflow ci.yml and the environment named below.
   #
-  # After every test run *and* the installer build: a release is on both or on
-  # neither, never on PyPI with no installer beside it. A reviewer can be
-  # required on the pypi environment (repository Settings > Environments), and
-  # then the job waits for that approval before anything is uploaded.
+  # After every test run, on Windows and Linux, *and* the installer build, so
+  # nothing reaches PyPI with no installer beside it. The other way about can
+  # happen: the installer's release is made before this job starts, so a run
+  # that stops here leaves a release with no package behind it, and this job
+  # is run again rather than the tag pushed again.
+  #
+  # Both environments require a review (repository Settings > Environments),
+  # which only the maintainer can give, and the job waits for that approval
+  # before anything is uploaded.
   pypi:
     # A plain name: GitHub shows an expression here unevaluated whenever the
     # job is skipped, which is on every ordinary push.
@@ -186,24 +191,50 @@ jobs:
           python -m build
           python -m twine check --strict dist/*
 
-      # What is about to be uploaded, installed as somebody will install it:
-      # into an environment with nothing of the checkout in it. The tests run
-      # from the checkout, where files a wheel leaves out are still at hand.
-      - name: Install the wheel and self test
+      # The wheel as pip will install it: in an environment of its own, and run
+      # from a folder with no checkout in it. The self-test in the test job runs
+      # from the checkout, where every file is at hand, so it cannot say what a
+      # wheel left out -- which is how the first upload to TestPyPI came to be
+      # unable to find its licence.
+      - name: Self test the wheel
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
-          python -m venv /tmp/installed
-          /tmp/installed/bin/python -m pip install dist/*.whl
-          cd /tmp && /tmp/installed/bin/python -m pyscopegui --selftest
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel/bin/python" -m pyscopegui --selftest
 
       - name: Publish to TestPyPI
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+
+      # What was uploaded, fetched back as a user would: this exact version from
+      # TestPyPI, with PyPI for what it depends on. The index takes a moment to
+      # list a new file, so it is asked a few times before that counts as a failure.
+      - name: Self test the upload to TestPyPI
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          version=$(python -c "import re, pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('pyscopegui/__init__.py').read_text(encoding='utf-8'))[1])")
+          python -m venv "$RUNNER_TEMP/uploaded"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            "$RUNNER_TEMP/uploaded/bin/python" -m pip install --no-cache-dir \
+              --index-url https://test.pypi.org/simple/ \
+              --extra-index-url https://pypi.org/simple/ \
+              "pyscopegui==$version" && break
+            if [ "$attempt" = 10 ]; then exit 1; fi
+            sleep 30
+          done
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/uploaded/bin/python" -m pyscopegui --selftest
 
       - name: Publish to PyPI
         if: startsWith(github.ref, 'refs/tags/v')

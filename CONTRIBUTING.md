@@ -93,8 +93,14 @@ Python.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs the tests and lint on every push: the latest Python on Windows and
-Linux, and the oldest supported Python on Linux as well. The installer is built only for a release
--- push a `v*` tag, or start the workflow by hand from the Actions tab.
+Linux, and the oldest supported Python on Linux as well, since bugs that only appear on the floor
+are real but rarely platform specific. The installer is built, and the package published, only
+for a release -- push a `v*` tag, or start the workflow by hand from the Actions tab. See
+*Versions and releases* below.
+
+`python build/screenshots.py` takes a picture of the window on its demo instrument, into
+`build/work`, for seeing how it looks after a change. The screenshot in the README and on PyPI,
+`pyscopegui/help/main-window.png`, is of real scopes and was taken by hand.
 
 ## Building the Windows installer
 
@@ -129,13 +135,38 @@ The version is written once, as `__version__` in `pyscopegui/__init__.py`. A tag
 named after the tag, and the build stops if the tag and `__version__` disagree. Any other build is
 named `<version>-dev-<commit>`, so an installer that is not a release says so.
 
-**Making a release:**
+The same tag publishes the package to [PyPI](https://pypi.org/project/pyscopegui/), through
+trusted publishing -- no API token is stored anywhere. Running the workflow by hand from the
+Actions tab publishes to [TestPyPI](https://test.pypi.org/project/pyscopegui/) instead, as
+`<version>.dev<run number>`, to check the page and the install before a release:
 
-1. In `pyscopegui/help/changelog.md`, move what is under *Unreleased* to a heading for the
-   version, `## [x.y.z] - YYYY-MM-DD`, and leave *Unreleased* above it.
-2. Bump `__version__` in `pyscopegui/__init__.py` to match, commit and push.
-3. Tag the same commit, `git tag v<version>`, and push the tag. CI runs the tests, builds the
-   installer, and publishes it as a GitHub release whose description is that section of the
-   changelog.
+```
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pyscopegui
+```
 
-A tag whose run fails publishes nothing: delete it, fix, and tag again.
+The page on PyPI is `PYPI.md`, not the README. A version can never be uploaded twice, to either
+index.
+
+Publishing waits for everything: the tests on Windows and Linux, the installer build, and a
+self-test of the wheel installed by itself. It then waits to be approved: the `pypi` and
+`testpypi` environments (repository *Settings > Environments*) each require a review, and only
+the maintainer can give it. So a pull request, a fork or a tag pushed by somebody else cannot
+publish anything.
+
+**Making a release** is therefore the maintainer's to do:
+
+1. Bump `__version__` in `pyscopegui/__init__.py`. In `pyscopegui/help/changelog.md`, give what
+   is under *Unreleased* the version and the date, `## [x.y.z] - YYYY-MM-DD`, leave *Unreleased*
+   above it, and add the version to the links at the foot. Commit and push.
+2. Run the CI workflow by hand from the Actions tab, and approve the `testpypi` environment when
+   it asks. That is every check a release gets, plus an upload to TestPyPI, which the run then
+   installs back and self-tests.
+3. Look at the TestPyPI page.
+4. Tag the same commit, `git tag v<version>`, and push the tag. The same checks run again and
+   the installer goes to the GitHub release, with that section of the changelog as its
+   description; the package goes to PyPI once the `pypi` environment is approved.
+
+A tag whose tests or installer build fail publishes nothing: delete it, fix, and tag again. The
+GitHub release is made before PyPI is asked about, so a run that stops after that -- not
+approved, or refused by PyPI -- leaves a release with no package behind it: approve it or run
+that job again rather than tagging again, since the release is already there.
