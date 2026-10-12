@@ -18,6 +18,8 @@ since the last version, and comes out in the next one.
 - Rigol over **USB**, through an installed VISA library, as well as over the network.
 - Rigol: a **20 MHz limit** for each channel, and the scope's **acquisition mode** --
   normal, high resolution or peak detect.
+- **Tektronix TDS200, TDS1000, TDS2000 and TPS2000** scopes, over a serial port: a sweep at
+  a time, or what is on the scope's screen read off with nothing on it changed.
 
 ### Changed
 

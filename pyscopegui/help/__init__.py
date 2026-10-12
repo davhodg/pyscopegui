@@ -45,6 +45,7 @@ PAGES = (
     "instruments.md",
     "picoscope.md",
     "rigol.md",
+    "tektronix.md",
     "event-log.md",
     "about.md",
     "changelog.md",

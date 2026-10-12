@@ -1,0 +1,479 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 davhodg
+"""The Tektronix TDS and TPS 2000 back end, against a stand-in on a pretend serial port."""
+
+import time
+
+import numpy as np
+import pytest
+
+from pyscopegui import backends
+from pyscopegui.backends import tektronix2000 as tek
+from pyscopegui.ui.scope_view import FREE, TRIGGERED
+
+
+class FakePort:
+    """Enough of a TPS2014 on a serial port: it remembers what it was sent and answers queries."""
+
+    def __init__(self, identity="TEKTRONIX,TPS 2014,0,CF:91.1CT FV:v10.21") -> None:
+        self.identity = identity
+        #: Everything it was sent, in order, a command at a time.
+        self.heard: list[str] = []
+        #: What was last set: "CH1:SCALE" -> "1".
+        self.state: dict[str, str] = {}
+        #: Whether a sweep it is asked for has been taken by the time it is asked.
+        self.takes_sweeps = True
+        self.acquiring = False
+        #: What is waiting to be read.
+        self._out = bytearray()
+        self.timeout = 3.0
+        self.closed = False
+        #: When set, it has stopped answering.
+        self.dead = False
+
+    # --- the port ------------------------------------------------------------------------
+    def write(self, data: bytes) -> int:
+        for line in data.decode("ascii").split("\n"):
+            if line.strip():
+                self._hear(line.strip())
+        return len(data)
+
+    def readline(self) -> bytes:
+        end = self._out.find(b"\n")
+        if end < 0:
+            taken, self._out = bytes(self._out), bytearray()
+            return taken
+        taken, self._out = bytes(self._out[: end + 1]), self._out[end + 1 :]
+        return taken
+
+    def read(self, count: int) -> bytes:
+        taken, self._out = bytes(self._out[:count]), self._out[count:]
+        return taken
+
+    def reset_input_buffer(self) -> None:
+        self._out = bytearray()
+
+    def close(self) -> None:
+        self.closed = True
+
+    # --- the scope -----------------------------------------------------------------------
+    def sent(self, command: str) -> int:
+        return self.heard.count(command)
+
+    def _say(self, text: str) -> None:
+        if not self.dead:
+            self._out += text.encode("ascii") + b"\n"
+
+    def _hear(self, command: str) -> None:
+        self.heard.append(command)
+        what, _, to = command.partition(" ")
+        if what == "*IDN?":
+            self._say(self.identity)
+        elif what == "*OPC?":
+            self._say("1")
+        elif what == "ACQUIRE:STATE?":
+            if self.acquiring and self.takes_sweeps:
+                self.acquiring = False
+            self._say("1" if self.acquiring else "0")
+        elif what.startswith("SELECT:") and what.endswith("?"):
+            self._say("1" if self.state.get(what[:-1], "OFF") == "ON" else "0")
+        elif what == "WFMPRE:XINCR?":
+            self._say(f"{self._time_div() * tek.ACROSS / tek.POINTS:.6E}")
+        elif what == "WFMPRE:XZERO?":
+            position = float(self.state.get("HORIZONTAL:MAIN:POSITION", "0"))
+            self._say(f"{position - self._time_div() * tek.ACROSS / 2:.6E}")
+        elif what == "WFMPRE:PT_OFF?":
+            self._say("0")
+        elif what == "WFMPRE:YMULT?":
+            self._say(f"{self._scale() / 25:.6E}")
+        elif what == "WFMPRE:YOFF?":
+            # Where nought volts is, in counts: the trace's position in divisions.
+            self._say(f"{float(self.state.get(self._source() + ':POSITION', '0')) * 25:.6E}")
+        elif what == "CURVE?":
+            if not self.dead:
+                data = self.waveform().tobytes()
+                self._out += b"#4%04d" % len(data) + data + b"\n"
+        elif what == "ACQUIRE:STATE" and to == "RUN":
+            self.acquiring = True
+        elif to:
+            self.state[what] = to
+
+    def _source(self) -> str:
+        return self.state.get("DATA:SOURCE", "CH1")
+
+    def _time_div(self) -> float:
+        return float(self.state.get("HORIZONTAL:MAIN:SCALE", "0.001"))
+
+    def _scale(self) -> float:
+        return float(self.state.get(self._source() + ":SCALE", "1"))
+
+    def waveform(self) -> np.ndarray:
+        """A ramp from four divisions below the middle to four above."""
+        return (np.arange(tek.POINTS) * 200 // tek.POINTS - 100).astype(np.int8)
+
+
+@pytest.fixture
+def port(monkeypatch):
+    fake = FakePort()
+    monkeypatch.setattr(tek, "open_port", lambda _port, _baud, _flow: fake)
+    return fake
+
+
+def opened(port, **options) -> tek.Scope:
+    scope = tek.Scope(tek.Settings({"port": "COM9", **options}))
+    scope.open()
+    return scope
+
+
+def sweep_of(scope: tek.Scope, tries: int = 20):
+    for _ in range(tries):
+        if (block := scope.poll()) is not None:
+            return block
+    raise AssertionError("no sweep came")
+
+
+# --- settings -------------------------------------------------------------------------------
+def test_settings_from_nothing_are_the_defaults():
+    for odd in (None, "x", {"time_div": "fast", "scale_1": None, "baud": "quick", "probe_1": "x"}):
+        settings = tek.Settings(odd)
+        assert settings.keys() == ["CH1"] and settings.time_div == 1e-3
+        assert (settings.baud, settings.hard_flow, settings.as_is) == (9600, True, False)
+        assert settings.scale["CH1"] == 1.0 and settings.probe["CH1"] == 10
+        assert settings.acquire == tek.SAMPLE and settings.averages == 16
+
+
+def test_the_timebase_goes_one_two_and_a_half_five():
+    assert tek.TIMES[:4] == (5e-9, 1e-8, 2.5e-8, 5e-8) and tek.TIMES[-1] == 50
+    assert tek.Settings({"time_div": 2e-3}).time_div == 2.5e-3
+
+
+def test_every_setting_has_a_group_and_the_keys_are_all_different():
+    keys = [setting.key for setting in tek.SETTINGS]
+    assert len(set(keys)) == len(keys)
+    assert all(setting.group for setting in tek.SETTINGS)
+
+
+@pytest.mark.parametrize(
+    ("model", "channels"),
+    [
+        ("TPS 2014", 4),
+        ("TPS 2024", 4),
+        ("TPS 2012", 2),
+        ("TDS 224", 4),
+        ("TDS 210", 2),
+        ("TDS 1002", 2),
+        ("TDS 2012B", 2),
+        ("TDS 2004B", 4),
+        ("TDS 1001B", 2),
+        ("something else", 2),
+    ],
+)
+def test_how_many_channels_is_in_the_models_number(model, channels):
+    assert tek.channels_of(model) == channels
+
+
+def test_a_two_channel_scope_is_offered_two():
+    keys = {setting.key for setting in tek.make_settings(2)}
+    assert "scale_2" in keys and "scale_3" not in keys
+    assert tek.Settings({"enabled_3": True}).keys(2) == ["CH1"]
+
+
+def test_the_setup_puts_a_trace_in_divisions_and_the_trigger_where_asked():
+    settings = tek.Settings(
+        {"time_div": 1e-3, "enabled_2": True, "scale_2": 0.5, "offset_2": -1.0, "limit_2": True}
+    )
+    wanted = tek.setup(settings, tek.Trigger("CH2", 0.5, False, 0.25, auto=False))
+    assert wanted["CH2:POSITION"] == "-2", "a volt down at half a volt a division"
+    assert wanted["CH2:BANDWIDTH"] == "ON" and wanted["CH1:BANDWIDTH"] == "OFF"
+    assert (
+        wanted["TRIGGER:MAIN:EDGE:SOURCE"] == "CH2" and wanted["TRIGGER:MAIN:EDGE:SLOPE"] == "FALL"
+    )
+    assert wanted["TRIGGER:MAIN:LEVEL"] == "0.5" and wanted["TRIGGER:MAIN:MODE"] == "NORMAL"
+    # A quarter of the way across ten divisions: the middle is two and a half after it.
+    assert float(wanted["HORIZONTAL:MAIN:POSITION"]) == pytest.approx(0.0025)
+    assert wanted["SELECT:CH3"] == "OFF" and "CH3:SCALE" not in wanted
+
+
+def test_auto_and_no_trigger_let_the_scope_give_up_waiting_itself():
+    settings = tek.Settings()
+    assert tek.setup(settings, tek.Trigger("CH1", auto=True))["TRIGGER:MAIN:MODE"] == "AUTO"
+    assert tek.setup(settings, tek.Trigger(None, auto=False))["TRIGGER:MAIN:MODE"] == "AUTO"
+
+
+def test_averaging_says_how_many():
+    wanted = tek.setup(tek.Settings({"acquire": tek.AVERAGE, "averages": 64}), tek.Trigger())
+    assert wanted["ACQUIRE:MODE"] == "AVERAGE" and wanted["ACQUIRE:NUMAVG"] == "64"
+    assert "ACQUIRE:NUMAVG" not in tek.setup(tek.Settings(), tek.Trigger())
+
+
+# --- the scope ------------------------------------------------------------------------------
+def test_no_port_is_said_in_words():
+    with pytest.raises(tek.ScopeError, match="Instrument pane"):
+        tek.Scope(tek.Settings()).open()
+
+
+def test_a_port_that_will_not_open_is_said_in_words(monkeypatch):
+    def refuse(_port, _baud, _flow):
+        raise OSError("could not open port 'COM9'")
+
+    monkeypatch.setattr(tek, "open_port", refuse)
+    with pytest.raises(tek.ScopeError, match="COM9 could not be opened"):
+        tek.Scope(tek.Settings({"port": "COM9"})).open()
+
+
+def test_no_pyserial_says_what_to_install(monkeypatch):
+    def missing(_port, _baud, _flow):
+        raise ImportError("No module named 'serial'")
+
+    monkeypatch.setattr(tek, "open_port", missing)
+    with pytest.raises(tek.ScopeError, match="pip install pyserial"):
+        tek.Scope(tek.Settings({"port": "COM9"})).open()
+
+
+def test_a_scope_that_does_not_answer_says_what_to_check(port):
+    port.dead = True
+    with pytest.raises(tek.ScopeError, match="RS232 Setup"):
+        opened(port)
+
+
+def test_opening_says_which_scope_it_is_and_how_many_channels(port):
+    scope = opened(port)
+    assert (scope.model, scope.channels) == ("TPS 2014", 4)
+    assert scope.notes == [("TEKTRONIX TPS 2014: 4 channels.", False)]
+    assert port.heard[0] == "HEADER OFF", "so that answers come with nothing in front"
+    scope.close()
+    assert port.closed
+
+
+def test_something_else_on_the_port_is_refused(port):
+    port.identity = "RIGOL TECHNOLOGIES,DS1054Z,DS1ZA0,00.04"
+    with pytest.raises(tek.ScopeError, match="not this scope"):
+        opened(port)
+
+
+def test_another_tektronix_is_warned_of(port):
+    port.identity = "TEKTRONIX,MSO 4104,0,CF:91.1CT FV:v2.0"
+    scope = opened(port)
+    assert any(is_warning and "TPS2000" in text for text, is_warning in scope.notes)
+
+
+def test_a_sweep_is_the_screen_in_volts_with_the_trigger_in_the_middle(port):
+    scope = opened(port, time_div=1e-3, scale_1=0.5)
+    scope.start(scope.settings, tek.Trigger("CH1", 0.0, True, 0.5, auto=False))
+    block = sweep_of(scope)
+    assert block.sweep and len(block) == 2500
+    assert block.rate == pytest.approx(250_000)
+    assert (block.trigger, block.triggered) == (1250, True)
+    samples = block.data["CH1"]
+    assert samples.dtype == np.float32
+    # Twenty-five counts a division, a hundred up and down from the middle.
+    assert samples[0] == pytest.approx(-2.0) and samples[-1] == pytest.approx(1.98, abs=0.02)
+    assert port.state["CH1:SCALE"] == "0.5" and port.state["HORIZONTAL:MAIN:SCALE"] == "0.001"
+    assert port.state["ACQUIRE:STOPAFTER"] == "SEQUENCE"
+    assert port.sent("ACQUIRE:STATE RUN") == 2, "armed again for the next"
+    scope.close()
+
+
+def test_the_trigger_is_where_the_position_put_it(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger("CH1", 0.0, True, 0.25, auto=False))
+    assert sweep_of(scope).trigger == 625
+    scope.close()
+
+
+def test_the_offset_is_taken_off_again(port):
+    scope = opened(port, scale_1=1.0, offset_1=2.0)
+    scope.start(scope.settings, tek.Trigger())
+    assert sweep_of(scope).data["CH1"][0] == pytest.approx(-6.0)
+    scope.close()
+
+
+def test_every_channel_that_is_on_is_read_and_the_others_are_not(port):
+    scope = opened(port, enabled_1=True, enabled_3=True)
+    scope.start(scope.settings, tek.Trigger())
+    assert list(sweep_of(scope).data) == ["CH1", "CH3"]
+    assert port.state["SELECT:CH2"] == "OFF" and port.state["SELECT:CH3"] == "ON"
+    scope.close()
+
+
+def test_a_sweep_not_taken_yet_is_waited_for(port):
+    port.takes_sweeps = False
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger("CH1", auto=False))
+    assert scope.poll() is None and scope.poll() is None
+    assert port.sent("CURVE?") == 0
+    port.takes_sweeps = True
+    assert len(sweep_of(scope)) == 2500
+    scope.close()
+
+
+def test_auto_says_whether_the_signal_was_there_to_trigger_on(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger("CH1", 0.0, True, auto=True))
+    assert sweep_of(scope).triggered, "the ramp goes up through nought at the trigger"
+    scope.wanted_trigger = tek.Trigger("CH1", 3.9, True, auto=True)
+    assert scope.poll() is None
+    block = sweep_of(scope)
+    assert block.trigger == 1250 and not block.triggered, "nowhere near that level there"
+    scope.close()
+
+
+def test_with_no_trigger_chosen_the_sweep_has_none(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger(None))
+    assert sweep_of(scope).trigger is None
+    scope.close()
+
+
+def test_a_change_as_it_runs_sends_only_what_changed(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    before = len(port.heard)
+    scope.wanted = tek.Settings({"port": "COM9", "scale_1": 2.0})
+    assert scope.poll() is None
+    sent = [command for command in port.heard[before:] if command.startswith("CH")]
+    assert sent == ["CH1:SCALE 2"]
+    assert sweep_of(scope).data["CH1"][0] == pytest.approx(-8.0)
+    scope.close()
+
+
+def test_a_scope_that_goes_away_is_said_in_words(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    port.dead = True
+    with pytest.raises(tek.ScopeError, match="did not answer"):
+        sweep_of(scope)
+    scope.close()
+
+
+# --- as it is -------------------------------------------------------------------------------
+def test_read_as_it_is_nothing_on_the_scope_is_changed(port):
+    port.state.update({"SELECT:CH1": "ON", "CH1:SCALE": "0.2", "HORIZONTAL:MAIN:SCALE": "0.0025"})
+    scope = opened(port, read="asis")
+    before = dict(port.state)
+    scope.start(scope.settings, tek.Trigger("CH1", 1.0))
+    block = sweep_of(scope)
+    changed = {k: v for k, v in port.state.items() if before.get(k) != v}
+    assert set(changed) <= {"DATA:ENCDG", "DATA:WIDTH", "DATA:START", "DATA:STOP", "DATA:SOURCE"}
+    assert port.sent("ACQUIRE:STATE RUN") == 0, "and it is not made to take anything"
+    # At the scope's own scale and timebase, and its own trigger.
+    assert block.rate == pytest.approx(100_000)
+    assert block.data["CH1"][0] == pytest.approx(-0.8)
+    assert (block.trigger, block.triggered) == (1250, True)
+    scope.close()
+
+
+def test_read_as_it_is_a_channel_not_on_the_screen_is_left_out(port):
+    port.state.update({"SELECT:CH1": "ON", "SELECT:CH2": "OFF"})
+    scope = opened(port, read="asis", enabled_2=True)
+    scope.start(scope.settings, tek.Trigger())
+    assert list(sweep_of(scope).data) == ["CH1"]
+    scope.close()
+
+
+def test_read_as_it_is_with_nothing_on_the_screen_says_so(port):
+    scope = opened(port, read="asis")
+    scope.start(scope.settings, tek.Trigger())
+    with pytest.raises(tek.ScopeError, match="nothing to read"):
+        scope.poll()
+    scope.close()
+
+
+# --- the instrument, and in the window ------------------------------------------------------
+def wait_for(app, done, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not done() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    assert done(), "timed out"
+
+
+def test_the_channels_say_how_each_is_set(app):
+    instrument = backends.create("tektronix2000", None, {"limit_1": True, "offset_1": 1.0})
+    assert [(c.name, c.detail, c.group) for c in instrument.channels()] == [
+        ("CH1", "1 V/div, 10x, DC, 20 MHz, offset 1 V", "Channel 1")
+    ]
+    as_is = backends.create("tektronix2000", None, {"read": "asis"})
+    assert as_is.channels()[0].detail == "as the scope has it"
+    assert as_is.channels()[0].full_scale == 0.0, "its scale is not known here"
+
+
+@pytest.fixture
+def scope_window(window, port, monkeypatch):
+    monkeypatch.setattr(tek, "POLL_S", 0.01)
+    window.ctx.settings.set("instrument.tektronix2000", {"port": "COM9", "enabled_2": True})
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("tektronix2000"))
+    yield window
+    window.close_instrument()
+
+
+def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, port, app):
+    window = scope_window
+    assert window.instrument_view.controls["port"].text() == "COM9"
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert "TPS 2014" in window.log.toPlainText()
+    box = window.trigger_bar.source
+    box.setCurrentIndex(box.findData("CH2"))
+    box.activated.emit(box.currentIndex())
+    window.set_mode("normal")
+    wait_for(app, lambda: window.acquisition.sweep is not None)
+    assert set(window.capture.records) == {"CH1", "CH2"}
+    window.scope.redraw()
+    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    assert low == pytest.approx(-0.005, rel=1e-3) and high == pytest.approx(0.005, rel=1e-3)
+    assert window.scope.state.text() == TRIGGERED
+    assert port.state["TRIGGER:MAIN:EDGE:SOURCE"] == "CH2"
+
+
+def test_auto_with_nothing_to_trigger_on_says_so(scope_window, port, app):
+    window = scope_window
+    window.instrument_bar.open.click()
+    box = window.trigger_bar.source
+    box.setCurrentIndex(box.findData("CH1"))
+    box.activated.emit(box.currentIndex())
+    window.trigger_bar.level.setValue(3.9)
+    window.set_mode("auto")
+    wait_for(app, lambda: window.acquisition.sweep is not None)
+    window.scope.redraw()
+    assert window.scope.state.text() == FREE
+
+
+def test_single_takes_one_sweep_and_stops(scope_window, app):
+    window = scope_window
+    window.instrument_bar.modes["single"].click()
+    wait_for(app, lambda: window.acquisition.sweep is not None)
+    wait_for(app, lambda: not window.instrument.running)
+    assert window.instrument_bar.mode() == "stop" and window.instrument.is_open
+
+
+def test_a_two_channel_scope_is_offered_two_once_it_is_open(scope_window, port, app):
+    window = scope_window
+    port.identity = "TEKTRONIX,TPS 2012,0,CF:91.1CT FV:v10.21"
+    assert "scale_4" in window.instrument_view.controls, "before it is known which it is"
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert "scale_4" not in window.instrument_view.controls
+    assert "scale_2" in window.instrument_view.controls
+
+
+def test_what_only_matters_when_setting_up_is_greyed_out_as_it_is(scope_window, app):
+    view = scope_window.instrument_view
+    assert view.controls["scale_1"].isEnabled() and view.controls["time_div"].isEnabled()
+    box = view.controls["read"]
+    box.setCurrentIndex(box.findData("asis"))
+    box.activated.emit(box.currentIndex())
+    assert not view.controls["scale_1"].isEnabled()
+    assert not view.controls["time_div"].isEnabled()
+    assert view.controls["enabled_1"].isEnabled(), "which channels to read is still asked"
+
+
+def test_no_port_says_so_and_goes_back_to_closed(window, app):
+    box = window.instrument_bar.instrument
+    box.setCurrentIndex(box.findData("tektronix2000"))
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: "No port to open" in window.log.toPlainText())
+    wait_for(app, lambda: window.instrument_bar.open.text() == "Open")
+    assert not window.instrument.is_open

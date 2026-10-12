@@ -34,6 +34,7 @@ are held. The instrument chosen is remembered.
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
 | [PicoScope 2000 series](picoscope.md) | Pico's two-channel scopes on the `ps2000` driver |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network or USB |
+| [Tektronix TDS and TPS 2000](tektronix.md) | Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port |
 
 ## Several instruments at once
 

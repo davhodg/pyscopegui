@@ -13,6 +13,7 @@ under its own licence and installed as a separate package:
   pyqtgraph                            MIT         https://www.pyqtgraph.org
   numpy                                BSD-3-Clause  https://numpy.org
   pyvisa                               MIT         https://github.com/pyvisa/pyvisa
+  pyserial                             BSD-3-Clause  https://github.com/pyserial/pyserial
   Python                               PSF-2.0     https://www.python.org
 
 The LGPL-licensed components are dynamically linked and separately replaceable;

@@ -39,6 +39,12 @@ BACKENDS: dict[str, Backend] = {
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
     ),
+    "tektronix2000": Backend(
+        "pyscopegui.backends.tektronix2000",
+        "Tektronix2000",
+        "Tektronix TDS/TPS 2000 series (serial)",
+        "Tek",
+    ),
 }
 
 #: Chosen on a first run: something to look at with nothing plugged in.

@@ -38,6 +38,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 - **Demo signals**: two analog and four digital channels, with no hardware.
 - **PicoScope 2000 series** on Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger.
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. The logic inputs and signal generator that some models have are not used yet. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
+- **Tektronix TDS/TPS 2000 series** (TDS200, TDS1000, TDS2000 and TPS2000), over a serial port: two or four channels, a sweep at a time around the scope's own trigger, or what is on its screen read off with nothing on the scope changed. For taking a capture off the scope: a serial port is too slow to watch one.
 
 Pico's library is not bundled. Install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads). If Pico's own PicoScope 7 is running, close it first, since only one program can have the scope open.
 
@@ -115,6 +116,7 @@ pyscopegui is Apache-2.0 and is a pure-Python application on top of these packag
 | [pyqtgraph](https://www.pyqtgraph.org) | Plotting | MIT |
 | [numpy](https://numpy.org) | Sample arrays | BSD-3-Clause (with 0BSD / MIT / Zlib / CC0 parts) |
 | [pyvisa](https://github.com/pyvisa/pyvisa) | A scope on USB, through an installed VISA library | MIT |
+| [pyserial](https://github.com/pyserial/pyserial) | Serial port, for the Tektronix scopes | BSD-3-Clause |
 
 Only LGPL Qt modules are used (QtCore, QtGui, QtWidgets). pyscopegui depends on **PySide6-Essentials** rather than the full PySide6, so the GPL-only add-on modules (Qt Charts, Qt Data Visualization and the rest) are never installed.
 

@@ -63,6 +63,7 @@ The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/m
 - **Demo signals**: two analog and four digital channels, with no hardware.
 - **PicoScope 2000 series** on Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger, and the scope's signal generator. Pico's library is not included: install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads).
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
+- **Tektronix TDS/TPS 2000 series** (TDS200, TDS1000, TDS2000 and TPS2000), over a serial port: two or four channels, a sweep at a time around the scope's own trigger, or what is on its screen read off with nothing on the scope changed. For taking a capture off the scope: a serial port is too slow to watch one.
 
 ## More
 

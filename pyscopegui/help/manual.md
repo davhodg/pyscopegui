@@ -15,6 +15,7 @@
 
 - [PicoScope 2000 series](picoscope.md) --- the scopes on Pico's `ps2000` driver, and their signal generator
 - [Rigol DS1000Z](rigol.md) --- Rigol's DS1000Z and MSO1000Z scopes, over the network or USB
+- [Tektronix TDS and TPS 2000](tektronix.md) --- Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port
 
 ## Also
 
