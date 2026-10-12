@@ -283,7 +283,7 @@ def test_diagnostics_tell_of_every_instrument_in_use(both):
     from pyscopegui.ui.help_menu import diagnostics
 
     report = diagnostics(both)
-    assert "chosen=Rigol DS1000Z series (network)" in report
+    assert "chosen=Rigol DS1000Z series (rigol1000z)" in report
     assert "also in use=Demo signals (demo)" in report
     assert "Samples held, Demo" in report and "Samples held, Rigol" in report
 

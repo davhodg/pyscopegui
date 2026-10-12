@@ -22,6 +22,8 @@ since the last version, and comes out in the next one.
 
 - The launchers no longer ask about a Start menu entry: the first start says in the Event
   Log where a shortcut is made.
+- The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not
+  part of its name.
 - The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
   driver and not only the 2204A.
 

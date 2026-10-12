@@ -37,7 +37,7 @@ BACKENDS: dict[str, Backend] = {
         "Pico",
     ),
     "rigol1000z": Backend(
-        "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series (network)", "Rigol"
+        "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
     ),
 }
 
