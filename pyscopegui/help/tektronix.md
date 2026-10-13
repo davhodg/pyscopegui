@@ -23,11 +23,12 @@ Nothing of Tektronix's needs installing.
   computers' worth of port are being joined, so it is a *null modem* cable that is wanted,
   with all its wires if hard flagging is to be used.
 - **On the scope**, press **Utility > Options > RS232 Setup**. Set the speed to the
-  fastest there is, 19200, and flagging to **Hard**. Leave the end of line at LF.
+  fastest there is, 19200, and flagging to **Hard**. Parity **None** and an end of line of
+  **LF** are what pyscopegui starts with.
 - **In the Instrument pane**, choose the port from the list in **Port**, which shows the
   serial ports there are at that moment -- `COM3` on Windows, `/dev/ttyUSB0` on Linux; a
-  name can be typed too -- and set **Speed** and **Flow control** to what the scope has.
-  Then press **Open**.
+  name can be typed too -- and set **Speed**, **Flow control**, **Parity** and **End of
+  line** to what the scope has. Then press **Open**.
 
 The [Event Log](event-log.md) says which scope answered, and how many channels it has. The
 Instrument pane then offers that many.
@@ -66,6 +67,8 @@ trigger.
 | Port | The serial port the scope is on. Taken up at the next **Open** |
 | Speed | The baud rate, as the scope is set. Taken up at the next **Open** |
 | Flow control | Hard flagging, or none, as the scope is set. Taken up at the next **Open** |
+| Parity | None, even or odd, as the scope is set. Taken up at the next **Open** |
+| End of line | What the scope ends each answer with: LF, CR, CR/LF or LF/CR, as it is set. Taken up at the next **Open** |
 | Reading | Set up from here, or read as it is: see above |
 | Time | Seconds a division, of the ten across the screen |
 | Acquisition | Sample, peak detect, or an average of several sweeps |
@@ -89,8 +92,8 @@ would take for one of its own.
 - *No port to open* --- **Port** in the Instrument pane is empty.
 - *The serial port ... could not be opened* --- the name is wrong, or another program has
   the port.
-- *The scope did not answer ...* --- the cable is not a null modem one, or the speed or
-  flow control here is not what the scope has. With hard flagging and a cable that lacks
+- *The scope did not answer ...* --- the cable is not a null modem one, or the speed, flow
+  control, parity or end of line here is not what the scope has. With hard flagging and a cable that lacks
   those wires, nothing is ever sent: try **None**, on the scope and here.
 - *What answered ... is not this scope* --- something else is on that port.
 - *None of the channels ticked here is on the scope's screen* --- reading it as it is, with

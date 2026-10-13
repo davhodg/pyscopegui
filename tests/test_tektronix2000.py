@@ -27,6 +27,9 @@ class FakePort:
         #: What is waiting to be read.
         self._out = bytearray()
         self.timeout = 3.0
+        self.baudrate = 9600
+        #: What it ends each answer with, as its RS232 menu is set.
+        self.eol = b"\n"
         self.closed = False
         #: When set, it has stopped answering.
         self.dead = False
@@ -46,6 +49,15 @@ class FakePort:
         taken, self._out = bytes(self._out[: end + 1]), self._out[end + 1 :]
         return taken
 
+    def read_until(self, expected: bytes = b"\n") -> bytes:
+        end = self._out.find(expected)
+        if end < 0:
+            taken, self._out = bytes(self._out), bytearray()
+            return taken
+        stop = end + len(expected)
+        taken, self._out = bytes(self._out[:stop]), self._out[stop:]
+        return taken
+
     def read(self, count: int) -> bytes:
         taken, self._out = bytes(self._out[:count]), self._out[count:]
         return taken
@@ -62,7 +74,7 @@ class FakePort:
 
     def _say(self, text: str) -> None:
         if not self.dead:
-            self._out += text.encode("ascii") + b"\n"
+            self._out += text.encode("ascii") + self.eol
 
     def _hear(self, command: str) -> None:
         self.heard.append(command)
@@ -92,7 +104,12 @@ class FakePort:
         elif what == "CURVE?":
             if not self.dead:
                 data = self.waveform().tobytes()
-                self._out += b"#4%04d" % len(data) + data + b"\n"
+                self._out += b"#4%04d" % len(data) + data + self.eol
+        elif what == "*ESR?":
+            self._say("0")
+        elif what.endswith("?") and what[:-1] in self.state:
+            # Whatever it was last set to, asked for back.
+            self._say(self.state[what[:-1]])
         elif what == "ACQUIRE:STATE" and to == "RUN":
             self.acquiring = True
         elif to:
@@ -115,7 +132,7 @@ class FakePort:
 @pytest.fixture
 def port(monkeypatch):
     fake = FakePort()
-    monkeypatch.setattr(tek, "open_port", lambda _port, _baud, _flow: fake)
+    monkeypatch.setattr(tek, "open_port", lambda *_port: fake)
     return fake
 
 
@@ -213,7 +230,7 @@ def test_no_port_is_said_in_words():
 
 
 def test_a_port_that_will_not_open_is_said_in_words(monkeypatch):
-    def refuse(_port, _baud, _flow):
+    def refuse(*_port):
         raise OSError("could not open port 'COM9'")
 
     monkeypatch.setattr(tek, "open_port", refuse)
@@ -222,7 +239,7 @@ def test_a_port_that_will_not_open_is_said_in_words(monkeypatch):
 
 
 def test_no_pyserial_says_what_to_install(monkeypatch):
-    def missing(_port, _baud, _flow):
+    def missing(*_port):
         raise ImportError("No module named 'serial'")
 
     monkeypatch.setattr(tek, "open_port", missing)
@@ -345,6 +362,47 @@ def test_a_scope_that_goes_away_is_said_in_words(port):
     with pytest.raises(tek.ScopeError, match="did not answer"):
         sweep_of(scope)
     scope.close()
+
+
+# --- the port, as the scope has it ---------------------------------------------------------
+def test_parity_and_the_end_of_line_are_as_the_scopes_menu_names_them():
+    settings = tek.Settings({"parity": "Even", "eol": "CR/LF"})
+    assert (settings.parity, settings.eol) == ("E", b"\r\n")
+    for odd in (None, "x", 3):
+        plain = tek.Settings({"parity": odd, "eol": odd})
+        assert (plain.parity, plain.eol) == ("N", b"\n")
+
+
+def test_the_port_is_opened_as_the_settings_say(monkeypatch):
+    asked = []
+
+    def note(*port):
+        asked.append(port)
+        raise OSError("that is all this test wants")
+
+    monkeypatch.setattr(tek, "open_port", note)
+    settings = tek.Settings({"port": "COM6", "baud": 19200, "flow": "none", "parity": "Odd"})
+    with pytest.raises(tek.ScopeError):
+        tek.Scope(settings).open()
+    assert asked == [("COM6", 19200, False, "O")]
+
+
+@pytest.mark.parametrize("name", list(tek.ENDS))
+def test_an_answer_is_read_to_whatever_the_scope_ends_it_with(port, name):
+    port.eol = tek.ENDS[name]
+    scope = opened(port, eol=name)
+    assert scope.model == "TPS 2014"
+    scope.start(scope.settings, tek.Trigger("CH1", auto=False))
+    block = sweep_of(scope)
+    assert len(block) == 2500 and block.trigger == 1250
+    assert sweep_of(scope).data["CH1"][0] == pytest.approx(-4.0), "and the one after it"
+    scope.close()
+
+
+def test_the_wrong_end_of_line_says_what_to_check(port):
+    port.eol = b"\r"
+    with pytest.raises(tek.ScopeError, match="end of line"):
+        opened(port, eol="LF")
 
 
 # --- as it is -------------------------------------------------------------------------------

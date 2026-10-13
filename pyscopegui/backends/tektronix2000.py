@@ -79,6 +79,11 @@ SCALES = tuple(
 COUPLINGS = (("DC", "DC"), ("AC", "AC"), ("GND", "Ground"))
 BAUDS = (19200, 9600, 4800, 2400, 1200, 600, 300)
 NO_FLOW, HARD_FLOW = "none", "hard"
+#: What the scope ends each answer with, by the name its menu gives it.
+ENDS = {"LF": b"\n", "CR": b"\r", "CR/LF": b"\r\n", "LF/CR": b"\n\r"}
+#: Parity, by the name the scope's menu gives it -> the letter pyserial knows it by.
+PARITIES = {"None": "N", "Even": "E", "Odd": "O"}
+_AS_THE_SCOPE = "As the scope is set, under Utility > Options > RS232 Setup."
 ACQUISITIONS = ((SAMPLE, "Sample"), (PEAK, "Peak detect"), (AVERAGE, "Average"))
 AVERAGES = (4, 16, 64, 128)
 
@@ -144,6 +149,26 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
                 "flagging needs a cable with all its wires. Soft flagging is not\n"
                 "offered: a waveform is sent as bytes that it would mistake for\n"
                 "its own. Taken up at the next Open."
+            ),
+        ),
+        Setting(
+            "parity",
+            "Parity",
+            "None",
+            choices=tuple((name, name) for name in PARITIES),
+            group="Connection",
+            tip=_AS_THE_SCOPE + "\nTaken up at the next Open.",
+        ),
+        Setting(
+            "eol",
+            "End of line",
+            "LF",
+            choices=tuple((name, name) for name in ENDS),
+            group="Connection",
+            tip=(
+                _AS_THE_SCOPE + " It is what the scope ends each\n"
+                "answer with, and an answer is waited for until it comes.\n"
+                "Taken up at the next Open."
             ),
         ),
         Setting(
@@ -299,6 +324,9 @@ class Settings:
         self.port = str(options.get("port") or "").strip()
         self.baud = int(_nearest(options.get("baud"), BAUDS, 9600))
         self.hard_flow = options.get("flow") != NO_FLOW
+        self.parity = PARITIES.get(options.get("parity"), "N")
+        #: What the scope ends each answer with.
+        self.eol = ENDS.get(options.get("eol"), b"\n")
         #: Read what the scope shows, and change nothing on it.
         self.as_is = options.get("read") == AS_IS
         self.time_div = _nearest(options.get("time_div"), TIMES, 1e-3)
@@ -396,15 +424,16 @@ def crossed(samples: np.ndarray, at: int, level: float, rising: bool) -> bool:
 
 
 # --- the wire -------------------------------------------------------------------------------
-def open_port(port: str, baud: int, hard_flow: bool):
+def open_port(port: str, baud: int, hard_flow: bool, parity: str = "N"):
     """The serial port, opened. ImportError where pyserial is not installed."""
     import serial  # here, so that the other instruments do not need it
 
     return serial.Serial(
         port,
         baudrate=baud,
+        # Eight, whatever the parity: a waveform is sent as whole bytes.
         bytesize=8,
-        parity="N",
+        parity=parity,
         stopbits=1,
         rtscts=hard_flow,
         timeout=ANSWER_S,
@@ -415,10 +444,13 @@ def open_port(port: str, baud: int, hard_flow: bool):
 class Link:
     """Lines of commands to the scope and back, on a serial port."""
 
-    def __init__(self, port: str, baud: int, hard_flow: bool) -> None:
+    def __init__(
+        self, port: str, baud: int, hard_flow: bool, parity: str = "N", eol: bytes = b"\n"
+    ) -> None:
         self.port, self.baud = port, baud
+        self._eol = eol
         try:
-            self._serial = open_port(port, baud, hard_flow)
+            self._serial = open_port(port, baud, hard_flow, parity)
         except ImportError as exc:
             raise ScopeError(
                 "A serial port needs pyserial, which is not installed: "
@@ -436,8 +468,8 @@ class Link:
         said = f": {exc}" if exc is not None else ""
         return ScopeError(
             f"The scope did not answer {what} on {self.port} at {self.baud} baud{said}. Check "
-            "the cable, and that the speed and flow control here are what the scope has "
-            "under Utility > Options > RS232 Setup."
+            "the cable, and that the speed, flow control, parity and end of line here are "
+            "what the scope has under Utility > Options > RS232 Setup."
         )
 
     def write(self, command: str) -> None:
@@ -449,10 +481,10 @@ class Link:
     def ask(self, command: str) -> str:
         self.write(command)
         try:
-            line = self._serial.readline()
+            line = self._serial.read_until(self._eol)
         except OSError as exc:
             raise self._fail(command, exc) from exc
-        if not line.endswith(b"\n"):
+        if not line.endswith(self._eol):
             raise self._fail(command)
         return line.decode("ascii", "replace").strip()
 
@@ -469,7 +501,7 @@ class Link:
                 raise ScopeError(f"The scope answered {command} with something else: {head!r}.")
             length = int(self._serial.read(int(head[1:])))
             data = self._serial.read(length)
-            self._serial.readline()  # the end of the line after it
+            self._serial.read_until(self._eol)  # the end of the line after it
         except (OSError, ValueError) as exc:
             raise self._fail(command, exc) from exc
         finally:
@@ -519,7 +551,10 @@ class Scope:
                 "No port to open. Put the serial port the scope is on in the Instrument "
                 "pane: COM3, or /dev/ttyUSB0."
             )
-        self._link = Link(self.settings.port, self.settings.baud, self.settings.hard_flow)
+        settings = self.settings
+        self._link = Link(
+            settings.port, settings.baud, settings.hard_flow, settings.parity, settings.eol
+        )
         self._link.clear()
         # Answers with nothing in front of them, whatever the scope was left at.
         self._link.write("HEADER OFF")
