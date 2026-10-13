@@ -23,7 +23,7 @@ is the fix.
 
 pyscopegui loads an instrument maker's library and calls into it, on purpose.
 It looks for that library where the maker's installer puts it, or at a path
-you give in an environment variable such as `PYSCOPEGUI_PS2000`. A library at
+you give in an environment variable such as `PYSCOPEGUI_PS2000` or `PYSCOPEGUI_PS2000A`. A library at
 either place runs as you, with everything that means. That is the design, not
 a flaw in it: somebody who can replace a library in Program Files, or set
 your environment, can already run code as you.

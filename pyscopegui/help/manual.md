@@ -13,7 +13,7 @@
 
 ## Instruments
 
-- [PicoScope 2000 series](picoscope.md) --- the scopes on Pico's `ps2000` driver, and their signal generator
+- [PicoScope 2000 series](picoscope.md) --- the scopes on Pico's `ps2000` and `ps2000a` drivers, their logic inputs and signal generator
 - [Rigol DS1000Z](rigol.md) --- Rigol's DS1000Z and MSO1000Z scopes, over the network or USB
 
 ## Also

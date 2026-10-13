@@ -61,7 +61,7 @@ The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/m
 ## Instruments
 
 - **Demo signals**: two analog and four digital channels, with no hardware.
-- **PicoScope 2000 series** on Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger, and the scope's signal generator. Pico's library is not included: install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads).
+- **PicoScope 2000 series**, both ranges of them. On Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. On the `ps2000a` driver (2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the MSO models): two or four channels and an MSO's sixteen logic inputs, streamed at up to 31.25 MS/s, or read in blocks of up to a million samples at the scope's full rate, and the scope's signal generator. Pico's library is not included: install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads).
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
 
 ## More

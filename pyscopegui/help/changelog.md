@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **PicoScope 2000 series (ps2000a)**: the newer 2000 Series scopes -- the 2206 to 2208 in
+  their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
+  their sixteen logic inputs -- streamed at up to 31.25 MS/s, or read in blocks of up to a
+  million samples.
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
 - *Tools > Settings > Add shortcut to desktop* on Windows; both shortcuts for a pip

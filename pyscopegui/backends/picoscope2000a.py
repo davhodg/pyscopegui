@@ -1,0 +1,981 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 davhodg
+"""PicoScope 2000 series scopes on Pico's ``ps2000a`` library: the 2206B and its relatives.
+
+The newer of the two ranges that share the name. The two-channel 2206, 2207
+and 2208, in their A and B forms; the mixed-signal ones, which add sixteen
+logic inputs; and the four-channel 2405A to 2408B. The older scopes, on the
+``ps2000`` library, are in ``picoscope2000``: this is that back end with the
+other driver under it, and what is the same in the two -- scales and probes,
+the thread the scope is read on, how a run is started and stopped -- is used
+from there.
+
+What differs is the driver. It answers every call with a status, not with
+nought for no; it fills buffers it is handed, where the older one hands over
+its own; a block can be as long as the scope's memory, which is thousands of
+times what the older scopes have; and it says what the scope has -- how many
+channels, which ranges -- so nothing is listed here by model.
+
+A mixed-signal scope's logic inputs come in two ports of eight, D0 to D7 and
+D8 to D15, each switched on as a whole with a threshold of its own, and each
+input is a channel like any other once it is read.
+"""
+
+from __future__ import annotations
+
+import copy
+import ctypes
+import math
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+import numpy as np
+
+from pyscopegui.backends import picoscope2000 as pico
+from pyscopegui.backends.base import DIGITAL, Block, Channel, Setting
+from pyscopegui.backends.picoscope2000 import (
+    BLOCKS,
+    RANGES,
+    STREAM,
+    ScopeError,
+    Trigger,
+    crossed,
+)
+
+#: Set to the library's full path to use that one and look nowhere else.
+LIBRARY_ENV = "PYSCOPEGUI_PS2000A"
+LIBRARY = "ps2000a"
+
+# --- what the driver calls things: Pico's "PicoScope 2000 Series (A API) Programmer's Guide" ---
+#: The analog channels, in the driver's order: A is 0.
+ANALOG = ("A", "B", "C", "D")
+#: The first of the two ports of logic inputs; the second is one more.
+DIGITAL_PORT0 = 0x80
+#: Logic inputs in a port.
+PORT_BITS = 8
+PORTS = (0, 1)
+COUPLING_AC, COUPLING_DC = 0, 1
+TIME_UNITS_NS = 2
+RATIO_NONE = 0
+#: Full scale, unless the scope says otherwise when it is opened: these are
+#: 8-bit scopes, and the driver leaves the bottom byte of its 16 bits empty.
+MAX_VALUE = 32512
+#: Written in place of a sample the driver lost to a full buffer.
+LOST_DATA = -32768
+#: A logic threshold is given in these: full scale is five volts.
+THRESHOLD_VOLTS, THRESHOLD_COUNTS = 5.0, 32767
+DEFAULT_THRESHOLD = 1.5
+INFO_VARIANT, INFO_SERIAL = 3, 4
+#: Asked of ps2000aGetChannelInformation: the ranges the scope has.
+INFO_RANGES = 0
+#: Trigger directions for an analog channel, and for a logic input.
+RISING, FALLING = 2, 3
+DIGITAL_RISING, DIGITAL_FALLING = 3, 4
+#: In a trigger condition: this has to be so.
+CONDITION_TRUE = 1
+#: A steady voltage: at nought volts, the nearest the driver has to off.
+WAVES = {"off": 8, "sine": 0, "square": 1, "triangle": 2}
+GENERATOR_VOLTS = 2.0
+GENERATOR_HZ = 1_000_000.0
+
+OK = 0
+NOT_FOUND = 3
+BUFFER_STALL = 0x1C
+#: What the driver answers when the scope is no longer there.
+GONE = (NOT_FOUND, 0x07, 0x0C)
+#: The driver's statuses that are worth words of their own. Any other is
+#: given by its number, which Pico's PicoStatus.h has the meaning of.
+STATUS = {
+    0x01: "too many scopes are open",
+    0x02: "the computer is out of memory",
+    0x03: "no scope was found",
+    0x04: "the scope's firmware could not be loaded",
+    0x07: "the scope is not responding",
+    0x08: "the scope's configuration is corrupt or missing",
+    0x09: "the driver installed for it is too old",
+    0x0A: "the scope's own memory is corrupt",
+    0x0B: "this operating system is not supported by the driver",
+    0x0C: "the scope is no longer open",
+    0x0D: "the driver did not accept one of the values",
+    0x0E: "it has no such timebase",
+    0x0F: "it does not have that range",
+    0x10: "it has no such channel",
+    0x11: "that channel cannot be its trigger",
+    0x13: "it has no signal generator",
+    0x14: "streaming failed",
+    0x15: "the block failed",
+    0x1D: "that is more samples than its memory holds",
+    0x27: "the scope is busy",
+    0x2B: "it cannot sample at that interval",
+}
+
+#: Timebases run to the end of 32 bits; none past this is ever wanted.
+MAX_TIMEBASE = 2**32 - 1
+#: Below this a timebase that is refused is one too fast for the channels
+#: that are on, and a slower one is tried; above it, it is the scope's last.
+FIRST_STEADY_TIMEBASE = 3
+#: The most samples a block is read as, however much memory the scope has:
+#: a million points is more than a plot can show, and quick to read.
+MOST_SAMPLES = 1_000_000
+FEWEST_SAMPLES = pico.FEWEST_SAMPLES
+AUTO_TRIGGER_MS = pico.AUTO_TRIGGER_MS
+#: The buffer the driver fills between two polls when streaming, for each
+#: channel: this many samples at the least, and this long at the rate it is
+#: streaming at, which is many polls' worth for when the computer is busy.
+STREAM_SAMPLES = 500_000
+STREAM_S = 0.25
+#: The fastest rate offered for streaming: a sample every 32 ns, which is the
+#: most USB 2 carries from these scopes with one channel on.
+FASTEST_RATE = 31_250_000
+DEFAULT_RATE = pico.DEFAULT_RATE
+
+_INT16, _INT32, _UINT32 = ctypes.c_int16, ctypes.c_int32, ctypes.c_uint32
+_FLOAT, _VOID = ctypes.c_float, ctypes.c_void_p
+_STATUS = ctypes.c_uint32
+_P = ctypes.POINTER
+
+#: What streaming calls when it has samples: the handle, how many, where in
+#: the buffers they start, and five things not used here.
+_CALLBACK_FACTORY = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+StreamingReady = _CALLBACK_FACTORY(
+    None, _INT16, _INT32, _UINT32, _INT16, _UINT32, _INT16, _INT16, _VOID
+)
+
+
+class Conditions(ctypes.Structure):
+    """PS2000A_TRIGGER_CONDITIONS: what has to be so, of each source, for a trigger."""
+
+    _pack_ = 1
+    _fields_ = [
+        (name, _INT32) for name in ("a", "b", "c", "d", "external", "aux", "pulse_width", "digital")
+    ]
+
+
+class DigitalDirection(ctypes.Structure):
+    """PS2000A_DIGITAL_CHANNEL_DIRECTIONS: a logic input, and the edge wanted of it."""
+
+    _pack_ = 1
+    _fields_ = [("channel", _INT32), ("direction", _INT32)]
+
+
+#: Name -> (return type, argument types), for the functions used here.
+PROTOTYPES = {
+    "ps2000aOpenUnit": (_STATUS, [_P(_INT16), ctypes.c_char_p]),
+    "ps2000aCloseUnit": (_STATUS, [_INT16]),
+    "ps2000aGetUnitInfo": (_STATUS, [_INT16, ctypes.c_char_p, _INT16, _P(_INT16), _UINT32]),
+    "ps2000aMaximumValue": (_STATUS, [_INT16, _P(_INT16)]),
+    "ps2000aGetChannelInformation": (
+        _STATUS,
+        [_INT16, _INT32, _INT32, _P(_INT32), _P(_INT32), _INT32],
+    ),
+    "ps2000aSetChannel": (_STATUS, [_INT16, _INT32, _INT16, _INT32, _INT32, _FLOAT]),
+    "ps2000aSetDigitalPort": (_STATUS, [_INT16, _INT32, _INT16, _INT16]),
+    "ps2000aSetSimpleTrigger": (
+        _STATUS,
+        [_INT16, _INT16, _INT32, _INT16, _INT32, _UINT32, _INT16],
+    ),
+    "ps2000aSetTriggerChannelConditions": (_STATUS, [_INT16, _P(Conditions), _INT16]),
+    "ps2000aSetTriggerChannelProperties": (_STATUS, [_INT16, _VOID, _INT16, _INT16, _INT32]),
+    "ps2000aSetTriggerDigitalPortProperties": (_STATUS, [_INT16, _P(DigitalDirection), _INT16]),
+    "ps2000aGetTimebase2": (
+        _STATUS,
+        [_INT16, _UINT32, _INT32, _P(_FLOAT), _INT16, _P(_INT32), _UINT32],
+    ),
+    "ps2000aRunBlock": (
+        _STATUS,
+        [_INT16, _INT32, _INT32, _UINT32, _INT16, _P(_INT32), _UINT32, _VOID, _VOID],
+    ),
+    "ps2000aIsReady": (_STATUS, [_INT16, _P(_INT16)]),
+    "ps2000aSetDataBuffer": (_STATUS, [_INT16, _INT32, _P(_INT16), _INT32, _UINT32, _INT32]),
+    "ps2000aGetValues": (
+        _STATUS,
+        [_INT16, _UINT32, _P(_UINT32), _UINT32, _INT32, _UINT32, _P(_INT16)],
+    ),
+    "ps2000aRunStreaming": (
+        _STATUS,
+        [_INT16, _P(_UINT32), _INT32, _UINT32, _UINT32, _INT16, _UINT32, _INT32, _UINT32],
+    ),
+    "ps2000aGetStreamingLatestValues": (_STATUS, [_INT16, StreamingReady, _VOID]),
+    "ps2000aSetSigGenBuiltIn": (
+        _STATUS,
+        [
+            _INT16,
+            _INT32,
+            _UINT32,
+            _INT16,
+            *[_FLOAT] * 4,
+            _INT32,
+            _INT32,
+            _UINT32,
+            _UINT32,
+            _INT32,
+            _INT32,
+            _INT16,
+        ],
+    ),
+    "ps2000aStop": (_STATUS, [_INT16]),
+}
+
+
+def why(status: int) -> str:
+    """A status of the driver's, in words where there are some."""
+    return STATUS.get(status, f"driver status 0x{status:02X}")
+
+
+def channels_of(model: str | None) -> int:
+    """How many analog channels: four on a 24xx, as the second digit says."""
+    return 4 if model and len(model) > 1 and model[1] == "4" else 2
+
+
+def has_digital(model: str | None) -> bool:
+    """Whether it has logic inputs: a mixed-signal scope says MSO after its number."""
+    return bool(model) and "MSO" in model.upper()
+
+
+def digital_key(port: int, bit: int) -> str:
+    return f"D{port * PORT_BITS + bit}"
+
+
+def port_label(port: int) -> str:
+    return f"D{port * PORT_BITS} to D{port * PORT_BITS + PORT_BITS - 1}"
+
+
+def make_settings(
+    channels: int = 2, digital: bool = False, ranges: tuple[str, ...] = ()
+) -> tuple[Setting, ...]:
+    """The settings to offer for a scope with this many channels, logic inputs or none,
+    and these ranges."""
+    scales = pico.scales_for(ranges or tuple(RANGES))
+    choices = tuple((scale, pico.scale_label(scale)) for scale in scales)
+    made = [
+        Setting(
+            "mode",
+            "Reading",
+            STREAM,
+            choices=((STREAM, "Streaming, to 30 MS/s"), (BLOCKS, "Blocks, to the scope's fastest")),
+            group="Sampling",
+            tip=(
+                "Streaming reads continuously, for as long as it runs, and pyscopegui\n"
+                "finds the trigger. Blocks are stretches taken at up to the scope's\n"
+                "full rate, each around the scope's own trigger: for what is too\n"
+                "fast to stream."
+            ),
+        ),
+        Setting(
+            "rate",
+            "Sample rate",
+            500_000,
+            choices=(
+                (FASTEST_RATE, "31.25 MS/s"),
+                (20_000_000, "20 MS/s"),
+                (10_000_000, "10 MS/s"),
+                (5_000_000, "5 MS/s"),
+                (2_000_000, "2 MS/s"),
+                (1_000_000, "1 MS/s"),
+                (500_000, "500 kS/s"),
+                (200_000, "200 kS/s"),
+                (100_000, "100 kS/s"),
+                (50_000, "50 kS/s"),
+                (20_000, "20 kS/s"),
+                (10_000, "10 kS/s"),
+            ),
+            group="Sampling",
+            needs=("mode", STREAM),
+            tip=(
+                "When streaming: samples a second on each channel. Above 1 MS/s it is\n"
+                "for the scope, USB and the computer to keep up, which is harder with\n"
+                "more channels on: the Event Log says when they do not. What is kept\n"
+                "to go back over is all in memory, and fills it that much faster."
+            ),
+        ),
+        Setting(
+            "block_ms",
+            "Block length",
+            1.0,
+            minimum=0.001,
+            maximum=1000.0,
+            decimals=3,
+            unit="ms",
+            group="Sampling",
+            needs=("mode", BLOCKS),
+            tip=(
+                "When reading blocks: how long a stretch each one is. The scope samples\n"
+                "as fast as it can for that length, up to a million samples a block:\n"
+                "a shorter block is sampled faster. The Event Log says what rate a\n"
+                "length came to."
+            ),
+        ),
+    ]
+    for key in ANALOG[:channels]:
+        # The first two are on to begin with, as on a two-channel scope.
+        made += pico.channel_settings(key, choices, enabled=key in "AB")
+    if digital:
+        for port in PORTS:
+            label = port_label(port)
+            made += [
+                Setting(
+                    f"digital_{port}",
+                    label,
+                    False,
+                    group="Logic inputs",
+                    tip=f"Whether the logic inputs {label} are read: all eight, or none.",
+                ),
+                Setting(
+                    f"threshold_{port}",
+                    f"Threshold, {label}",
+                    DEFAULT_THRESHOLD,
+                    minimum=-THRESHOLD_VOLTS,
+                    maximum=THRESHOLD_VOLTS,
+                    decimals=2,
+                    step=0.1,
+                    unit="V",
+                    group="Logic inputs",
+                    live=True,
+                    tip=(
+                        "The voltage above which these inputs read 1. 1.5 V suits 5 V and\n"
+                        "3.3 V logic; half the supply suits anything else."
+                    ),
+                ),
+            ]
+    made += pico.generator_settings(GENERATOR_HZ)
+    return tuple(made)
+
+
+#: What is offered before a scope is open and has said what it has: two
+#: channels and a generator, which every one of them has.
+SETTINGS = make_settings()
+
+
+def find_library(platform: str | None = None, environ=None) -> Path | None:
+    return pico.find_library(platform, environ, LIBRARY, LIBRARY_ENV)
+
+
+def load_library():
+    """Pico's ps2000a library, with each function's arguments declared."""
+    return pico.load(find_library(), LIBRARY, LIBRARY_ENV, PROTOTYPES)
+
+
+class Settings(pico.Settings):
+    """How the scope is set up, from the ``instrument.picoscope2000a`` settings.
+
+    Read for the most a scope on this driver can have -- four channels and
+    both ports of logic inputs -- and then kept to what the one that is open
+    has, once that is known.
+    """
+
+    def __init__(self, options: dict | None = None, channels: int = 4, digital: bool = True):
+        options = options if isinstance(options, dict) else {}
+        #: The analog channels the scope has, and whether it has logic inputs.
+        self.analog = ANALOG[:channels]
+        self.has_digital = digital
+        rate = self._number(options.get("rate"), DEFAULT_RATE)
+        self.interval_ns = max(1, round(1e9 / rate)) if rate > 0 else round(1e9 / DEFAULT_RATE)
+        self.rate = 1e9 / self.interval_ns
+        self.probe, self.ranges, self.dc, self.enabled = {}, {}, {}, {}
+        for key in ANALOG:
+            low = key.lower()
+            self.probe[key] = self._probe(options.get(f"probe_{low}"))
+            self.ranges[key] = self._range(options.get(f"scale_{low}"), self.probe[key], None)
+            self.dc[key] = options.get(f"coupling_{low}", "DC") != "AC"
+            self.enabled[key] = bool(options.get(f"enabled_{low}", key in "AB"))
+        #: Port -> whether its eight logic inputs are read, and the volts
+        #: above which one of them is a 1.
+        self.ports = {port: bool(options.get(f"digital_{port}", False)) for port in PORTS}
+        self.threshold = {
+            port: min(
+                max(
+                    self._number(options.get(f"threshold_{port}"), DEFAULT_THRESHOLD),
+                    -THRESHOLD_VOLTS,
+                ),
+                THRESHOLD_VOLTS,
+            )
+            for port in PORTS
+        }
+        self.blocks = options.get("mode") == BLOCKS
+        self.block_s = min(max(self._number(options.get("block_ms"), 1.0), 0.001), 1000.0) / 1000
+        wave = options.get("gen_wave", "off")
+        self.generator = (
+            wave if wave in WAVES else "off",
+            min(max(self._number(options.get("gen_frequency"), 1000.0), 1.0), GENERATOR_HZ),
+            min(max(self._number(options.get("gen_amplitude"), 2.0), 0.0), 2 * GENERATOR_VOLTS),
+            min(
+                max(self._number(options.get("gen_offset"), 0.0), -GENERATOR_VOLTS),
+                GENERATOR_VOLTS,
+            ),
+        )
+
+    def for_scope(self, channels: int, digital: bool) -> Settings:
+        """These, kept to what a scope with this many channels, and logic inputs or none, has."""
+        if (self.analog, self.has_digital) == (ANALOG[:channels], digital):
+            return self
+        kept = copy.copy(self)
+        kept.analog, kept.has_digital = ANALOG[:channels], digital
+        return kept
+
+    def setup(self) -> tuple:
+        return (self.ranges, self.dc, self.threshold)
+
+    def keys(self) -> list[str]:
+        """The analog channels switched on, in order."""
+        return [key for key in self.analog if self.enabled[key]]
+
+    def ports_on(self) -> list[int]:
+        """The ports of logic inputs switched on."""
+        return [port for port in PORTS if self.has_digital and self.ports[port]]
+
+    def digital_keys(self) -> list[str]:
+        """The logic inputs that are read, in order."""
+        return [digital_key(port, bit) for port in self.ports_on() for bit in range(PORT_BITS)]
+
+
+class Stream(pico.Stream):
+    """The scope, from opening it to closing it, with any number of runs between.
+
+    The older driver's, with every call to the driver made this one's way.
+    """
+
+    def __init__(
+        self,
+        library,
+        settings: Settings,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
+        super().__init__(library, settings, clock)
+        #: What the scope turned out to have, once open.
+        self.channels = 2
+        self.digital = False
+        self.ranges: tuple[str, ...] = tuple(RANGES)
+        self._max = MAX_VALUE
+        #: What the driver fills, by what it calls the channel or port. Kept
+        #: for as long as it may: a buffer that has been collected is written
+        #: to all the same.
+        self._buffers: dict[int, ctypes.Array] = {}
+        #: What the callback copied out during the poll in progress.
+        self._arrived: dict[int, list[np.ndarray]] = {}
+        self._callback = StreamingReady(self._on_values)
+        #: The rate it is really streaming at, which the driver may round.
+        self._rate = settings.rate
+        #: Samples before the trigger in a block.
+        self._before_trigger = 0
+        #: Whether the trigger last set was on a logic input, to be cleared.
+        self._digital_trigger = False
+
+    # --- opening ---------------------------------------------------------------------------
+    def open(self) -> None:
+        """Open the scope, and ask it what it has. ScopeError if it will not."""
+        handle = ctypes.c_int16(0)
+        try:
+            status = self._library.ps2000aOpenUnit(ctypes.byref(handle), None)
+        except OSError as exc:
+            raise ScopeError(
+                "Pico's driver failed while opening the scope, which is what happens when "
+                f"the scope drops off USB part way through ({exc}). Unplug it, plug it in "
+                "again and press Open."
+            ) from exc
+        if status == NOT_FOUND or (status == OK and handle.value <= 0):
+            raise ScopeError(
+                "No PicoScope was found. Check that it is plugged in, and that PicoScope 7 "
+                "is closed: only one program can have the scope open."
+            )
+        if status != OK:
+            raise ScopeError(f"The PicoScope would not open: {why(status)}.")
+        self._handle = handle.value
+        self.model = self._info(INFO_VARIANT)
+        self.channels, self.digital = channels_of(self.model), has_digital(self.model)
+        self.settings = self.settings.for_scope(self.channels, self.digital)
+        most = ctypes.c_int16(0)
+        if self._library.ps2000aMaximumValue(self._handle, ctypes.byref(most)) == OK:
+            self._max = most.value or MAX_VALUE
+        self.ranges = self._ranges()
+        self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
+
+    def _info(self, line: int) -> str:
+        text, needed = ctypes.create_string_buffer(64), ctypes.c_int16(0)
+        self._library.ps2000aGetUnitInfo(self._handle, text, len(text), ctypes.byref(needed), line)
+        return text.value.decode("ascii", "replace") or "?"
+
+    def _ranges(self) -> tuple[str, ...]:
+        """The ranges the scope says it has; every one, if it will not say."""
+        codes, length = (ctypes.c_int32 * 32)(), ctypes.c_int32(32)
+        status = self._library.ps2000aGetChannelInformation(
+            self._handle, INFO_RANGES, 0, codes, ctypes.byref(length), 0
+        )
+        has = set(codes[: max(0, min(length.value, 32))]) if status == OK else set()
+        return tuple(name for name, (code, _v) in RANGES.items() if code in has) or tuple(RANGES)
+
+    # --- running ---------------------------------------------------------------------------
+    def start(self, settings: Settings | None = None, trigger: Trigger | None = None) -> None:
+        """Set the scope up and start it reading, counting samples from zero."""
+        self.stop()
+        if settings is not None:
+            self.settings = settings.for_scope(self.channels, self.digital)
+        if trigger is not None:
+            self.trigger = trigger
+        if not self._sources():
+            raise ScopeError("Every channel is switched off, so there is nothing to read.")
+        self._set_channels()
+        self.set_generator(self.settings.generator)
+        if self.settings.blocks:
+            self._choose_timebase()
+            self._block_pending = False
+            self.streaming = True
+            return
+        # No trigger: streaming is everything, from the moment it starts.
+        self._no_trigger()
+        self._start_streaming()
+        self._sent = 0
+        self._started = self._clock()
+        self._rate_checked = False
+        self._paused = False
+
+    def _sources(self) -> list[tuple[int, object]]:
+        """What is read, as (what the driver calls it, the channel's key or the port)."""
+        settings = self.settings
+        return [(ANALOG.index(key), key) for key in settings.keys()] + [
+            (DIGITAL_PORT0 + port, port) for port in settings.ports_on()
+        ]
+
+    def _set_channels(self) -> None:
+        settings = self.settings
+        for index, key in enumerate(ANALOG[: self.channels]):
+            code, _volts = RANGES[settings.ranges[key]]
+            status = self._library.ps2000aSetChannel(
+                self._handle,
+                index,
+                int(settings.enabled[key]),
+                COUPLING_DC if settings.dc[key] else COUPLING_AC,
+                code,
+                0.0,
+            )
+            if status != OK:
+                raise ScopeError(
+                    f"The scope would not set channel {key} to ±{settings.ranges[key]}: "
+                    f"{why(status)}."
+                )
+        if not self.digital:
+            return
+        for port in PORTS:
+            counts = round(settings.threshold[port] / THRESHOLD_VOLTS * THRESHOLD_COUNTS)
+            status = self._library.ps2000aSetDigitalPort(
+                self._handle, DIGITAL_PORT0 + port, int(settings.ports[port]), counts
+            )
+            if status != OK:
+                raise ScopeError(
+                    f"The scope would not set its logic inputs {port_label(port)}: {why(status)}."
+                )
+
+    def _hand_buffers(self, samples: int) -> None:
+        """Give the driver somewhere to put this many samples of everything read."""
+        self._buffers = {}
+        for code, _what in self._sources():
+            buffer = (ctypes.c_int16 * samples)()
+            status = self._library.ps2000aSetDataBuffer(
+                self._handle, code, buffer, samples, 0, RATIO_NONE
+            )
+            if status != OK:
+                raise ScopeError(f"The driver would not take a buffer to read into: {why(status)}.")
+            self._buffers[code] = buffer
+
+    def _start_streaming(self) -> None:
+        settings = self.settings
+        room = max(STREAM_SAMPLES, round(settings.rate * STREAM_S))
+        self._hand_buffers(room)
+        interval = ctypes.c_uint32(settings.interval_ns)
+        status = self._library.ps2000aRunStreaming(
+            self._handle,
+            ctypes.byref(interval),
+            TIME_UNITS_NS,
+            0,
+            room,
+            0,
+            1,
+            RATIO_NONE,
+            room,
+        )
+        if status != OK:
+            raise ScopeError(
+                f"The scope would not stream at one sample every {settings.interval_ns} ns: "
+                f"{why(status)}. Try a lower rate."
+            )
+        # The driver says what the interval came to, which is what time is counted in.
+        self._rate = 1e9 / interval.value if interval.value else settings.rate
+        if interval.value and interval.value != settings.interval_ns:
+            self.notes.append(
+                (
+                    f"The scope is streaming at {self._rate:,.0f} samples a second, the "
+                    f"nearest it has to the {settings.rate:,.0f} asked for.",
+                    False,
+                )
+            )
+        self.streaming = True
+
+    def stop(self) -> None:
+        """Stop reading and leave the scope open. Safe when it is not reading."""
+        if self.streaming:
+            self._library.ps2000aStop(self._handle)
+        self.streaming = False
+        self._block_pending = False
+
+    # --- triggers --------------------------------------------------------------------------
+    def _no_digital_trigger(self) -> None:
+        if self._digital_trigger:
+            self._library.ps2000aSetTriggerDigitalPortProperties(self._handle, None, 0)
+            self._digital_trigger = False
+
+    def _no_trigger(self) -> None:
+        self._no_digital_trigger()
+        self._library.ps2000aSetSimpleTrigger(self._handle, 0, 0, 0, RISING, 0, 0)
+
+    def _set_trigger(self) -> None:
+        """Tell the scope what a block is to be taken around."""
+        trigger, settings = self.trigger, self.settings
+        # How long to wait for a trigger before taking the block anyway:
+        # nought is for ever, which is what Normal and Single mean.
+        wait_ms = max(AUTO_TRIGGER_MS, round(2e3 * settings.block_s)) if trigger.auto else 0
+        wait_ms = min(wait_ms, 32767)
+        if trigger.source in settings.keys():
+            self._no_digital_trigger()
+            volts = settings.volts(trigger.source)
+            counts = round(min(max(trigger.level / volts, -1.0), 1.0) * self._max)
+            status = self._library.ps2000aSetSimpleTrigger(
+                self._handle,
+                1,
+                ANALOG.index(trigger.source),
+                counts,
+                RISING if trigger.rising else FALLING,
+                0,
+                wait_ms,
+            )
+        elif trigger.source in settings.digital_keys():
+            status = self._set_digital_trigger(int(trigger.source[1:]), trigger.rising, wait_ms)
+        else:
+            self._no_trigger()
+            return
+        if status != OK:
+            raise ScopeError(f"The scope would not trigger on {trigger.source}: {why(status)}.")
+
+    def _set_digital_trigger(self, bit: int, rising: bool, wait_ms: int) -> int:
+        """Trigger on an edge of one logic input, which takes three calls where an
+        analog channel takes one."""
+        library = self._library
+        wanted = Conditions(digital=CONDITION_TRUE)
+        edge = DigitalDirection(bit, DIGITAL_RISING if rising else DIGITAL_FALLING)
+        self._digital_trigger = True
+        return (
+            library.ps2000aSetTriggerChannelConditions(self._handle, ctypes.byref(wanted), 1)
+            or library.ps2000aSetTriggerDigitalPortProperties(self._handle, ctypes.byref(edge), 1)
+            or library.ps2000aSetTriggerChannelProperties(self._handle, None, 0, 0, wait_ms)
+        )
+
+    # --- blocks ----------------------------------------------------------------------------
+    def _ask_timebase(self, timebase: int) -> tuple[float, int] | None:
+        """The interval in nanoseconds and the most samples at this timebase, if it has it."""
+        interval, most = ctypes.c_float(0), ctypes.c_int32(0)
+        status = self._library.ps2000aGetTimebase2(
+            self._handle, timebase, 1, ctypes.byref(interval), 1, ctypes.byref(most), 0
+        )
+        if status != OK or interval.value <= 0 or most.value <= 0:
+            return None
+        return interval.value, min(most.value, MOST_SAMPLES)
+
+    def _choose_timebase(self) -> None:
+        """The fastest timebase at which a block this long is no more samples than
+        are read.
+
+        There are four thousand million timebases, each a little slower than
+        the one before, so the scope is asked about a few and the one wanted
+        is closed in on: doubling until one is slow enough, or slower than the
+        scope goes, then halving the gap. Which the scope has depends on the
+        model and on what is on.
+        """
+        wanted_ns = self.settings.block_s * 1e9
+        answers: dict[int, tuple[float, int] | None] = {}
+
+        def far_enough(timebase: int) -> bool:
+            """Slow enough for the block -- or slower than the scope goes."""
+            answers[timebase] = answer = self._ask_timebase(timebase)
+            if answer is None:
+                # Among the first few, one refused is too fast for what is on.
+                return timebase > FIRST_STEADY_TIMEBASE
+            return answer[0] * answer[1] >= wanted_ns
+
+        slow, fast, timebase = None, -1, 0
+        while slow is None and timebase <= MAX_TIMEBASE:
+            if far_enough(timebase):
+                slow = timebase
+            else:
+                fast, timebase = timebase, max(1, timebase * 2)
+        while slow is not None and slow - fast > 1:
+            middle = (slow + fast) // 2
+            if far_enough(middle):
+                slow = middle
+            else:
+                fast = middle
+        if slow is not None and answers[slow] is None:
+            slow = None  # past its slowest: the one before is its longest block
+        had = [timebase for timebase, answer in answers.items() if answer is not None]
+        if not had:
+            raise ScopeError("The scope offered no timebase to read a block at.")
+        # The one found, or the slowest it has: its longest block.
+        self._timebase = slow if slow is not None else max(had)
+        interval_ns, most_samples = answers[self._timebase]
+        samples = max(FEWEST_SAMPLES, math.ceil(wanted_ns / interval_ns))
+        self._block_samples = min(samples, most_samples)
+        self._block_rate = 1e9 / interval_ns
+        length = self._block_samples * interval_ns / 1e9
+        self.notes.append(
+            (
+                f"Blocks of {self._block_samples} samples at {self._block_rate:,.0f} a second: "
+                f"{length * 1e3:g} ms each.",
+                False,
+            )
+        )
+        if samples > most_samples:
+            self.notes.append(
+                (
+                    f"That is the longest block the scope can take: {length * 1e3:g} ms of "
+                    f"the {wanted_ns / 1e6:g} ms asked for. Streaming reads for longer.",
+                    True,
+                )
+            )
+
+    def _arm(self) -> None:
+        """Tell the scope what to trigger on, and start it filling a block."""
+        self._set_trigger()
+        samples = self._block_samples
+        self._before_trigger = min(round(self.trigger.position * samples), samples)
+        busy = ctypes.c_int32(0)
+        status = self._library.ps2000aRunBlock(
+            self._handle,
+            self._before_trigger,
+            samples - self._before_trigger,
+            self._timebase,
+            1,
+            ctypes.byref(busy),
+            0,
+            None,
+            None,
+        )
+        if status != OK:
+            raise ScopeError(
+                f"The scope would not take a block of {samples} samples: {why(status)}. "
+                "Try a different block length."
+            )
+        self._block_pending = True
+
+    def _poll_block(self) -> Block | None:
+        """The block that was asked for, if it is in; and ask for the next."""
+        wanted, self.wanted = self.wanted, None
+        trigger, self.wanted_trigger = self.wanted_trigger, None
+        if wanted is not None or trigger is not None:
+            # A block being waited for was asked for with the old settings,
+            # and in Normal may be waited for for ever: give it up.
+            if self._block_pending:
+                self._library.ps2000aStop(self._handle)
+                self._block_pending = False
+            if trigger is not None:
+                self.trigger = trigger
+            if wanted is not None:
+                self._take_up_between_blocks(wanted)
+        if not self._block_pending:
+            self._arm()
+            return None
+        ready = ctypes.c_int16(0)
+        if self._library.ps2000aIsReady(self._handle, ctypes.byref(ready)) != OK:
+            raise ScopeError("The scope stopped answering: it may have been unplugged.")
+        if not ready.value:
+            return None
+        self._block_pending = False
+        return self._read_block()
+
+    def _take_up_between_blocks(self, wanted: Settings) -> None:
+        super()._take_up_between_blocks(wanted.for_scope(self.channels, self.digital))
+
+    def _take_up(self, wanted: Settings) -> None:
+        super()._take_up(wanted.for_scope(self.channels, self.digital))
+
+    def _read_block(self) -> Block | None:
+        samples = self._block_samples
+        self._hand_buffers(samples)
+        count, overflow = ctypes.c_uint32(samples), ctypes.c_int16(0)
+        status = self._library.ps2000aGetValues(
+            self._handle, 0, ctypes.byref(count), 1, RATIO_NONE, 0, ctypes.byref(overflow)
+        )
+        buffers, self._buffers = self._buffers, {}
+        if status != OK or count.value == 0:
+            return None
+        data = self._in_units(
+            {code: np.ctypeslib.as_array(buffer)[: count.value] for code, buffer in buffers.items()}
+        )
+        trigger = self.trigger
+        if trigger.source not in data:
+            return Block(0, self._block_rate, data, sweep=True)
+        at = min(self._before_trigger, count.value - 1)
+        # A logic input is 0 or 1, and an edge goes through the half between.
+        level = trigger.level if trigger.source in self.settings.keys() else 0.5
+        return Block(
+            0,
+            self._block_rate,
+            data,
+            sweep=True,
+            trigger=at,
+            triggered=crossed(data[trigger.source], at, level, trigger.rising),
+        )
+
+    def _in_units(self, raw: dict[int, np.ndarray]) -> dict[str, np.ndarray]:
+        """What the driver filled, as volts for a channel and as 0 or 1 for each
+        logic input of a port."""
+        data = {}
+        for code, what in self._sources():
+            if code not in raw:
+                continue
+            counts = raw[code]
+            if isinstance(what, str):
+                volts = self.settings.volts(what)
+                scaled = counts.astype(np.float32) * np.float32(volts / self._max)
+                scaled[counts == LOST_DATA] = np.nan
+                data[what] = scaled
+                continue
+            for bit in range(PORT_BITS):
+                data[digital_key(what, bit)] = ((counts >> bit) & 1).astype(np.uint8)
+        return data
+
+    def set_generator(self, generator: tuple[str, float, float, float]) -> None:
+        """Set the signal generator output: a fixed frequency, no sweep."""
+        wave, frequency, amplitude, offset = generator
+        off = wave == "off"
+        status = self._library.ps2000aSetSigGenBuiltIn(
+            self._handle,
+            0 if off else round(offset * 1e6),
+            0 if off else round(amplitude * 1e6),
+            WAVES[wave],
+            frequency,
+            frequency,
+            0.0,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        if status != OK and not off:
+            self.notes.append(
+                (
+                    f"The scope would not set its signal generator to that output: {why(status)}.",
+                    True,
+                )
+            )
+        elif not off:
+            self.notes.append(
+                (
+                    f"Signal generator: {wave}, {frequency:g} Hz, {amplitude:g} V peak to peak, "
+                    f"{offset:g} V offset.",
+                    False,
+                )
+            )
+        elif self._generating:
+            self.notes.append(("Signal generator: off.", False))
+        self._generating = status == OK and not off
+
+    # --- reading ---------------------------------------------------------------------------
+    def _on_values(
+        self, _handle, count, start, _overflow, _triggered_at, _triggered, _auto_stop, _parameter
+    ) -> None:
+        """Called by the driver from inside ``poll``. Copies, and nothing else:
+        the buffers are filled again as soon as this returns."""
+        if count <= 0:
+            return
+        for code, buffer in self._buffers.items():
+            values = np.ctypeslib.as_array(buffer)[start : start + count].copy()
+            self._arrived.setdefault(code, []).append(values)
+
+    def poll(self) -> Block | None:
+        """Whatever has arrived since the last poll, or None if nothing has."""
+        if self.settings.blocks:
+            return self._poll_block()
+        # Taken and cleared in one step: it is set from the GUI thread.
+        wanted, self.wanted = self.wanted, None
+        if wanted is not None:
+            self._take_up(wanted)
+        self._arrived = {}
+        status = self._library.ps2000aGetStreamingLatestValues(self._handle, self._callback, None)
+        if status in GONE:
+            raise ScopeError("The scope stopped answering: it may have been unplugged.")
+        if status == BUFFER_STALL:
+            raise ScopeError(
+                "The driver's buffer filled before it was read, and it has stopped: the "
+                "computer did not keep up. Try a lower rate."
+            )
+        if not self._arrived:
+            return None
+        raw = {code: np.concatenate(parts) for code, parts in self._arrived.items()}
+        count = min(len(values) for values in raw.values())
+        data = self._in_units({code: values[:count] for code, values in raw.items()})
+        block = Block(self._sent, self._rate, data, after_pause=self._paused)
+        self._paused = False
+        self._sent += count
+        self._check_rate()
+        return block
+
+    def close(self) -> None:
+        """Stop and let go of the scope. Safe when it never opened."""
+        if self._handle > 0:
+            self._library.ps2000aStop(self._handle)
+            self._library.ps2000aCloseUnit(self._handle)
+        self.streaming = False
+        self._handle = 0
+        self._buffers = {}
+
+
+class PicoScope2000A(pico.PicoScope2000):
+    SETTINGS = SETTINGS
+    #: The ranges the scope said it has, once it has been opened.
+    _ranges: tuple[str, ...] = ()
+
+    def _load_library(self):
+        return load_library()
+
+    def _has(self) -> tuple[int, bool]:
+        """Channels, and whether there are logic inputs. Before a scope is
+        open, the most there can be: so that whatever was switched on the
+        last time is listed, whichever scope it was."""
+        if self._model is None:
+            return 4, True
+        return channels_of(self._model), has_digital(self._model)
+
+    def _make_settings(self, options):
+        return Settings(options, *self._has())
+
+    def _make_stream(self):
+        return Stream(self._library, self.settings)
+
+    def settings_offered(self) -> tuple[Setting, ...]:
+        if self._model is None:
+            return SETTINGS
+        return make_settings(*self._has(), self._ranges)
+
+    def _on_opened(self, model: str) -> None:
+        self._model = model or None
+        if self._stream is not None:
+            self._ranges = self._stream.ranges
+        # Read again, now that what the scope has is known.
+        self.settings = self._make_settings(self._options)
+        super()._on_opened(model)
+
+    def channels(self) -> list[Channel]:
+        settings = self.settings
+        return super().channels() + [
+            Channel(
+                digital_key(port, bit),
+                digital_key(port, bit),
+                DIGITAL,
+                "",
+                detail=f"above {settings.threshold[port]:g} V",
+            )
+            for port in settings.ports_on()
+            for bit in range(PORT_BITS)
+        ]

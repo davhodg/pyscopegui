@@ -242,10 +242,87 @@ _PROBE_TIP = (
 )
 
 
+def channel_settings(key: str, choices: tuple, enabled: bool = True) -> list[Setting]:
+    """What can be set on one channel: whether it is read, and its scale, coupling and probe."""
+    group = f"Channel {key}"
+    low = key.lower()
+    return [
+        Setting(
+            f"enabled_{low}",
+            "Enabled",
+            enabled,
+            group=group,
+            tip=f"Whether channel {key} is read at all.",
+        ),
+        Setting(
+            f"scale_{low}", "Scale", 1.0, choices=choices, group=group, live=True, tip=_SCALE_TIP
+        ),
+        Setting(f"coupling_{low}", "Coupling", "DC", choices=_COUPLING, group=group, live=True),
+        Setting(
+            f"probe_{low}",
+            "Probe",
+            1,
+            choices=tuple((probe, f"{probe}x") for probe in PROBES),
+            group=group,
+            live=True,
+            tip=_PROBE_TIP,
+        ),
+    ]
+
+
+def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
+    """What can be set on the signal generator, which goes up to this frequency."""
+    return [
+        Setting(
+            "gen_wave",
+            "Output",
+            "off",
+            choices=(
+                ("off", "Off"),
+                ("sine", "Sine"),
+                ("square", "Square"),
+                ("triangle", "Triangle"),
+            ),
+            tip="What the scope's signal generator output puts out. Off is zero volts.",
+            **_GENERATOR,
+        ),
+        Setting(
+            "gen_frequency",
+            "Frequency",
+            1000.0,
+            minimum=1.0,
+            maximum=most_hz,
+            unit="Hz",
+            **_GENERATOR,
+        ),
+        Setting(
+            "gen_amplitude",
+            "Peak to peak",
+            2.0,
+            maximum=2 * GENERATOR_VOLTS,
+            decimals=2,
+            step=0.1,
+            unit="V",
+            tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
+            **_GENERATOR,
+        ),
+        Setting(
+            "gen_offset",
+            "Offset",
+            0.0,
+            minimum=-GENERATOR_VOLTS,
+            maximum=GENERATOR_VOLTS,
+            decimals=2,
+            step=0.1,
+            unit="V",
+            **_GENERATOR,
+        ),
+    ]
+
+
 def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ...]:
     """The settings to offer for a scope with these ranges, and a generator or none."""
     choices = tuple((scale, scale_label(scale)) for scale in scales_for(ranges))
-    probes = tuple((probe, f"{probe}x") for probe in PROBES)
     made = [
         Setting(
             "mode",
@@ -293,98 +370,11 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
                 "faster. The Event Log says what rate a length came to."
             ),
         ),
-        Setting(
-            "enabled_a", "Enabled", True, group="Channel A", tip="Whether channel A is read at all."
-        ),
-        Setting(
-            "scale_a",
-            "Scale",
-            1.0,
-            choices=choices,
-            group="Channel A",
-            live=True,
-            tip=_SCALE_TIP,
-        ),
-        Setting("coupling_a", "Coupling", "DC", choices=_COUPLING, group="Channel A", live=True),
-        Setting(
-            "probe_a",
-            "Probe",
-            1,
-            choices=probes,
-            group="Channel A",
-            live=True,
-            tip=_PROBE_TIP,
-        ),
-        Setting(
-            "enabled_b", "Enabled", True, group="Channel B", tip="Whether channel B is read at all."
-        ),
-        Setting(
-            "scale_b",
-            "Scale",
-            1.0,
-            choices=choices,
-            group="Channel B",
-            live=True,
-            tip=_SCALE_TIP,
-        ),
-        Setting("coupling_b", "Coupling", "DC", choices=_COUPLING, group="Channel B", live=True),
-        Setting(
-            "probe_b",
-            "Probe",
-            1,
-            choices=probes,
-            group="Channel B",
-            live=True,
-            tip=_PROBE_TIP,
-        ),
+        *channel_settings("A", choices),
+        *channel_settings("B", choices),
     ]
     if generator:
-        made += [
-            Setting(
-                "gen_wave",
-                "Output",
-                "off",
-                choices=(
-                    ("off", "Off"),
-                    ("sine", "Sine"),
-                    ("square", "Square"),
-                    ("triangle", "Triangle"),
-                ),
-                tip="What the scope's signal generator output puts out. Off is zero volts.",
-                **_GENERATOR,
-            ),
-            Setting(
-                "gen_frequency",
-                "Frequency",
-                1000.0,
-                minimum=1.0,
-                maximum=GENERATOR_HZ,
-                unit="Hz",
-                **_GENERATOR,
-            ),
-            Setting(
-                "gen_amplitude",
-                "Peak to peak",
-                2.0,
-                maximum=2 * GENERATOR_VOLTS,
-                decimals=2,
-                step=0.1,
-                unit="V",
-                tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
-                **_GENERATOR,
-            ),
-            Setting(
-                "gen_offset",
-                "Offset",
-                0.0,
-                minimum=-GENERATOR_VOLTS,
-                maximum=GENERATOR_VOLTS,
-                decimals=2,
-                step=0.1,
-                unit="V",
-                **_GENERATOR,
-            ),
-        ]
+        made += generator_settings()
     return tuple(made)
 
 
@@ -419,8 +409,10 @@ class ScopeError(Exception):
     """Something the scope or its driver would not do, in words for the Event Log."""
 
 
-def library_candidates(platform: str | None = None, environ=None) -> list[Path]:
-    """Where Pico's installers put the library, most likely first."""
+def library_candidates(
+    platform: str | None = None, environ=None, name: str = "ps2000"
+) -> list[Path]:
+    """Where Pico's installers put the library of this name, most likely first."""
     platform = sys.platform if platform is None else platform
     environ = os.environ if environ is None else environ
     if platform == "win32":
@@ -429,38 +421,47 @@ def library_candidates(platform: str | None = None, environ=None) -> list[Path]:
             if not (base := environ.get(variable)):
                 continue
             pico = Path(base) / "Pico Technology"
-            found.append(pico / "SDK" / "lib" / "ps2000.dll")
+            found.append(pico / "SDK" / "lib" / f"{name}.dll")
             # Looked for beside Pico's own programs too, each in a folder of
             # its own: a copy there serves as well. Not promised anywhere,
             # since which of them carry one is Pico's business.
-            found.extend(sorted(pico.glob("*/ps2000.dll")))
+            found.extend(sorted(pico.glob(f"*/{name}.dll")))
         return found
-    return [Path("/opt/picoscope/lib/libps2000.so.2"), Path("/opt/picoscope/lib/libps2000.so")]
+    return [Path(f"/opt/picoscope/lib/lib{name}.so.2"), Path(f"/opt/picoscope/lib/lib{name}.so")]
 
 
-def find_library(platform: str | None = None, environ=None) -> Path | None:
+def find_library(
+    platform: str | None = None,
+    environ=None,
+    name: str = "ps2000",
+    variable: str = LIBRARY_ENV,
+) -> Path | None:
     environ = os.environ if environ is None else environ
-    if chosen := environ.get(LIBRARY_ENV):
+    if chosen := environ.get(variable):
         return Path(chosen)
-    for candidate in library_candidates(platform, environ):
+    for candidate in library_candidates(platform, environ, name):
         if candidate.is_file():
             return candidate
-    named = ctypes.util.find_library("ps2000")
+    named = ctypes.util.find_library(name)
     return Path(named) if named else None
 
 
 def load_library():
-    """Pico's library, with each function's arguments declared.
+    """Pico's ps2000 library, with each function's arguments declared."""
+    return load(find_library(), "ps2000", LIBRARY_ENV, PROTOTYPES)
+
+
+def load(path: Path | None, name: str, variable: str, prototypes: dict):
+    """One of Pico's libraries, from where it was found, with these functions declared.
 
     ImportError when it is not there, saying what to install: the same
     failure as a Python package that is missing, and reported the same way.
     """
-    path = find_library()
     if path is None:
         raise ImportError(
-            "Pico's ps2000 library was not found. It comes with the PicoSDK, from "
+            f"Pico's {name} library was not found. It comes with the PicoSDK, from "
             "picotech.com/downloads; or set "
-            f"{LIBRARY_ENV} to the full path of ps2000.dll (libps2000.so on Linux)."
+            f"{variable} to the full path of {name}.dll (lib{name}.so on Linux)."
         )
     try:
         if sys.platform == "win32":
@@ -471,9 +472,9 @@ def load_library():
         else:
             library = ctypes.CDLL(str(path))
     except OSError as exc:
-        raise ImportError(f"Pico's ps2000 library at {path} would not load: {exc}") from exc
-    for name, (returns, arguments) in PROTOTYPES.items():
-        function = getattr(library, name)
+        raise ImportError(f"Pico's {name} library at {path} would not load: {exc}") from exc
+    for function_name, (returns, arguments) in prototypes.items():
+        function = getattr(library, function_name)
         function.restype, function.argtypes = returns, arguments
     return library
 
@@ -558,6 +559,10 @@ class Settings:
     def scale(self, key: str) -> float:
         """Volts a division at the probe's tip, as the scope is really set."""
         return SCALES[self.ranges[key]] * self.probe[key]
+
+    def setup(self) -> tuple:
+        """What the scope's inputs are set to: what a change to has to be sent to it."""
+        return (self.ranges, self.dc)
 
     def keys(self) -> list[str]:
         """The channels switched on, in order."""
@@ -826,7 +831,7 @@ class Stream:
     def _take_up_between_blocks(self, wanted: Settings) -> None:
         before, self.settings = self.settings, wanted
         try:
-            if (wanted.ranges, wanted.dc) != (before.ranges, before.dc):
+            if wanted.setup() != before.setup():
                 self._set_channels()
         except ScopeError as exc:
             self.settings = replace_setup(wanted, before)
@@ -881,7 +886,7 @@ class Stream:
         self.stop()
         before, self.settings = self.settings, wanted
         try:
-            if (wanted.ranges, wanted.dc) != (before.ranges, before.dc):
+            if wanted.setup() != before.setup():
                 self._set_channels()
         except ScopeError as exc:
             # Back to what it was reading on, which is still what the plot says.
@@ -1121,10 +1126,12 @@ class PicoScope2000(Instrument):
 
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
-        self.settings = Settings(options)
+        #: The model the scope said it is, once it has been opened.
+        self._model: str | None = None
+        self.settings = self._make_settings(options)
         #: Loaded now rather than at Open, so that a missing library is said
         #: when the instrument is chosen and in the same words as any other.
-        self._library = load_library()
+        self._library = self._load_library()
         self._reader: _Reader | None = None
         self._stream: Stream | None = None
         self._options = dict(options) if isinstance(options, dict) else {}
@@ -1133,11 +1140,19 @@ class PicoScope2000(Instrument):
         #: Which run the blocks that count belong to. One more at each start,
         #: so that what a run sends after it was replaced is told apart.
         self._run = 0
-        #: The model the scope said it is, once it has been opened.
-        self._model: str | None = None
         self._trigger = Trigger()
         #: The rate the last block was taken at, which the scope chooses.
         self._block_rate = 0.0
+
+    # --- what a scope on another of Pico's drivers does its own way --------------------------
+    def _load_library(self):
+        return load_library()
+
+    def _make_settings(self, options):
+        return Settings(options)
+
+    def _make_stream(self):
+        return Stream(self._library, self.settings)
 
     def settings_offered(self) -> tuple[Setting, ...]:
         return settings_for(self._model)
@@ -1160,7 +1175,7 @@ class PicoScope2000(Instrument):
     def set(self, key: str, value: object) -> None:
         """Take up a setting: now if it is running, and at the next start if not."""
         self._options[key] = value
-        self.settings = Settings(self._options)
+        self.settings = self._make_settings(self._options)
         if self._running and self._stream is not None:
             # Handed to the thread that owns the scope, which takes it up
             # between two polls: the driver is not called from two threads at
@@ -1201,7 +1216,7 @@ class PicoScope2000(Instrument):
     def open(self) -> None:
         if self._reader is not None and self._reader.isRunning():
             return
-        self._stream = Stream(self._library, self.settings)
+        self._stream = self._make_stream()
         reader = _Reader(self._stream, self)
         reader.block.connect(self._on_block)
         reader.note.connect(self.note)

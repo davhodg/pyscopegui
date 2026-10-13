@@ -36,6 +36,12 @@ BACKENDS: dict[str, Backend] = {
         "PicoScope 2000 series (ps2000)",
         "Pico",
     ),
+    "picoscope2000a": Backend(
+        "pyscopegui.backends.picoscope2000a",
+        "PicoScope2000A",
+        "PicoScope 2000 series (ps2000a)",
+        "Pico 2000A",
+    ),
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
     ),

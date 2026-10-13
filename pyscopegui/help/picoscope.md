@@ -2,23 +2,27 @@
 
 # PicoScope 2000 series
 
-For the two-channel PicoScope 2000 Series scopes that use Pico's older `ps2000` driver: the
-2202, 2203, 2204, 2204A, 2205 and 2205A.
+Pico has made two ranges of scope called the 2000 Series, with a driver each, and the
+instrument list has an entry for each driver. The model number alone does not say which a
+scope is on: a 2205A is on `ps2000` and a 2205A MSO is on `ps2000a`.
 
-The rest of the 2000 Series use a different driver, `ps2000a`, and are **not supported
-yet**. The model number alone does not say which: a 2205A is on `ps2000` and a 2205A MSO is
-not.
+| Choose | For | Models |
+|--------|-----|--------|
+| **PicoScope 2000 series (ps2000)** | The older two-channel scopes | 2202, 2203, 2204, 2204A, 2205, 2205A |
+| **PicoScope 2000 series (ps2000a)** | The newer two-channel scopes | 2206, 2206A, 2206B, 2207, 2207A, 2207B, 2208, 2208A, 2208B |
+| | Those with sixteen logic inputs as well | 2205 MSO, 2205A MSO, 2206B MSO, 2207B MSO, 2208B MSO |
+| | The four-channel scopes | 2405A, 2406B, 2407B, 2408B |
 
-| Not supported yet | Models |
-|-------------------|--------|
-| 2-channel | 2206, 2206A, 2206B, 2207, 2207A, 2207B, 2208, 2208A, 2208B |
-| 2-channel with logic inputs | 2205 MSO, 2205A MSO, 2206B MSO, 2207B MSO, 2208B MSO |
-| 4-channel | 2405A, 2406B, 2407B, 2408B |
+Choosing the wrong one does no harm: it says that no PicoScope was found.
 
 The single-channel 2104 and 2105 are on the `ps2000` driver but cannot stream as this back
-end needs, and are not supported either.
+end needs, and are not supported.
 
-Once a scope is open pyscopegui knows which model it is, and offers what that model has:
+Nearly everything on this page is the same for both. Where the newer scopes differ is
+gathered under *The newer scopes, on ps2000a*, below.
+
+Once a scope is open pyscopegui knows which model it is, and offers what that model has. On
+the older driver:
 
 | Model | Ranges it has | Signal generator |
 |-------|---------------|------------------|
@@ -69,7 +73,8 @@ To use a copy of the library somewhere else, set the environment variable
 
 ## Running it
 
-Choose **PicoScope 2000 series (ps2000)** and press **Open**. Opening takes a few seconds, and
+Choose **PicoScope 2000 series (ps2000)**, or **(ps2000a)** for the newer scopes, and press
+**Open**. Opening takes a few seconds, and
 Pico's driver shows a progress window of its own while it does. The
 [Event Log](event-log.md) then names the scope and its serial number.
 
@@ -113,8 +118,8 @@ the block's length; **Single** takes one block and stops. With no trigger chosen
 taken one after another.
 
 Two things are different from streaming. The plot shows the whole block, so the box beside
-**Time** has no say in how much is drawn. And only channel A or B can be the trigger, since
-it is the scope that is triggering.
+**Time** has no say in how much is drawn. And only a channel of this scope can be the
+trigger, since it is the scope that is triggering.
 
 ## Settings
 
@@ -128,7 +133,7 @@ In the [Instrument](instruments.md) pane.
 | Scale | Volts a division, with the probe counted: see above |
 | Coupling | DC, or AC to remove a steady voltage and look at what is on top of it |
 | Probe | What the probe divides by: 1x, 10x or 100x |
-| Enabled | Whether the channel is read at all. One of the two has to be |
+| Enabled | Whether the channel is read at all. Something has to be |
 
 Choose the smallest scale the signal fits in. The scope's converter has 8 bits, so a ±1 V
 signal at 2 V/div, which is the ±10 V range, is measured in about twenty-six steps and
@@ -178,6 +183,85 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   its memory holds at its slowest. Streaming reads for longer.
 - *The scope stopped answering* --- while a block was being waited for. It may have been
   unplugged.
+
+## The newer scopes, on ps2000a
+
+Choose **PicoScope 2000 series (ps2000a)**. The library is `ps2000a`, which the same PicoSDK
+installs; to use a copy somewhere else, set `PYSCOPEGUI_PS2000A` to its full path.
+
+The scope is asked what it has when it is opened, and that is what the Instrument pane then
+offers: the ranges it has, channels C and D on a four-channel scope, and the logic inputs
+on a mixed-signal one. Before a scope has been opened the pane offers two channels and the
+generator, which every one of them has.
+
+| | Older scopes, on `ps2000` | Newer scopes, on `ps2000a` |
+|---|---|---|
+| Channels | A and B | A and B; C and D too on a 24xx, off until ticked |
+| Logic inputs | None | D0 to D15 on an MSO |
+| Streaming | To 1 MS/s on each channel | To 31.25 MS/s: see below |
+| Blocks | To 100 MS/s, a few thousand samples | To the scope's fastest -- 500 MS/s or 1 GS/s -- and up to a million samples |
+| Trigger for blocks | A or B | Any channel that is on, or any logic input |
+| Signal generator | To 100 kHz | To 1 MHz |
+
+### Logic inputs
+
+A mixed-signal scope's sixteen logic inputs are in two ports of eight, and a port is read
+whole or not at all. Under **Logic inputs** in the Instrument pane:
+
+| Setting | What it does |
+|---------|--------------|
+| D0 to D7, D8 to D15 | Whether that port's eight inputs are read. Off to begin with |
+| Threshold | The voltage above which an input reads 1, from -5 V to 5 V. One for each port |
+
+1.5 V suits 5 V and 3.3 V logic; half the supply voltage suits anything else. Each input is
+then a channel on the plot like any other, drawn as a logic trace, and can be the trigger:
+when streaming pyscopegui finds its edge, and when reading blocks the scope does.
+
+A threshold is taken up as the scope runs. Switching a port on or off changes what the
+channels are, so it starts the run again.
+
+### Streaming faster
+
+**Sample rate** goes on past 1 MS/s: 2, 5, 10 and 20 MS/s, and 31.25 MS/s, which is a
+sample every 32 ns. Whether a rate is kept depends on the scope, on USB and on the computer,
+and on how much is switched on -- the fastest rates are for one channel. Nothing is hidden
+when it is not kept:
+
+- The scope may give the nearest rate it has, which the Event Log says, and time on the
+  plot is counted at that.
+- If samples arrive slower than asked for, the Event Log says so after five seconds.
+- If the driver's buffer fills because it was not read in time, the run stops and says so.
+
+What is kept to go back over is held in memory, four bytes a sample: at 20 MS/s that is
+80 MB for every second of one channel. Choose a shorter history under *Tools > Settings >
+History* before streaming fast, or pyscopegui says that there is not the memory for it.
+
+For a short stretch of something fast, a block is the better tool: it is taken at the
+scope's full rate, and nothing has to keep up.
+
+### Blocks
+
+These scopes have far more memory than the older ones -- tens of thousands of samples on the
+smallest, tens of millions on the largest -- so a block is not the few thousand samples it
+is on a 2204A. pyscopegui reads **up to a million samples a block**, and has the scope
+sample as fast as it can for the block length within that: a 1 ms block on a 2206B is
+250,000 samples at 250 MS/s with both channels on.
+
+The fastest rate needs the fewest inputs on. A scope that samples at 1 GS/s does so with
+one channel; with two it is half that, and the logic inputs count as well.
+
+### What else the Event Log may say
+
+- *Pico's ps2000a library was not found* --- install the PicoSDK, as above.
+- *Every channel is switched off* --- tick **Enabled** for a channel, or a port of logic
+  inputs.
+- *The scope is streaming at ... the nearest it has to the ... asked for* --- the driver
+  rounded the rate, and time on the plot is counted at the rate it gave.
+- *The driver's buffer filled before it was read, and it has stopped* --- the computer did
+  not keep up. Choose a lower rate.
+- A message that ends *driver status 0x...* --- the driver refused something for a reason
+  pyscopegui has no words for. Pico's `PicoStatus.h`, in the SDK, lists what each number
+  means; say the number in a bug report.
 
 ## Grounds
 

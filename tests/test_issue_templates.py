@@ -47,9 +47,11 @@ def test_the_menu_entries_the_forms_name_exist(window):
 
 
 def test_the_library_variable_the_security_policy_names_is_the_real_one():
-    from pyscopegui.backends import picoscope2000
+    from pyscopegui.backends import picoscope2000, picoscope2000a
 
-    assert picoscope2000.LIBRARY_ENV in (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    policy = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert f"`{picoscope2000.LIBRARY_ENV}`" in policy
+    assert f"`{picoscope2000a.LIBRARY_ENV}`" in policy
 
 
 def test_the_launchers_the_bug_form_names_exist():
@@ -75,8 +77,8 @@ def test_every_instrument_can_be_named_in_a_bug_report():
     """The form's list has a way to say each one, or to say it is another."""
     form = read("bug_report.yml")
     assert "Demo signals" in form and "ps2000" in form and "Another" in form
-    assert "DS1000Z" in form
-    assert len(backends.names()) == 3, "a new instrument wants an entry in bug_report.yml"
+    assert "DS1000Z" in form and "ps2000a" in form
+    assert len(backends.names()) == 4, "a new instrument wants an entry in bug_report.yml"
 
 
 def test_questions_are_sent_to_discussions():
