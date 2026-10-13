@@ -463,8 +463,7 @@ def test_the_channels_say_how_each_is_set(app):
 def scope_window(window, port, monkeypatch):
     monkeypatch.setattr(tek, "POLL_S", 0.01)
     window.ctx.settings.set("instrument.tektronix2000", {"port": "COM9", "enabled_2": True})
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("tektronix2000"))
+    window.choose("tektronix2000")
     yield window
     window.close_instrument()
 
@@ -472,7 +471,7 @@ def scope_window(window, port, monkeypatch):
 def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, port, app):
     window = scope_window
     assert window.instrument_view.controls["port"].currentText() == "COM9"
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "TPS 2014" in window.log.toPlainText()
     box = window.trigger_bar.source
@@ -491,7 +490,7 @@ def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, port, 
 
 def test_auto_with_nothing_to_trigger_on_says_so(scope_window, port, app):
     window = scope_window
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     box = window.trigger_bar.source
     box.setCurrentIndex(box.findData("CH1"))
     box.activated.emit(box.currentIndex())
@@ -514,7 +513,7 @@ def test_a_two_channel_scope_is_offered_two_once_it_is_open(scope_window, port, 
     window = scope_window
     port.identity = "TEKTRONIX,TPS 2012,0,CF:91.1CT FV:v10.21"
     assert "scale_4" in window.instrument_view.controls, "before it is known which it is"
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "scale_4" not in window.instrument_view.controls
     assert "scale_2" in window.instrument_view.controls
@@ -532,11 +531,10 @@ def test_what_only_matters_when_setting_up_is_greyed_out_as_it_is(scope_window, 
 
 
 def test_no_port_says_so_and_goes_back_to_closed(window, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("tektronix2000"))
-    window.instrument_bar.open.click()
+    window.choose("tektronix2000")
+    window.instrument_view.open.click()
     wait_for(app, lambda: "No port to open" in window.log.toPlainText())
-    wait_for(app, lambda: window.instrument_bar.open.text() == "Open")
+    wait_for(app, lambda: window.instrument_view.open.text() == "Open")
     assert not window.instrument.is_open
 
 
@@ -561,8 +559,7 @@ def test_the_ports_there_are_now_are_listed_by_name(monkeypatch):
 
 
 def test_the_port_box_is_a_list_with_a_hint_when_empty(window, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("tektronix2000"))
+    window.choose("tektronix2000")
     picker = window.instrument_view.controls["port"]
     assert picker.lineEdit().placeholderText() == "Choose a port"
     picker.fill()  # whatever ports this machine has, after the empty choice
@@ -687,7 +684,7 @@ def test_read_as_it_is_there_is_nothing_to_put_back(port):
 def as_is_window(scope_window, port, app):
     window = scope_window
     port.state.update({"SELECT:CH1": "ON", "SELECT:CH2": "ON"})
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     window._on_setting("read", "asis", False)
     return window
@@ -696,7 +693,7 @@ def as_is_window(scope_window, port, app):
 def test_read_is_offered_only_for_a_scope_read_as_it_is(scope_window, app):
     window = scope_window
     assert not window.instrument_bar.reads(), "nothing is known of it before it is opened"
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert not window.instrument_bar.reads(), "which is set up from here, and takes sweeps"
     window._on_setting("read", "asis", False)

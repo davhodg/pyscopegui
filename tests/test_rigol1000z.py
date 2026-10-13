@@ -602,15 +602,14 @@ def test_a_scope_unplugged_from_usb_is_said_in_words(visa):
 
 
 def test_the_window_greys_out_the_address_for_usb_and_opens_the_scope(window, visa, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     controls = window.instrument_view.controls
     assert controls["address"].isEnabled() and not controls["usb"].isEnabled()
     connection = controls["connection"]
     connection.setCurrentIndex(connection.findData("usb"))
     connection.activated.emit(connection.currentIndex())
     assert not controls["address"].isEnabled() and controls["usb"].isEnabled()
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "DS1054Z" in window.log.toPlainText()
     window.close_instrument()
@@ -628,8 +627,7 @@ def wait_for(app, done, seconds=5.0):
 @pytest.fixture
 def scope_window(window, fake):
     window.ctx.settings.set("instrument.rigol1000z", {"address": fake.address, "enabled_2": True})
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     yield window
     window.close_instrument()
 
@@ -637,7 +635,7 @@ def scope_window(window, fake):
 def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, fake, app):
     window = scope_window
     assert window.instrument_view.controls["address"].text() == fake.address
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "DS1054Z" in window.log.toPlainText()
     box = window.trigger_bar.source
@@ -656,7 +654,7 @@ def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, fake, 
 def test_auto_with_nothing_to_trigger_on_says_so(scope_window, fake, app):
     window = scope_window
     fake.triggers = False
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     box = window.trigger_bar.source
     box.setCurrentIndex(box.findData("CH1"))
     box.activated.emit(box.currentIndex())
@@ -675,17 +673,15 @@ def test_single_takes_one_sweep_and_stops(scope_window, fake, app):
 
 
 def test_no_address_says_so_and_goes_back_to_closed(window, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
-    window.instrument_bar.open.click()
+    window.choose("rigol1000z")
+    window.instrument_view.open.click()
     wait_for(app, lambda: "No address" in window.log.toPlainText())
-    wait_for(app, lambda: window.instrument_bar.instrument.isEnabled())
+    wait_for(app, lambda: window.instrument_view.open.text() == "Open")
     assert not window.instrument.is_open
 
 
 def test_an_address_typed_in_is_saved(window, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     line = window.instrument_view.controls["address"]
     line.setText(" 192.168.1.50 ")
     line.editingFinished.emit()
@@ -695,13 +691,12 @@ def test_an_address_typed_in_is_saved(window, app):
 def test_an_address_typed_and_not_finished_with_is_amber_and_open_takes_it_up(window, fake, app):
     from pyscopegui.ui.instrument_view import PENDING
 
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     line = window.instrument_view.controls["address"]
     line.setText(fake.address)
     assert line.styleSheet() == PENDING
     assert "address" not in (window.ctx.settings.get("instrument.rigol1000z") or {})
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     assert line.styleSheet() == ""
     wait_for(app, lambda: window.instrument.is_open)
     assert window.ctx.settings.get("instrument.rigol1000z")["address"] == fake.address
@@ -711,8 +706,7 @@ def test_an_address_typed_and_not_finished_with_is_amber_and_open_takes_it_up(wi
 def test_typing_back_what_was_there_is_not_waiting(window, app):
     from pyscopegui.ui.instrument_view import PENDING
 
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     line = window.instrument_view.controls["address"]
     line.setText("10.0.0.1")
     assert line.styleSheet() == PENDING
@@ -727,8 +721,7 @@ def test_the_usb_box_lists_the_scopes_plugged_in_when_it_is_opened(window, visa,
         "USB0::0x1AB1::0x04CE::DS1ZA111::INSTR",
         "USB0::0x1AB1::0x04CE::DS1ZA222::INSTR",
     )
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     picker = window.instrument_view.controls["usb"]
     assert picker.lineEdit().placeholderText() == "First Rigol found"
     assert picker.count() == 0, "nothing is asked of the library until the list is opened"
@@ -747,8 +740,7 @@ def test_the_usb_box_lists_the_scopes_plugged_in_when_it_is_opened(window, visa,
 
 
 def test_a_serial_number_can_still_be_typed(window, visa, app):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("rigol1000z"))
+    window.choose("rigol1000z")
     picker = window.instrument_view.controls["usb"]
     picker.setEditText("ds1za0")
     window.instrument_view.commit()

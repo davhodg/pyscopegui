@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""The Instrument pane: what the instrument chosen lets you set.
+"""The Instrument pane: the instruments in use, and what the one chosen lets you set.
 
 Built from the back end's own list of settings rather than written for each
 instrument, so a new one gets its controls by describing them and every
@@ -13,9 +13,12 @@ another is a pane to scroll through. So they are shown one at a time, under
 a row of tabs. How every channel is set is read in the plot's channel list,
 all at once; clicking one there brings its settings up here.
 
-With more than one instrument in use there is a tab for each across the top,
-so that going from one scope's settings to another's is one click, here,
-where they are changed.
+There is a tab for each instrument across the top: the one chosen is the one
+the settings, Open and the trigger toolbar are about, and the cross on a tab
+removes its instrument. Open is under Connection, below whatever says how
+the instrument is reached, since that is what it uses; while the instrument
+is open the same button closes it, and what says how it is reached is greyed
+out until it does.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QPushButton,
     QStackedWidget,
     QTabBar,
     QVBoxLayout,
@@ -46,6 +50,18 @@ PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
 RESTARTS = "A change starts a run again, from an empty plot."
 #: What a group's heading starts with when it is one channel's settings.
 CHANNEL = "Channel "
+#: The group that says how an instrument is reached, where Open is.
+CONNECTION = "Connection"
+OPEN_TIP = "Connect to this instrument, ready to be run."
+CLOSE_TIP = (
+    "Stop, and let go of this instrument, so that another program can use it.\n"
+    "What says how it is reached can be changed once it is closed."
+)
+#: On an instrument's tab while it is open: a dot, since a pane is narrow
+#: and a word on every tab would have three of them scrolling.
+OPEN_MARK = " \u25cf"
+OPEN_SAID, CLOSED_SAID = "Open.", "Not open."
+REMOVE_TIP = "The cross closes this instrument and takes it out of the pane."
 
 
 class Picker(QComboBox):
@@ -89,22 +105,32 @@ class InstrumentView(QWidget):
     changed = Signal(str, object, bool)
     #: Another instrument's tab was pressed: its name.
     instrument_chosen = Signal(str)
+    #: The cross on an instrument's tab was pressed: its name.
+    instrument_removed = Signal(str)
+    #: Open, or Close, was pressed for the instrument chosen.
+    open_requested = Signal()
+    close_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)
-        #: One tab for each instrument in use, when there is more than one.
+        #: One tab for each instrument in use.
         self.instruments = QTabBar()
         self.instruments.setExpanding(False)
         self.instruments.setDrawBase(False)
         self.instruments.setToolTip(
             "The instruments in use. The settings below, Open and the trigger\n"
-            "toolbar are about the one chosen here."
+            "toolbar are about the one chosen here. Add instrument, on the\n"
+            "toolbar, puts another here."
         )
-        self.instruments.hide()
         self.instruments.currentChanged.connect(self._on_instrument)
+        self.instruments.tabCloseRequested.connect(self._on_removed)
         outer.addWidget(self.instruments)
+        #: Opens the instrument chosen, and closes it while it is open. Kept
+        #: when the settings are shown again, and put back under Connection.
+        self.open = QPushButton()
+        self.open.clicked.connect(self._on_open_pressed)
         inner = QWidget()
         outer.addWidget(inner, 1)
         #: What is shown of the instrument chosen, rebuilt when another is.
@@ -126,26 +152,49 @@ class InstrumentView(QWidget):
         self.changed.connect(self._show_needed)
         self.show_settings((), {})
 
-    def set_instruments(self, listed: list[tuple[str, str]], chosen: str) -> None:
-        """Offer these instruments as tabs -- (name, what to call it) -- with
-        this one chosen. Fewer than two is nothing to choose between."""
+    def set_instruments(self, listed: list[tuple[str, str, str, bool]], chosen: str) -> None:
+        """Show these instruments as tabs -- (name, what to call it, what it is
+        in full, whether it is open) -- with this one chosen. The last one
+        there is cannot be removed: there is always one to be about."""
         bar = self.instruments
         bar.blockSignals(True)
         while bar.count():
             bar.removeTab(0)
-        for name, title in listed:
-            bar.setTabData(bar.addTab(title), name)
+        removable = len(listed) > 1
+        bar.setTabsClosable(removable)
+        for name, short, title, is_open in listed:
+            index = bar.addTab(short + (OPEN_MARK if is_open else ""))
+            bar.setTabData(index, name)
+            tip = f"{title}\n{OPEN_SAID if is_open else CLOSED_SAID}"
+            bar.setTabToolTip(index, f"{tip}\n{REMOVE_TIP}" if removable else tip)
             if name == chosen:
-                bar.setCurrentIndex(bar.count() - 1)
+                bar.setCurrentIndex(index)
         bar.blockSignals(False)
-        bar.setVisible(len(listed) > 1)
+
+    def listed(self) -> list[str]:
+        """The instruments there are tabs for, by name, in order."""
+        return [self.instruments.tabData(i) for i in range(self.instruments.count())]
 
     def _on_instrument(self, index: int) -> None:
         if (name := self.instruments.tabData(index)) is not None:
             self.instrument_chosen.emit(name)
 
+    def _on_removed(self, index: int) -> None:
+        if (name := self.instruments.tabData(index)) is not None:
+            self.instrument_removed.emit(name)
+
+    def _on_open_pressed(self) -> None:
+        (self.close_requested if self._open else self.open_requested).emit()
+
+    def _show_open(self) -> None:
+        self.open.setText("Close" if self._open else "Open")
+        self.open.setToolTip(CLOSE_TIP if self._open else OPEN_TIP)
+
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
         """Show these settings, at the values saved for them or their defaults."""
+        # Out of what is about to be thrown away: it is put back below.
+        self.open.setParent(self)
+        self.open.hide()
         while (item := self._layout.takeAt(0)) is not None:
             if (widget := item.widget()) is not None:
                 # Out of sight now: it is not deleted until the event loop gets to it.
@@ -154,11 +203,14 @@ class InstrumentView(QWidget):
         self.controls = {}
         self._settings, self._forms = settings, {}
         self.tabs, self._pages, self._tab_of = None, None, {}
+        forms = self._forms
+        # First, whatever the instrument: it is connected to before it is set up.
+        forms[CONNECTION] = self._form(CONNECTION)
         if not settings:
+            self._put_open()
             self._layout.addWidget(QLabel(NOTHING))
             self._layout.addStretch()
             return
-        forms = self._forms
         for setting in settings:
             if setting.group not in forms:
                 forms[setting.group] = self._form(setting.group)
@@ -172,9 +224,16 @@ class InstrumentView(QWidget):
                 forms[setting.group].addRow(control)  # it carries its own label
             else:
                 forms[setting.group].addRow(setting.label + ":", control)
+        self._put_open()
         self._layout.addStretch()
         self.select_group(self._group)
         self._show_needed()
+
+    def _put_open(self) -> None:
+        """Open, under whatever says how the instrument is reached."""
+        self._forms[CONNECTION].addRow(self.open)
+        self.open.show()
+        self._show_open()
 
     def _form(self, group: str) -> QFormLayout:
         """Somewhere to list a group's settings: a box of its own, or for a
@@ -259,6 +318,7 @@ class InstrumentView(QWidget):
         if is_open != self._open:
             self._open = is_open
             self._show_needed()
+        self._show_open()
 
     def _show_needed(self, *_changed) -> None:
         """Grey out what has no say: while another setting is as it is, or

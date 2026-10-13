@@ -39,6 +39,10 @@ Each instrument's settings are one entry in `settings.json`, named for the instr
 
 What is left out is the default.
 
+A second instrument of the same kind is named with a number, and has an entry of its own:
+`"instrument.rigol1000z#2"`. Which instruments are in the pane is the list
+`"instruments.added"`, and the one chosen is `"instrument.name"`.
+
 ## What is not kept
 
 The samples. What is on the plot is held in memory while pyscopegui is open, and is gone

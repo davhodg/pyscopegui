@@ -48,7 +48,7 @@ sudo apt install libxcb-cursor0
 ## What it does
 
 - **Channels and Plot**: analog channels on one plot and digital channels in lanes under it, on the same time axis. Drag or zoom either and both move.
-- **Several instruments at once**: open one, choose another and open that too. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
+- **Several instruments at once**, and two of the same kind: **Add instrument** puts each in the Instrument pane with a tab of its own, where it is opened and set up. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
 - **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
 - **Export to CSV**: every sample of what the plot shows, with time measured from the trigger.

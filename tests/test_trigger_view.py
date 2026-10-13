@@ -34,14 +34,14 @@ def test_the_trigger_starts_as_none_with_nothing_to_set(window):
 
 
 def test_the_sources_are_the_channels_of_the_instrument_that_is_open(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     box = window.trigger_bar.source
     listed = [box.itemData(i) for i in range(box.count())]
     assert listed == [None, *(c.key for c in demo.CHANNELS)]
 
 
 def test_a_level_is_offered_for_an_analog_source_and_not_for_a_digital_one(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     assert window.trigger_bar.level.isEnabled() and window.trigger_bar.edge.isEnabled()
     choose_source(window, "D0")
@@ -49,7 +49,7 @@ def test_a_level_is_offered_for_an_analog_source_and_not_for_a_digital_one(windo
 
 
 def test_what_the_toolbar_says_is_what_is_waited_for(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     bar = window.trigger_bar
     bar.level.setValue(0.75)
@@ -62,7 +62,7 @@ def test_what_the_toolbar_says_is_what_is_waited_for(window):
 
 
 def test_the_trigger_is_remembered(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.trigger_bar.level.setValue(1.25)
     window.trigger_bar.position.setValue(30)
@@ -71,7 +71,7 @@ def test_the_trigger_is_remembered(window):
     try:
         assert again.trigger_bar.level.value() == 1.25
         assert again.trigger_bar.position.value() == 30
-        again.instrument_bar.open.click()
+        again.instrument_view.open.click()
         assert again.trigger_bar.source.currentData() == "A"
         assert again.acquisition.source == "A"
     finally:
@@ -82,12 +82,11 @@ def test_a_source_the_next_instrument_does_not_have_is_none(window, monkeypatch)
     from tests.test_instrument_view import FakeScope
 
     FakeScope(monkeypatch)
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "D2")
     window.close_instrument()
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
-    window.instrument_bar.open.click()
+    window.choose("picoscope2000")
+    window.instrument_view.open.click()
     assert window.trigger_bar.source.currentData() is None
     assert not window.acquisition.triggered()
     window.close_instrument()
@@ -139,7 +138,7 @@ def test_each_new_trigger_is_drawn_in_the_same_place(window):
 
 
 def test_the_level_is_drawn_on_the_plot_where_the_toolbar_says(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     assert not window.scope.level_line.isVisible()
     choose_source(window, "A")
     window.trigger_bar.level.setValue(1.5)
@@ -184,7 +183,7 @@ def test_auto_shows_what_there_is_when_no_trigger_comes(window):
 
 
 def test_single_catches_one_trigger_stops_and_keeps_it_on_screen(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.scope.window_s.setValue(0.04)
     window.instrument_bar.modes["single"].click()
@@ -202,7 +201,7 @@ def test_single_catches_one_trigger_stops_and_keeps_it_on_screen(window):
 
 
 def test_single_again_catches_another(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.scope.window_s.setValue(0.04)
     window.instrument_bar.modes["single"].click()

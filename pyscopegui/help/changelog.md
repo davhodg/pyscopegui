@@ -27,6 +27,10 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **Add instrument** takes the place of the list of instruments on the toolbar. Each
+  instrument added has a tab in the Instrument pane, where **Open** now is, under
+  **Connection**; the cross on a tab removes it.
+- **Two instruments of the same kind** can be in use at once, each with its own settings.
 - The launchers no longer ask about a Start menu entry: the first start says in the Event
   Log where a shortcut is made.
 - The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not

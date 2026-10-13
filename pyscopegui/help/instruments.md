@@ -2,15 +2,30 @@
 
 # Instrument
 
-## Choosing, opening and running
+## Adding, opening and running
 
-The toolbar has the list of instruments and **Open**, and beside them, in a frame, everything
-to do with triggering: the four run buttons a scope has, and the trigger.
+**Add instrument**, on the toolbar, lists the kinds of instrument there are. Choosing one
+puts it in the Instrument pane, where it gets a tab of its own, and that is where it is
+opened, set up and removed. Beside **Add instrument**, in a frame, is everything to do with
+triggering: the four run buttons a scope has, and the trigger.
 
-**Open** connects to the instrument chosen and leaves it stopped. For a scope this is the
-slow part, done once. The button then reads **Close**, which stops the instrument and lets
-it go, so that another program can have it. Pressing one of the run buttons opens it for
-you if it is not open.
+| To | Do this |
+|----|---------|
+| Add an instrument | **Add instrument**, and pick its kind |
+| Choose which one the pane and the trigger are about | Click its tab |
+| Connect to it | **Open**, under **Connection** in the pane |
+| Let it go, so that another program can have it | **Close**, which is what the same button reads while it is open |
+| Take it out of the pane | The cross on its tab, which closes it first |
+
+**Open** is under **Connection**, below whatever says how the instrument is reached -- an
+address, a port -- because that is what it uses. It connects and leaves the instrument
+stopped: for a scope this is the slow part, done once. While the instrument is open the
+button reads **Close**, and a dot on the tab says it is open. Pressing one of the run
+buttons opens the instrument chosen for you if it is not open.
+
+There is always at least one instrument in the pane, so the last one has no cross. An
+instrument's settings are kept when it is removed, and are there again when one of its kind
+is added.
 
 Whichever of the four is pressed in is what the instrument is doing:
 
@@ -23,7 +38,7 @@ Whichever of the four is pressed in is what the instrument is doing:
 
 An instrument that is read as it is, with nothing on it changed -- a
 [Tektronix](tektronix.md) can be -- has no trigger here to wait for. It has a button of its
-own beside **Open**, **Read**, which takes what it shows once; **Auto** keeps reading it,
+own on the toolbar, **Read**, which takes what it shows once; **Auto** keeps reading it,
 and **Single** and **Normal** leave it alone.
 
 With no trigger chosen there is nothing to wait for: **Auto** and **Normal** both follow the
@@ -33,7 +48,7 @@ Going from **Stop** to one of the others starts from an empty plot, with time co
 zero. Going between **Normal** and **Auto** does not: the run carries on.
 
 The status bar says which instrument, what it is doing, its sample rate and how many seconds
-are held. The instrument chosen is remembered.
+are held. The instruments in the pane, and the one chosen, are remembered.
 
 | Instrument | What it is |
 |------------|------------|
@@ -44,14 +59,18 @@ are held. The instrument chosen is remembered.
 
 ## Several instruments at once
 
-Open one instrument, choose another in the list, and open that too. The list says which
-are open. The channels of all of them are on the one plot, each named for whose it is:
-*Pico A*, *Rigol CH1*.
+Add one instrument and open it, add another and open that too. The channels of all of them
+are on the one plot, each named for whose it is: *Pico A*, *Rigol CH1*.
 
-The list chooses which instrument **Open**, the Instrument pane and the trigger toolbar are
-about. So do the tabs across the top of the Instrument pane, which has one for each
-instrument in use -- *Pico*, *Rigol* -- once there is more than one. The four run buttons are for every instrument that is open: **Auto** runs them all,
-**Stop** stops them all, and **Single** stops once each has its capture.
+The tab chosen in the Instrument pane -- *Pico*, *Rigol* -- says which instrument the
+settings, **Open** and the trigger toolbar are about. The four run buttons are for every
+instrument that is open: **Auto** runs them all, **Stop** stops them all, and **Single**
+stops once each has its capture.
+
+**Two of the same kind** are added the same way: choose the kind again under **Add
+instrument**. The second is numbered -- *Rigol 2* -- and is an instrument in its own right,
+with its own settings, its own address or port, and its own trigger. Two scopes of one
+model on the bench are two tabs.
 
 **Each instrument keeps time for itself**, and nothing says when one started by another's
 clock. What puts them on one time axis is the trigger: each has a trigger of its own, on a
@@ -75,7 +94,7 @@ instrument is opened or run.
 
 The frame on the toolbar holds the trigger. To the left of its line is what is the same for
 every instrument that is open: the four run buttons, and **Position**. To the right is the
-trigger of the instrument chosen in the list. With several open
+trigger of the instrument chosen in the Instrument pane. With several open
 it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge and level.
 **Position** is the same for all of them, since they share the plot.
 
@@ -105,8 +124,9 @@ are remembered.
 
 ## The Instrument pane
 
-The pane shows what the instrument chosen lets you set, and nothing when it has nothing: the
-demo has no settings.
+Across the top is a tab for each instrument. Under it, **Connection** has whatever says how
+the instrument chosen is reached, and **Open**; the rest is what that instrument lets you
+set, which for the demo is nothing.
 
 A scope's channels all have the same settings, so they are shown one channel at a time,
 under a row of tabs: **1 2 3 4**. How every channel is set can be read at once in the

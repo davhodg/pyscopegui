@@ -96,8 +96,7 @@ def scope_window(window, monkeypatch):
     window.library = FakeLibrary()
     monkeypatch.setattr(pico, "load_library", lambda: window.library)
     window.ctx.settings.set("instrument.picoscope2000", {"mode": "block"})
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
+    window.choose("picoscope2000")
     yield window
     window.close_instrument()
 
@@ -118,7 +117,7 @@ def choose_source(window, key):
 
 def test_a_block_is_drawn_whole_with_nought_at_the_scopes_trigger(scope_window, app):
     window = scope_window
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.trigger_bar.position.setValue(25)
     window.set_mode("normal")
@@ -140,7 +139,7 @@ def test_a_block_is_drawn_whole_with_nought_at_the_scopes_trigger(scope_window, 
 
 def test_what_the_trigger_toolbar_says_is_what_the_scope_is_told(scope_window, app):
     window = scope_window
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "B")
     window.trigger_bar.level.setValue(2.5)
     window.set_mode("normal")
@@ -151,7 +150,7 @@ def test_what_the_trigger_toolbar_says_is_what_the_scope_is_told(scope_window, a
 def test_auto_tells_the_scope_to_give_up_waiting_and_says_when_it_did(scope_window, app):
     window = scope_window
     window.library.block_wave = lambda n: np.full(n, -16000)  # never near the level
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.set_mode("auto")
     wait_for(app, lambda: window.acquisition.sweep is not None)
@@ -162,7 +161,7 @@ def test_auto_tells_the_scope_to_give_up_waiting_and_says_when_it_did(scope_wind
 
 def test_a_triggered_block_says_so(scope_window, app):
     window = scope_window
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.set_mode("normal")
     wait_for(app, lambda: window.acquisition.sweep is not None)
@@ -172,7 +171,7 @@ def test_a_triggered_block_says_so(scope_window, app):
 
 def test_single_takes_one_block_and_stops(scope_window, app):
     window = scope_window
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     window.instrument_bar.modes["single"].click()
     wait_for(app, lambda: not window.instrument.running)
@@ -226,10 +225,9 @@ def test_the_settings_offered_follow_the_model_once_it_is_open(window, monkeypat
 
     library = FakeLibrary(info={pico.INFO_VARIANT: b"2202"})
     monkeypatch.setattr(pico, "load_library", lambda: library)
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
+    window.choose("picoscope2000")
     assert "gen_wave" in window.instrument_view.controls, "before it is known which it is"
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     assert "gen_wave" not in window.instrument_view.controls
     assert "scale_a" in window.instrument_view.controls

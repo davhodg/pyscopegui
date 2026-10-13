@@ -93,7 +93,10 @@ def test_an_instrument_with_nothing_to_set_says_so(app):
     view.show_settings(SETTINGS, {})
     view.show_settings((), {})
     assert view.controls == {}
-    assert view._layout.itemAt(0).widget().text() == NOTHING
+    # Under Connection, which has Open in it whatever the instrument.
+    assert view._layout.itemAt(0).widget().title() == "Connection"
+    assert view._layout.itemAt(1).widget().text() == NOTHING
+    assert view.open.isVisibleTo(view)
 
 
 # --- in the window -----------------------------------------------------------------------------
@@ -108,8 +111,7 @@ class FakeScope:
 
 
 def pick_picoscope(window):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
+    window.choose("picoscope2000")
 
 
 def test_the_pane_follows_the_instrument_chosen(window):

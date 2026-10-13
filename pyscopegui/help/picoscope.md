@@ -69,7 +69,8 @@ To use a copy of the library somewhere else, set the environment variable
 
 ## Running it
 
-Choose **PicoScope 2000 series (ps2000)** and press **Open**. Opening takes a few seconds, and
+Choose **PicoScope 2000 series (ps2000)** under **Add instrument** and press **Open** in the
+Instrument pane. Opening takes a few seconds, and
 Pico's driver shows a progress window of its own while it does. The
 [Event Log](event-log.md) then names the scope and its serial number.
 

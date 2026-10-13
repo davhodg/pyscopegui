@@ -381,7 +381,7 @@ def diagnostics(window) -> str:
         lines += [f"  {name:{width}}{packages.version(name)}" for name in pulled]
         lines.append("")
 
-    chosen = window.instrument_bar.current()
+    chosen = window.chosen
     # The one chosen, and any other that is in use beside it.
     units = [window.unit] + [
         unit

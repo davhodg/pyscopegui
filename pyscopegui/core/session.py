@@ -23,7 +23,8 @@ class Unit:
     """One instrument: what it is, what it has sent, and what it waits for."""
 
     def __init__(self, name: str, short: str, history_s: float, parent: QObject | None) -> None:
-        #: The back end's name, which is what it is saved under. Empty for a
+        #: The instrument's name, which is what it is saved under: its back
+        #: end's, with a number for a second of the same kind. Empty for a
         #: capture that stands by itself, with no instrument behind it.
         self.name = name
         #: A word for it, to tell its channels from another's: "Pico".
@@ -82,6 +83,16 @@ class Session(QObject):
         if name not in self.units:
             self._take(Unit(name, short, self.history_s, self))
         return self.units[name]
+
+    def forget(self, name: str) -> None:
+        """Have nothing more to do with the instrument called this: it was removed."""
+        unit = self.units.pop(name, None)
+        if unit is None:
+            return
+        unit.capture.channels_changed.disconnect(self.channels_changed)
+        unit.acquisition.changed.disconnect(self.trigger_changed)
+        self.channels_changed.emit()
+        self.trigger_changed.emit()
 
     def _take(self, unit: Unit) -> None:
         self.units[unit.name] = unit
