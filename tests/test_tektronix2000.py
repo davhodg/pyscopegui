@@ -20,10 +20,11 @@ class FakePort:
         #: Everything it was sent, in order, a command at a time.
         self.heard: list[str] = []
         #: What was last set: "CH1:SCALE" -> "1".
-        self.state: dict[str, str] = {}
+        self.state: dict[str, str] = {"ACQUIRE:STOPAFTER": "RUNSTOP"}
         #: Whether a sweep it is asked for has been taken by the time it is asked.
         self.takes_sweeps = True
-        self.acquiring = False
+        #: Running free, as a scope on the bench is, until it is told otherwise.
+        self.acquiring = True
         #: What is waiting to be read.
         self._out = bytearray()
         self.timeout = 3.0
@@ -84,8 +85,9 @@ class FakePort:
         elif what == "*OPC?":
             self._say("1")
         elif what == "ACQUIRE:STATE?":
-            if self.acquiring and self.takes_sweeps:
-                self.acquiring = False
+            single = self.state.get("ACQUIRE:STOPAFTER") == "SEQUENCE"
+            if self.acquiring and self.takes_sweeps and single:
+                self.acquiring = False  # it has taken its one sweep, and stopped
             self._say("1" if self.acquiring else "0")
         elif what.startswith("SELECT:") and what.endswith("?"):
             self._say("1" if self.state.get(what[:-1], "OFF") == "ON" else "0")
@@ -482,7 +484,8 @@ def test_the_window_shows_a_sweep_around_the_scopes_trigger(scope_window, port, 
     window.scope.redraw()
     low, high = window.scope.analog.getViewBox().viewRange()[0]
     assert low == pytest.approx(-0.005, rel=1e-3) and high == pytest.approx(0.005, rel=1e-3)
-    assert window.scope.state.text() == TRIGGERED
+    # What it shows, and what the scope is at meanwhile: it is slow, and says so.
+    assert window.scope.state.text().startswith(TRIGGERED)
     assert port.state["TRIGGER:MAIN:EDGE:SOURCE"] == "CH2"
 
 
@@ -496,7 +499,7 @@ def test_auto_with_nothing_to_trigger_on_says_so(scope_window, port, app):
     window.set_mode("auto")
     wait_for(app, lambda: window.acquisition.sweep is not None)
     window.scope.redraw()
-    assert window.scope.state.text() == FREE
+    assert window.scope.state.text().startswith(FREE)
 
 
 def test_single_takes_one_sweep_and_stops(scope_window, app):
@@ -567,3 +570,113 @@ def test_the_port_box_is_a_list_with_a_hint_when_empty(window, app):
     picker.setEditText("COM7")
     window.instrument_view.commit()
     assert window.ctx.settings.get("instrument.tektronix2000")["port"] == "COM7"
+
+
+# --- saying what it is at, since all of it is slow ----------------------------------------------
+def test_setting_up_waits_as_long_as_the_scope_takes_over_each_setting(port):
+    """Twenty settings at most of a second each: the answer after them is a long time coming."""
+    waited = []
+    real = port.read_until
+
+    def note(expected=b"\n"):
+        waited.append(port.timeout)
+        return real(expected)
+
+    port.read_until = note
+    scope = opened(port, enabled_2=True)
+    waited.clear()
+    scope.start(scope.settings, tek.Trigger("CH1", auto=False))
+    changed = len(tek.setup(scope.settings, scope.trigger, 4))
+    assert max(waited) == pytest.approx(tek.ANSWER_S + tek.SETTING_S * changed)
+    assert port.timeout == 3.0, "and the ordinary wait is put back"
+    assert any("Setting the scope up" in text for text, _warning in scope.notes)
+    scope.close()
+
+
+def test_the_scope_says_what_it_is_busy_with(port):
+    said = []
+    scope = opened(port, enabled_2=True)
+    scope.doing = said.append
+    scope.start(scope.settings, tek.Trigger())
+    assert said == ["setting up the scope", "waiting for a sweep"]
+    sweep_of(scope)
+    assert said[2:] == ["reading CH1 (1 of 2)", "reading CH2 (2 of 2)", "waiting for a sweep"]
+    scope.stop()
+    assert said[-1] == "", "and nothing, once it has stopped"
+    scope.close()
+
+
+def test_one_channel_is_read_without_being_counted(port):
+    said = []
+    scope = opened(port)
+    scope.doing = said.append
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    assert "reading CH1" in said
+    scope.close()
+
+
+def test_the_window_says_what_a_slow_scope_is_at(scope_window, port, app):
+    window = scope_window
+    port.takes_sweeps = False  # so that it stays waiting, to be looked at
+    window.set_mode("normal")
+    wait_for(app, lambda: window.unit.doing == "waiting for a sweep")
+    assert "waiting for a sweep" in window.status.text()
+    window.scope.redraw()
+    assert "waiting for a sweep" in window.scope.state.text().lower()
+    assert "Setting the scope up" in window.log.toPlainText()
+    window.set_mode("stop")
+    wait_for(app, lambda: window.unit.doing == "")
+    assert "waiting for a sweep" not in window.status.text()
+
+
+# --- leaving the scope as it was found ---------------------------------------------------------
+def test_the_scope_is_put_back_to_running_when_the_run_stops(port):
+    """Left to stop after each sweep, it sits with a still screen and looks hung."""
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    assert port.state["ACQUIRE:STOPAFTER"] == "SEQUENCE"
+    scope.stop()
+    assert port.state["ACQUIRE:STOPAFTER"] == "RUNSTOP"
+    assert port.heard[-2:] == ["ACQUIRE:STOPAFTER RUNSTOP", "ACQUIRE:STATE RUN"]
+    scope.close()
+
+
+def test_a_scope_that_was_stopped_is_left_stopped(port):
+    port.acquiring = False
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    scope.stop()
+    assert port.heard[-1] == "ACQUIRE:STOPAFTER RUNSTOP", "and not set running, which it was not"
+    scope.close()
+
+
+def test_closing_in_the_middle_of_a_run_puts_it_back_too(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    scope.close()
+    assert port.state["ACQUIRE:STOPAFTER"] == "RUNSTOP" and port.closed
+
+
+def test_how_it_was_is_asked_once_and_kept_across_a_change(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    scope.wanted = tek.Settings({"port": "COM9", "scale_1": 2.0})
+    scope.poll()
+    assert port.sent("ACQUIRE:STOPAFTER?") == 1
+    scope.stop()
+    assert port.state["ACQUIRE:STOPAFTER"] == "RUNSTOP"
+    scope.close()
+
+
+def test_read_as_it_is_there_is_nothing_to_put_back(port):
+    port.state["SELECT:CH1"] = "ON"
+    scope = opened(port, read="asis")
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    scope.stop()
+    assert not any(command.startswith("ACQUIRE") for command in port.heard)
+    scope.close()

@@ -137,7 +137,9 @@ class MainWindow(QMainWindow):
         self.instrument_bar.open_requested.connect(self.open_instrument)
         self.instrument_bar.close_requested.connect(self.close_instrument)
         self.instrument_bar.mode_requested.connect(self.set_mode)
-        self.trigger_bar = TriggerBar(self.session, self.ctx)
+        self.trigger_bar = TriggerBar(
+            self.session, self.ctx, modes=tuple(self.instrument_bar.modes.values())
+        )
         self.addToolBar(self.trigger_bar)
         self.session.channels_changed.connect(self._show_trigger_sources)
 
@@ -281,6 +283,7 @@ class MainWindow(QMainWindow):
         instrument.error.connect(self.events.error)
         instrument.note.connect(self.events.information)
         instrument.warning.connect(self.events.warning)
+        instrument.activity.connect(lambda text, u=unit: self._on_activity(u, text))
         unit.instrument = instrument
         # Its channels, empty: to be looked at, and to choose a trigger
         # from, before anything is run.
@@ -334,6 +337,7 @@ class MainWindow(QMainWindow):
         """Say on the toolbar which instruments are open, and whether the one chosen is."""
         unit = self.unit
         self.instrument_bar.set_open(unit.wanted_open or unit.is_open)
+        self.instrument_view.set_open(unit.wanted_open or unit.is_open)
         self.instrument_bar.mark_open(
             {u.name for u in self.session.units.values() if u.wanted_open or u.is_open}
         )
@@ -480,6 +484,12 @@ class MainWindow(QMainWindow):
         unit.capture.add(block)
         unit.acquisition.examine(block)
 
+    def _on_activity(self, unit: Unit, text: str) -> None:
+        """An instrument says what it is busy with: shown, so that a slow one is not
+        taken for one that has stopped."""
+        unit.doing = text
+        self._update_status()
+
     def _on_single_done(self, unit: Unit) -> None:
         """One instrument has its capture: it stops, and the others go on waiting for theirs."""
         unit.acquisition.set_mode(STOP)
@@ -580,6 +590,7 @@ class MainWindow(QMainWindow):
                 rate = short_rate(instrument.rate)
                 self.events.information(f"{title}: running, {channels} at {rate}.")
         else:
+            unit.doing = ""
             self.events.information(f"{title}: stopped.")
             if not unit.restarting:
                 # It stopped by itself -- a scope unplugged -- or was told to.
@@ -605,6 +616,8 @@ class MainWindow(QMainWindow):
             held = (capture.newest() or 0.0) - (capture.oldest() or 0.0)
             if instrument.running:
                 doing = f"running ({unit.acquisition.mode})"
+                if unit.doing:
+                    doing += f", {unit.doing}"
             else:
                 doing = "open, stopped" if instrument.is_open else "closed"
             title = backends.title(unit.name) if len(units) == 1 else unit.short

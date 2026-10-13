@@ -254,3 +254,25 @@ def test_two_plots_with_different_windows_are_held_by_the_same_trigger(window):
     for scope in (window.scope, second):
         times, values = scope._curves["demo:A"].getData()
         assert abs(values[int(np.argmin(np.abs(times)))]) < 0.1
+
+
+# --- the frame, and what is in it ---------------------------------------------------------------
+def test_the_run_buttons_are_in_the_triggers_frame_and_still_work(window):
+    frame = window.trigger_bar.frame
+    for mode, button in window.instrument_bar.modes.items():
+        assert button.parent() is frame, mode
+    window.instrument_bar.modes["auto"].click()
+    assert window.instrument.running and window.instrument_bar.mode() == "auto"
+    window.instrument_bar.modes["stop"].click()
+    assert not window.instrument.running
+
+
+def test_what_is_for_every_instrument_comes_before_the_line_and_the_rest_after(window):
+    bar = window.trigger_bar
+    row = bar.frame.layout()
+    order = [row.itemAt(i).widget() for i in range(row.count())]
+    order = [widget for widget in order if widget is not None]
+    line = order.index(bar.divider)
+    before, after = order[:line], order[line + 1 :]
+    assert set(window.instrument_bar.modes.values()) <= set(before) and bar.position in before
+    assert bar.source in after and bar.edge in after and bar.level in after

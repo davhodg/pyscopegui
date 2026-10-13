@@ -380,3 +380,23 @@ def test_an_instrument_only_chosen_has_a_tab_while_it_is(both):
     assert tab_names(window) == ["Demo", "Rigol", "Pico"]
     choose(window, "demo")
     assert tab_names(window) == ["Demo", "Rigol"]
+
+
+# --- how an instrument is reached, which cannot change while it is open ------------------------
+def test_the_connection_settings_are_greyed_out_while_it_is_open(both, app):
+    window = both
+    controls = window.instrument_view.controls
+    assert not controls["connection"].isEnabled() and not controls["address"].isEnabled()
+    assert controls["time_div"].isEnabled(), "everything else can still be set"
+    window.close_instrument()
+    wait_for(app, lambda: not window.instrument.is_open)
+    controls = window.instrument_view.controls
+    assert controls["connection"].isEnabled() and controls["address"].isEnabled()
+    assert not controls["usb"].isEnabled(), "which is for USB, and the network is chosen"
+
+
+def test_choosing_another_instrument_shows_whether_that_one_is_open(both):
+    window = both
+    choose(window, "picoscope2000")  # which has not been opened
+    choose(window, RIGOL)
+    assert not window.instrument_view.controls["address"].isEnabled()

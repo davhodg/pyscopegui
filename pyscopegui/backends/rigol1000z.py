@@ -145,10 +145,11 @@ def make_settings() -> tuple[Setting, ...]:
             LAN,
             choices=((LAN, "Network"), (USB, "USB")),
             group="Connection",
+            closed=True,
             tip=(
                 "How the scope is plugged in. The network needs nothing installed.\n"
                 "USB needs a VISA library, which Rigol's own software installs.\n"
-                "Taken up at the next Open."
+                "Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -156,10 +157,11 @@ def make_settings() -> tuple[Setting, ...]:
             "Address",
             "",
             group="Connection",
+            closed=True,
             needs=("connection", LAN),
             tip=(
                 "The scope's address on the network, as it shows under\n"
-                "Utility > IO > LAN Conf: 192.168.1.50. Taken up at the next Open."
+                "Utility > IO > LAN Conf: 192.168.1.50. Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -167,13 +169,14 @@ def make_settings() -> tuple[Setting, ...]:
             "USB device",
             "",
             group="Connection",
+            closed=True,
             needs=("connection", USB),
             found=usb_scopes,
             empty="First Rigol found",
             tip=(
                 "Which scope, where more than one is plugged in. The list is of\n"
                 "those plugged in now; a serial number can be typed too. Left\n"
-                "empty, the first Rigol found is used. Taken up at the next Open."
+                "empty, the first Rigol found is used. Changed while the scope is closed."
             ),
         ),
         Setting(

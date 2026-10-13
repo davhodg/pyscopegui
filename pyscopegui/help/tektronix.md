@@ -40,6 +40,11 @@ A waveform is 2500 points, and a serial port is slow: a little over a second a c
 capture off the scope and onto the computer -- to look at closely, or to
 [export as CSV](plot.md) -- and not for watching a signal move.
 
+Setting the scope up takes a while too: it takes up to a second over each setting, and a
+first run sends a dozen or more. So that a silence is not taken for a fault, the status
+bar and the plot say what the scope is at -- *setting up the scope*, *waiting for a sweep*,
+*reading CH2 (2 of 4)* -- and the [Event Log](event-log.md) says when it starts setting up.
+
 ## Two ways of reading
 
 **Reading**, in the Instrument pane, chooses between them.
@@ -49,6 +54,11 @@ trigger -- and takes one sweep after another, each read as it is taken. The trig
 and the four run buttons are handed to the scope. **Normal** waits for a trigger for as
 long as it takes; **Auto** lets the scope give up waiting, as its own Auto does;
 **Single** takes one sweep and stops.
+
+While it takes sweeps the scope is stopping after each one, so its own screen holds still
+while a sweep is read and moves on only when the next is taken. That is the scope waiting
+to be read, not a fault. When the run is stopped, or the scope closed, it is put back to
+acquiring as it was found.
 
 **What it shows, as it is.** Nothing on the scope is changed, and nothing is asked of it
 but what is on its screen. This is the one for fetching something that was captured at the
@@ -64,11 +74,11 @@ trigger.
 
 | Setting | What it is |
 |---------|------------|
-| Port | The serial port the scope is on. Taken up at the next **Open** |
-| Speed | The baud rate, as the scope is set. Taken up at the next **Open** |
-| Flow control | Hard flagging, or none, as the scope is set. Taken up at the next **Open** |
-| Parity | None, even or odd, as the scope is set. Taken up at the next **Open** |
-| End of line | What the scope ends each answer with: LF, CR, CR/LF or LF/CR, as it is set. Taken up at the next **Open** |
+| Port | The serial port the scope is on. Set while the scope is closed |
+| Speed | The baud rate, as the scope is set. Set while the scope is closed |
+| Flow control | Hard flagging, or none, as the scope is set. Set while the scope is closed |
+| Parity | None, even or odd, as the scope is set. Set while the scope is closed |
+| End of line | What the scope ends each answer with: LF, CR, CR/LF or LF/CR, as it is set. Set while the scope is closed |
 | Reading | Set up from here, or read as it is: see above |
 | Time | Seconds a division, of the ten across the screen |
 | Acquisition | Sample, peak detect, or an average of several sweeps |

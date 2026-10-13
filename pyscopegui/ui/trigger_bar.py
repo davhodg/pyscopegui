@@ -8,11 +8,26 @@ one thing. With more than one instrument open, the toolbar is about the one
 chosen in the instrument list, and each keeps its own channel, edge and
 level: an instrument can only be triggered by a channel of its own. Where the
 trigger sits in the plot is the same for all of them, since they share the plot.
+
+Everything to do with triggering is in one frame. First what is the same for
+every instrument that is open -- the four run buttons, which are a scope's
+trigger modes, and where the trigger sits -- and then, past a line, what the
+instrument chosen waits for.
 """
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QLabel, QSpinBox, QToolBar
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QSpinBox,
+    QToolBar,
+)
 
 from pyscopegui.backends.base import ANALOG, Channel
 from pyscopegui.core.acquire import Acquisition
@@ -36,8 +51,34 @@ POSITION_TIP = (
 )
 
 
+class Border(QFrame):
+    """A thin line round what is inside, in the theme's own grey.
+
+    Painted here rather than asked of a style sheet, which would leave the
+    labels inside in the colours of the theme the window opened with. The
+    style's own panel is too faint to be seen as a border at all.
+    """
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        # A third of the way from the window's colour to its text's: a grey
+        # that shows against either theme, where the palette's own mid-grey
+        # is the dark window's background over again.
+        window = self.palette().color(QPalette.Window)
+        text = self.palette().color(QPalette.WindowText)
+        grey = QColor(
+            *(
+                round(w + (x - w) * 0.35)
+                for w, x in zip(window.getRgb()[:3], text.getRgb()[:3], strict=True)
+            )
+        )
+        painter.setPen(QPen(grey, 1))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+
+
 class TriggerBar(QToolBar):
-    def __init__(self, session: Session, ctx: Context) -> None:
+    def __init__(self, session: Session, ctx: Context, modes: tuple = ()) -> None:
         super().__init__("Trigger")
         self.setObjectName("trigger")  # saveState identifies toolbars by objectName
         self.setMovable(False)
@@ -80,15 +121,33 @@ class TriggerBar(QToolBar):
         self.level.valueChanged.connect(self._on_level)
         self.position.valueChanged.connect(self._on_position)
 
-        self.addWidget(self.label)
-        self.addWidget(self.source)
-        for label, widget in (
-            (" Edge: ", self.edge),
-            (" Level: ", self.level),
-            (" Position: ", self.position),
-        ):
-            self.addWidget(QLabel(label))
-            self.addWidget(widget)
+        # In a frame of its own: on one line with the run buttons, the four
+        # boxes are otherwise not seen to be one thing, the trigger.
+        self.frame = Border()
+        row = QHBoxLayout(self.frame)
+        row.setContentsMargins(4, 2, 6, 2)
+        row.setSpacing(2)
+        # For every instrument that is open: how it runs, and where the trigger sits.
+        for button in modes:
+            # Flat, as it would be on the toolbar itself.
+            button.setAutoRaise(True)
+            row.addWidget(button)
+        row.addWidget(QLabel(" Position: "))
+        row.addWidget(self.position)
+        #: Between what is for all of them and what is for the one chosen.
+        self.divider = QFrame()
+        self.divider.setFrameShape(QFrame.VLine)
+        self.divider.setFrameShadow(QFrame.Sunken)
+        row.addSpacing(4)
+        row.addWidget(self.divider)
+        row.addSpacing(2)
+        # For the instrument chosen: what it waits for.
+        row.addWidget(self.label)
+        row.addWidget(self.source)
+        for label, widget in ((" Edge: ", self.edge), (" Level: ", self.level)):
+            row.addWidget(QLabel(label))
+            row.addWidget(widget)
+        self.addWidget(self.frame)
         self._show_usable()
 
     @property

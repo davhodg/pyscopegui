@@ -35,6 +35,8 @@ class Unit:
         self.wanted_open = False
         #: True while a run is stopped only to be started again.
         self.restarting = False
+        #: What the instrument says it is busy with at this moment, if it says.
+        self.doing = ""
 
     def id(self, key: str) -> str:
         """A channel of this instrument, told apart from the same key on another."""
@@ -71,6 +73,7 @@ class Session(QObject):
         unit.capture = capture
         unit.acquisition = acquisition or Acquisition(capture, parent=capture.parent())
         unit.instrument, unit.wanted_open, unit.restarting = None, False, False
+        unit.doing = ""
         session._take(unit)
         return session
 

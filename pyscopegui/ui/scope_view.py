@@ -535,6 +535,9 @@ class ScopeView(QWidget):
                 ends.append(sweep_ends)
             if origin is not None:
                 timing.origin = origin
+            if unit.doing and unit.running:
+                # A slow instrument says what it is at, so that it is not taken for stuck.
+                state = f"{state} ({unit.doing})" if state else unit.doing.capitalize()
             if state:
                 states.append(f"{unit.short or unit.name}: {state}" if several else state)
         # Two instruments have no time in common but their triggers.

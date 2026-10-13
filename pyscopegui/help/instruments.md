@@ -4,7 +4,8 @@
 
 ## Choosing, opening and running
 
-The toolbar has the list of instruments, **Open**, and the four buttons a scope has.
+The toolbar has the list of instruments and **Open**, and beside them, in a frame, everything
+to do with triggering: the four run buttons a scope has, and the trigger.
 
 **Open** connects to the instrument chosen and leaves it stopped. For a scope this is the
 slow part, done once. The button then reads **Close**, which stops the instrument and lets
@@ -67,7 +68,9 @@ instrument is opened or run.
 
 ## The trigger
 
-The second toolbar is the trigger of the instrument chosen in the list. With several open
+The frame on the toolbar holds the trigger. To the left of its line is what is the same for
+every instrument that is open: the four run buttons, and **Position**. To the right is the
+trigger of the instrument chosen in the list. With several open
 it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge and level.
 **Position** is the same for all of them, since they share the plot.
 
@@ -117,6 +120,9 @@ There are two kinds of setting, and a setting's tip says which it is:
   on the plot kept.
 
 Neither closes the instrument, so neither costs the time it took to open.
+
+What says how an instrument is reached -- a network address, a serial port -- is used to
+open it, so those are greyed out while it is open: close it to change them.
 
 A list picks one of several; a tick box is on or off; a number is typed, or stepped with its
 arrows, and takes effect when you press Enter or move on, not at every digit.

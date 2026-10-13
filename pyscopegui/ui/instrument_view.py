@@ -121,6 +121,8 @@ class InstrumentView(QWidget):
         self._tab_of: dict[str, int] = {}
         #: The channel last looked at, kept when the settings are shown again.
         self._group = ""
+        #: Whether the instrument is open: how it is reached cannot be changed then.
+        self._open = False
         self.changed.connect(self._show_needed)
         self.show_settings((), {})
 
@@ -251,14 +253,25 @@ class InstrumentView(QWidget):
             return control.text()
         return control.value()
 
+    def set_open(self, is_open: bool) -> None:
+        """Say whether the instrument is open: what says how it is reached is
+        greyed out while it is, since it was used to open it."""
+        if is_open != self._open:
+            self._open = is_open
+            self._show_needed()
+
     def _show_needed(self, *_changed) -> None:
-        """Grey out what has no say while another setting is as it is."""
+        """Grey out what has no say: while another setting is as it is, or
+        while the instrument is open and this is how it was reached."""
         for setting in self._settings:
-            if setting.needs is None or setting.needs[0] not in self.controls:
+            needed = setting.needs is not None and setting.needs[0] in self.controls
+            if not needed and not setting.closed:
                 continue
-            key, value = setting.needs
             control = self.controls[setting.key]
-            on = self.value(key) == value
+            on = not (setting.closed and self._open)
+            if needed:
+                key, value = setting.needs
+                on = on and self.value(key) == value
             control.setEnabled(on)
             if (label := self._forms[setting.group].labelForField(control)) is not None:
                 label.setEnabled(on)

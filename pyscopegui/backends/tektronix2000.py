@@ -39,6 +39,10 @@ POINTS = 2500
 #: Seconds to wait for an answer to a question, and for a waveform, which at
 #: the slowest speed the scope has is most of a minute by itself.
 ANSWER_S = 3.0
+#: Seconds the scope may take over one setting. It takes each in turn, and
+#: most of a second for some, so a question asked after twenty of them is
+#: not answered for a long while.
+SETTING_S = 1.5
 WAVEFORM_BITS = (POINTS + 16) * 10
 
 SET_UP = "set"
@@ -118,12 +122,13 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             "Port",
             "",
             group="Connection",
+            closed=True,
             found=serial_ports,
             empty="Choose a port",
             tip=(
                 "The serial port the scope is on. The list is of the ports there are\n"
                 "now; a name can be typed too: COM3 on Windows, /dev/ttyUSB0 on\n"
-                "Linux. Taken up at the next Open."
+                "Linux. Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -132,10 +137,11 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             9600,
             choices=tuple((baud, f"{baud} baud") for baud in BAUDS),
             group="Connection",
+            closed=True,
             tip=(
                 "As the scope is set, under Utility > Options > RS232 Setup. The\n"
                 "fastest it has is the one to choose, on the scope and here.\n"
-                "Taken up at the next Open."
+                "Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -144,11 +150,12 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             HARD_FLOW,
             choices=((HARD_FLOW, "Hard flagging (RTS/CTS)"), (NO_FLOW, "None")),
             group="Connection",
+            closed=True,
             tip=(
                 "As the scope is set, under Utility > Options > RS232 Setup. Hard\n"
                 "flagging needs a cable with all its wires. Soft flagging is not\n"
                 "offered: a waveform is sent as bytes that it would mistake for\n"
-                "its own. Taken up at the next Open."
+                "its own. Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -157,7 +164,8 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             "None",
             choices=tuple((name, name) for name in PARITIES),
             group="Connection",
-            tip=_AS_THE_SCOPE + "\nTaken up at the next Open.",
+            closed=True,
+            tip=_AS_THE_SCOPE + "\nChanged while the scope is closed.",
         ),
         Setting(
             "eol",
@@ -165,10 +173,11 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             "LF",
             choices=tuple((name, name) for name in ENDS),
             group="Connection",
+            closed=True,
             tip=(
                 _AS_THE_SCOPE + " It is what the scope ends each\n"
                 "answer with, and an answer is waited for until it comes.\n"
-                "Taken up at the next Open."
+                "Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -478,12 +487,19 @@ class Link:
         except OSError as exc:  # pyserial's own errors are OSErrors
             raise self._fail(command, exc) from exc
 
-    def ask(self, command: str) -> str:
+    def ask(self, command: str, wait: float | None = None) -> str:
+        """Ask, and wait for the answer: for ``wait`` seconds where the scope
+        has other things to finish first."""
         self.write(command)
+        before = self._serial.timeout
+        if wait is not None:
+            self._serial.timeout = wait
         try:
             line = self._serial.read_until(self._eol)
         except OSError as exc:
             raise self._fail(command, exc) from exc
+        finally:
+            self._serial.timeout = before
         if not line.endswith(self._eol):
             raise self._fail(command)
         return line.decode("ascii", "replace").strip()
@@ -543,6 +559,11 @@ class Scope:
         self.wanted_trigger: Trigger | None = None
         self._sent: dict[str, str] = {}
         self._said_reading = False
+        #: Told what it is busy with, in a few words: everything here is slow.
+        self.doing = lambda _text: None
+        #: How the scope was acquiring before it was made to take single
+        #: sweeps -- (stop after, running) -- to be put back when the run ends.
+        self._before: tuple[str, bool] | None = None
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -583,26 +604,59 @@ class Scope:
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
             return
         self._set_up()
+        if self._before is None:
+            after = self._link.ask("ACQUIRE:STOPAFTER?")
+            self._before = (after, self._link.ask("ACQUIRE:STATE?") in ("1", "RUN"))
         self._arm()
+
+    def _put_back(self) -> None:
+        """Leave the scope acquiring as it was found.
+
+        Taking sweeps has it stop after each one, and a scope left like that
+        sits with a still screen and looks as if it has hung.
+        """
+        if self._before is None or self._link is None:
+            return
+        (after, was_running), self._before = self._before, None
+        try:
+            self._link.write(f"ACQUIRE:STOPAFTER {after or 'RUNSTOP'}")
+            if was_running:
+                self._link.write("ACQUIRE:STATE RUN")
+        except ScopeError:
+            pass  # it has gone, and there is nothing to put back
 
     def _set_up(self) -> None:
         """Send whatever of the setup is not what was last sent."""
         wanted = setup(self.settings, self.trigger, self.channels)
         changed = [(what, to) for what, to in wanted.items() if self._sent.get(what) != to]
+        if not changed:
+            return
+        if len(changed) > 3:
+            self.notes.append(
+                (
+                    f"Setting the scope up: {len(changed)} settings, which it takes up to a "
+                    "second over each.",
+                    False,
+                )
+            )
+        self.doing("setting up the scope")
         for what, to in changed:
             self._link.write(f"{what} {to}")
         self._sent.update(wanted)
-        if changed:
-            # Answered once all of it has been done: nothing is read before then.
-            self._link.ask("*OPC?")
+        # Answered once all of it has been done, which is not soon: nothing is
+        # read before then.
+        self._link.ask("*OPC?", wait=ANSWER_S + SETTING_S * len(changed))
 
     def _arm(self) -> None:
         """Have the scope take one sweep and stop, which is its Single."""
         self._link.write("ACQUIRE:STOPAFTER SEQUENCE")
         self._link.write("ACQUIRE:STATE RUN")
+        self.doing("waiting for a sweep")
 
     def stop(self) -> None:
         self.running = False
+        self._put_back()
+        self.doing("")
 
     def poll(self) -> Block | None:
         """The next sweep, if the scope has one."""
@@ -634,9 +688,13 @@ class Scope:
         link.write("DATA:WIDTH 1")
         link.write("DATA:START 1")
         link.write(f"DATA:STOP {POINTS}")
-        for key in settings.keys(self.channels):
+        keys = settings.keys(self.channels)
+        for number, key in enumerate(keys, start=1):
             if settings.as_is and not self._shown(key):
                 continue
+            self.doing(
+                f"reading {key} ({number} of {len(keys)})" if len(keys) > 1 else f"reading {key}"
+            )
             link.write(f"DATA:SOURCE {key}")
             try:
                 x_step = float(link.ask("WFMPRE:XINCR?"))
@@ -679,6 +737,7 @@ class Scope:
         return Block(0, rate, data, sweep=True, trigger=at, triggered=triggered)
 
     def close(self) -> None:
+        self._put_back()
         if self._link is not None:
             self._link.close()
         self._link = None
@@ -695,6 +754,8 @@ class _Reader(QThread):
     failed = Signal(str)
     #: How many channels the scope that answered has.
     opened = Signal(int)
+    #: What the scope is busy with at this moment.
+    doing = Signal(str)
     started_run = Signal(int)
     stopped_run = Signal(int)
 
@@ -702,6 +763,12 @@ class _Reader(QThread):
         super().__init__(parent)
         self._scope = scope
         self._asked: queue.SimpleQueue = queue.SimpleQueue()
+        scope.doing = self._doing
+
+    def _doing(self, text: str) -> None:
+        # What was noted on the way is said first: it is about what led to this.
+        self._say()
+        self.doing.emit(text)
 
     def ask(self, *command) -> None:
         """("start", settings, run, trigger), ("stop",) or ("close",): done in the order asked."""
@@ -844,6 +911,7 @@ class Tektronix2000(Instrument):
         reader.warning.connect(self.warning)
         reader.failed.connect(self.error)
         reader.opened.connect(self._on_opened)
+        reader.doing.connect(self.activity)
         reader.started_run.connect(self._on_started)
         reader.stopped_run.connect(self._on_stopped)
         reader.finished.connect(self._on_finished)

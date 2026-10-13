@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""The toolbar: which instrument, Open, and Stop, Single, Normal and Auto.
+"""The toolbar: which instrument and Open, and the buttons Stop, Single, Normal and Auto.
 
 Connecting to an instrument and reading it are two things. Open connects --
 which for a scope is the slow part, done once -- and Close lets it go, so
@@ -99,9 +99,8 @@ class InstrumentBar(QToolBar):
         self.addWidget(QLabel(" Instrument: "))
         self.addWidget(self.instrument)
         self.addWidget(self.open)
-        self.addSeparator()
-        for button in self.modes.values():
-            self.addWidget(button)
+        # The four run buttons are made and answered for here, and shown in
+        # the trigger toolbar's frame: they are how a trigger is waited for.
         self.set_open(False)
         self.set_mode(STOP)
 
