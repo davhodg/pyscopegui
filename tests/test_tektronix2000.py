@@ -680,3 +680,84 @@ def test_read_as_it_is_there_is_nothing_to_put_back(port):
     scope.stop()
     assert not any(command.startswith("ACQUIRE") for command in port.heard)
     scope.close()
+
+
+# --- read as it is: no trigger of ours, and a button to read it with ---------------------------
+@pytest.fixture
+def as_is_window(scope_window, port, app):
+    window = scope_window
+    port.state.update({"SELECT:CH1": "ON", "SELECT:CH2": "ON"})
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    window._on_setting("read", "asis", False)
+    return window
+
+
+def test_read_is_offered_only_for_a_scope_read_as_it_is(scope_window, app):
+    window = scope_window
+    assert not window.instrument_bar.reads(), "nothing is known of it before it is opened"
+    window.instrument_bar.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert not window.instrument_bar.reads(), "which is set up from here, and takes sweeps"
+    window._on_setting("read", "asis", False)
+    assert window.instrument.reads_as_is and window.instrument_bar.reads()
+    window._on_setting("read", "set", False)
+    assert not window.instrument_bar.reads()
+
+
+def test_read_as_it_is_the_trigger_is_the_scopes_and_cannot_be_set_here(as_is_window):
+    window = as_is_window
+    bar = window.trigger_bar
+    assert not bar.source.isEnabled() and not bar.edge.isEnabled() and not bar.level.isEnabled()
+    assert "set on the instrument itself" in bar.source.toolTip()
+    modes = window.instrument_bar.modes
+    assert not modes["single"].isEnabled() and not modes["normal"].isEnabled()
+    assert modes["auto"].isEnabled() and modes["stop"].isEnabled()
+    assert "Read takes what it shows once" in modes["single"].toolTip()
+    window._on_setting("read", "set", False)
+    assert bar.source.isEnabled() and modes["single"].isEnabled()
+    assert "Read takes" not in modes["single"].toolTip()
+
+
+def test_read_takes_what_the_scope_shows_once_and_stops(as_is_window, port, app):
+    window = as_is_window
+    window.instrument_bar.read.click()
+    assert not window.instrument_bar.read.isEnabled(), "while it is reading"
+    wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
+    assert set(window.capture.records) == {"CH1", "CH2"}
+    assert port.sent("CURVE?") == 2, "each channel once, and not again"
+    assert not any(command.startswith("ACQUIRE") for command in port.heard)
+    assert window.instrument_bar.mode() == "stop" and window.instrument_bar.read.isEnabled()
+    assert window.instrument.is_open, "read, and still open for the next"
+
+
+def test_read_again_reads_again(as_is_window, port, app):
+    window = as_is_window
+    for reads in (1, 2):
+        window.instrument_bar.read.click()
+        wait_for(app, lambda r=reads: not window.unit.running and port.sent("CURVE?") == 2 * r)
+
+
+def test_auto_keeps_reading_a_scope_that_is_read_as_it_is(as_is_window, port, app):
+    window = as_is_window
+    window.set_mode("auto")
+    wait_for(app, lambda: port.sent("CURVE?") >= 4)
+    assert window.unit.running and window.instrument_bar.mode() == "auto"
+    window.set_mode("stop")
+    assert not window.unit.running
+
+
+def test_single_is_not_for_a_scope_read_as_it_is_and_does_not_run_it(as_is_window, port):
+    window = as_is_window
+    window.set_mode("single")
+    assert not window.unit.running and window.instrument_bar.mode() == "stop"
+    assert port.sent("CURVE?") == 0
+
+
+def test_read_as_it_is_no_level_is_drawn_for_a_trigger_that_is_not_ours(as_is_window, app):
+    window = as_is_window
+    window.acquisition.set_trigger(source="CH1")
+    window.instrument_bar.read.click()
+    wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
+    window.scope.redraw()
+    assert not window.scope.level_line.isVisible()

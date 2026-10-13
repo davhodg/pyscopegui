@@ -10,7 +10,10 @@ whichever is pressed in is what it is doing.
 More than one instrument can be open at once. The list chooses which of them
 Open, the Instrument pane and the trigger toolbar are about, and says which
 are open; the Open button says what pressing it will do to the one chosen,
-Open or Close. Stop, Single, Normal and Auto are for every one that is open.
+Open or Close. Read is there beside it for an instrument that is read as it
+is, with nothing on it changed: it has no trigger here to wait for, so one
+reading of what it shows is asked for by a button of its own. Stop, Single,
+Normal and Auto are for every one that is open.
 """
 
 from __future__ import annotations
@@ -27,6 +30,15 @@ OPEN_TIP = "Connect to the instrument chosen, ready to be run."
 #: Said after an instrument's name in the list while it is open.
 OPEN_MARK = "  (open)"
 CLOSE_TIP = "Stop, and let go of the instrument, so that another program can use it."
+READ_TIP = (
+    "Read what the instrument shows, once, with nothing on it changed.\n"
+    "Auto reads it over and over."
+)
+#: Said under Single and Normal when there is no trigger for them to wait for.
+NO_TRIGGER_TIP = (
+    "\n\nNot for an instrument read as it is, which has no trigger here to wait for:\n"
+    "Read takes what it shows once, and Auto keeps reading it."
+)
 #: Mode -> what its button says, and what it means.
 BUTTONS = {
     STOP: ("Stop", "Stop reading. What has been collected stays on the plot."),
@@ -54,6 +66,8 @@ class InstrumentBar(QToolBar):
     close_requested = Signal()
     #: One of the modes in pyscopegui.core.acquire.
     mode_requested = Signal(str)
+    #: Read what the instrument chosen shows, once.
+    read_requested = Signal()
 
     def __init__(self, ctx: Context) -> None:
         super().__init__("Instrument")
@@ -96,9 +110,18 @@ class InstrumentBar(QToolBar):
             self._group.addButton(button)
             self.modes[mode] = button
 
+        self.read = QToolButton()
+        self.read.setText("Read")
+        self.read.setToolTip(READ_TIP)
+        self.read.clicked.connect(self.read_requested)
+
         self.addWidget(QLabel(" Instrument: "))
         self.addWidget(self.instrument)
         self.addWidget(self.open)
+        # Shown through its action, which is how a toolbar shows and hides
+        # what is on it. Only for an instrument that is read as it is.
+        self._read_action = self.addWidget(self.read)
+        self._read_action.setVisible(False)
         # The four run buttons are made and answered for here, and shown in
         # the trigger toolbar's frame: they are how a trigger is waited for.
         self.set_open(False)
@@ -126,6 +149,23 @@ class InstrumentBar(QToolBar):
             text = backends.title(name) + (OPEN_MARK if name in names else "")
             if self.instrument.itemText(index) != text:
                 self.instrument.setItemText(index, text)
+
+    def set_reads(self, shown: bool, busy: bool = False) -> None:
+        """Offer Read, for an instrument that is read as it is; not while it is reading."""
+        self._read_action.setVisible(shown)
+        self.read.setEnabled(not busy)
+
+    def reads(self) -> bool:
+        """Whether Read is offered."""
+        return self._read_action.isVisible()
+
+    def set_triggered(self, triggered: bool) -> None:
+        """Whether there is a trigger for Single and Normal to wait for: there is
+        none when every instrument they would run is read as it is."""
+        for mode in (SINGLE, NORMAL):
+            button = self.modes[mode]
+            button.setEnabled(triggered)
+            button.setToolTip(BUTTONS[mode][1] + ("" if triggered else NO_TRIGGER_TIP))
 
     def set_mode(self, mode: str) -> None:
         """Press in the button for what is being done, without asking for it again."""

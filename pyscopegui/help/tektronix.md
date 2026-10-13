@@ -62,10 +62,16 @@ acquiring as it was found.
 
 **What it shows, as it is.** Nothing on the scope is changed, and nothing is asked of it
 but what is on its screen. This is the one for fetching something that was captured at the
-bench: stop the scope on what you want, press **Single** here, and it is on the plot. The
+bench: stop the scope on what you want, press **Read** here, and it is on the plot. The
 channels read are the ones ticked **Enabled** here that are also on the scope's screen;
-their scale, their timebase and their trigger are the scope's own. Left on **Auto**, it
-reads the screen over and over, which follows a scope that is running without touching it.
+their scale, their timebase and their trigger are the scope's own.
+
+**Read** is on the toolbar beside **Open** while the scope is read this way. It takes what
+the screen shows once and stops. **Auto** reads the screen over and over, which follows a
+scope that is running without touching it. There is no trigger here to wait for -- the
+scope triggers on whatever it was set to at the bench -- so the trigger's **Source**,
+**Edge** and **Level** are greyed out, no level is drawn on the plot, and **Single** and
+**Normal** are greyed out too unless another instrument is open for them to run.
 
 Either way the plot shows the whole sweep, with nought on the time axis at the scope's
 trigger.

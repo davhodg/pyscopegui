@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -35,8 +35,10 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSplitter,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -90,6 +92,7 @@ EXPORT_TIP = (
     "ticked, in the stretch of time in view. One file for each instrument.\n"
     "Choose All beside Time first to write everything that is held."
 )
+PICTURE_TIP = "Save a picture of this plot and its channel list, as they look now."
 #: Where the last export went, kept so the next one starts there.
 EXPORT_FOLDER = "export.folder"
 PICK_TIP = "How the channel is set up. Click it to change that in the Instrument pane."
@@ -268,9 +271,18 @@ class ScopeView(QWidget):
         bar.addWidget(self.auto_y)
         self.state = QLabel()
         bar.addWidget(self.state)
-        self.export_button = QPushButton("Export CSV...")
+        # Pressing it writes CSV, which is what it is mostly for; its arrow
+        # has the other thing a plot can be saved as.
+        self.export_button = QToolButton()
+        self.export_button.setText("Export CSV...")
         self.export_button.setToolTip(EXPORT_TIP)
+        self.export_button.setPopupMode(QToolButton.MenuButtonPopup)
         self.export_button.clicked.connect(self.ask_export)
+        self.export_menu = QMenu(self.export_button)
+        self.export_menu.setToolTipsVisible(True)
+        self.export_menu.addAction("Export CSV...", self.ask_export).setToolTip(EXPORT_TIP)
+        self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
+        self.export_button.setMenu(self.export_menu)
         bar.addStretch()
         bar.addWidget(self.export_button)
         bar.addWidget(clear)
@@ -449,6 +461,9 @@ class ScopeView(QWidget):
                 record is not None
                 and record.channel.kind == ANALOG
                 and unit.id(record.channel.key) not in self._hidden
+                # Read as it is, an instrument triggers on what it was set to
+                # itself, which is not the level here.
+                and not (unit.instrument is not None and unit.instrument.reads_as_is)
             )
             line.setVisible(on_plot)
             if on_plot:
@@ -619,19 +634,47 @@ class ScopeView(QWidget):
             curve.setData(times, values)
 
     # --- writing it out -------------------------------------------------------------------
-    def ask_export(self) -> None:
-        """Ask where to, and write what the plot shows as CSV."""
+    def _ask_where(self, title: str, name: str, kinds: str) -> Path | None:
+        """Ask for a file to write, starting where the last one went."""
         folder = self._ctx.settings.get(EXPORT_FOLDER) if self._ctx is not None else None
-        start = str(Path(folder) / "capture.csv") if isinstance(folder, str) else "capture.csv"
-        chosen, _filter = QFileDialog.getSaveFileName(
-            self, "Export CSV", start, "Comma-separated values (*.csv)"
-        )
+        start = str(Path(folder) / name) if isinstance(folder, str) else name
+        chosen, _filter = QFileDialog.getSaveFileName(self, title, start, kinds)
         if not chosen:
-            return
+            return None
         path = Path(chosen)
         if self._ctx is not None:
             self._ctx.settings.set(EXPORT_FOLDER, str(path.parent))
-        self.export_csv(path)
+        return path
+
+    def ask_export(self) -> None:
+        """Ask where to, and write what the plot shows as CSV."""
+        path = self._ask_where("Export CSV", "capture.csv", "Comma-separated values (*.csv)")
+        if path is not None:
+            self.export_csv(path)
+
+    def ask_picture(self) -> None:
+        """Ask where to, and save a picture of the plot."""
+        path = self._ask_where("Export PNG", "capture.png", "PNG picture (*.png)")
+        if path is not None:
+            self.export_png(path)
+
+    def export_png(self, path: Path) -> bool:
+        """Save a picture of the pane as it looks now: the plot, and the channel
+        list that says what is on it. Says where it went, or that it did not."""
+        self.redraw()  # so that what is saved is what there is now
+        if path.suffix.lower() != ".png":
+            path = path.with_name(path.name + ".png")
+        # What it says it is doing was written a moment ago, and is given its
+        # room only when the pane is next laid out: now, not after the picture.
+        QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+        picture = self.grab()
+        if not picture.save(str(path), "PNG"):
+            self._say(f"The picture could not be saved to {path}.", problem=True)
+            return False
+        self._say(
+            f"Saved a picture of the plot, {picture.width()} by {picture.height()}, to {path}."
+        )
+        return True
 
     def export_csv(self, path: Path) -> list[export.Written]:
         """Write the channels that are ticked, in the stretch of time in view:

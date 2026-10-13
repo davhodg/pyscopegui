@@ -45,6 +45,11 @@ LEVEL_TIP = (
     "The level the signal has to cross. Drawn as a dashed line on the plot.\n"
     "A digital channel has only the one level, between its 0 and its 1."
 )
+AS_IS_TIP = (
+    "This instrument is read as it is, with nothing on it changed: what it\n"
+    "triggers on is set on the instrument itself. Press Read for what it\n"
+    "shows, or Auto to keep reading it."
+)
 POSITION_TIP = (
     "Where the trigger sits in the plot, from its left edge: 50% is the middle,\n"
     "with as much before the trigger as after it."
@@ -148,7 +153,7 @@ class TriggerBar(QToolBar):
             row.addWidget(QLabel(label))
             row.addWidget(widget)
         self.addWidget(self.frame)
-        self._show_usable()
+        self.show_usable()
 
     @property
     def acquisition(self) -> Acquisition | None:
@@ -220,14 +225,20 @@ class TriggerBar(QToolBar):
             self.source.addItem(channel.name, channel.key)
         self.source.setCurrentIndex(max(self.source.findData(chosen), 0))
         self.source.blockSignals(False)
-        self._show_usable()
+        self.show_usable()
 
-    def _show_usable(self) -> None:
-        """A level means something only for an analog channel, and none of it with no trigger."""
+    def show_usable(self) -> None:
+        """A level means something only for an analog channel, and none of it
+        with no trigger -- or for an instrument read as it is, whose trigger
+        is its own business."""
+        instrument = self.unit.instrument if self.unit is not None else None
+        as_is = instrument is not None and instrument.reads_as_is
         channel = self._channels.get(self.source.currentData())
-        self.edge.setEnabled(channel is not None)
+        self.source.setEnabled(not as_is)
+        self.source.setToolTip(AS_IS_TIP if as_is else SOURCE_TIP)
+        self.edge.setEnabled(channel is not None and not as_is)
         self.position.setEnabled(channel is not None)
-        self.level.setEnabled(channel is not None and channel.kind == ANALOG)
+        self.level.setEnabled(channel is not None and channel.kind == ANALOG and not as_is)
 
     # --- what somebody changed -------------------------------------------------------------
     def _on_source(self, _index: int) -> None:
@@ -237,7 +248,7 @@ class TriggerBar(QToolBar):
         self._wanted[self.unit.name] = chosen
         self._save("source", chosen)
         self.unit.acquisition.set_trigger(source=chosen, clear_source=chosen is None)
-        self._show_usable()
+        self.show_usable()
 
     def _on_edge(self, _index: int) -> None:
         if self.unit is None:

@@ -400,3 +400,11 @@ def test_choosing_another_instrument_shows_whether_that_one_is_open(both):
     choose(window, "picoscope2000")  # which has not been opened
     choose(window, RIGOL)
     assert not window.instrument_view.controls["address"].isEnabled()
+
+
+# --- an instrument read as it is, beside one that is not ----------------------------------------
+def test_with_another_instrument_open_single_is_still_for_that_one(both):
+    """Single is greyed out only when there is nothing it could run."""
+    window = both
+    assert window.instrument_bar.modes["single"].isEnabled()
+    assert not window.instrument_bar.reads(), "neither of these is read as it is"

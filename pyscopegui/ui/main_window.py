@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
 from pyscopegui.core import shortcut
-from pyscopegui.core.acquire import AUTO, STOP, Acquisition
+from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.events import PROBLEMS, EventLog
@@ -137,6 +137,7 @@ class MainWindow(QMainWindow):
         self.instrument_bar.open_requested.connect(self.open_instrument)
         self.instrument_bar.close_requested.connect(self.close_instrument)
         self.instrument_bar.mode_requested.connect(self.set_mode)
+        self.instrument_bar.read_requested.connect(self.read_once)
         self.trigger_bar = TriggerBar(
             self.session, self.ctx, modes=tuple(self.instrument_bar.modes.values())
         )
@@ -170,6 +171,8 @@ class MainWindow(QMainWindow):
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
         )
+        picture_action = file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture())
+        picture_action.setToolTip("Save a picture of the first plot, as it looks now.")
         file_menu.setToolTipsVisible(True)
         file_menu.addSeparator()
         quit_action = file_menu.addAction("Exit", self.close)
@@ -350,6 +353,45 @@ class MainWindow(QMainWindow):
             ],
             unit.name,
         )
+        self._show_reading()
+
+    @staticmethod
+    def _as_is(unit: Unit) -> bool:
+        """Whether an instrument is read as it is: no trigger of ours, only what it shows."""
+        return unit.instrument is not None and unit.instrument.reads_as_is
+
+    def _takes(self, unit: Unit, mode: str) -> bool:
+        """Whether a run button means anything to an instrument. Single and Normal
+        wait for a trigger, and one read as it is has none here to wait for."""
+        return mode == AUTO or not self._as_is(unit)
+
+    def _show_reading(self) -> None:
+        """Offer what there is for an instrument read as it is: Read, and no trigger."""
+        chosen = self.unit
+        as_is = self._as_is(chosen)
+        self.instrument_bar.set_reads(as_is, busy=as_is and chosen.running)
+        # Single and Normal are for whatever a run button would run.
+        ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
+        self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
+        self.trigger_bar.show_usable()
+
+    @Slot()
+    def read_once(self) -> None:
+        """Read what the instrument chosen shows, once, and leave the others as they are."""
+        self.instrument_view.commit()
+        unit = self.unit
+        self._forget_closed(unit)
+        if not self._have(unit.name):
+            self._show_open()
+            return
+        unit.wanted_open = True
+        if unit.instrument.running:
+            unit.instrument.stop()
+        unit.acquisition.set_mode(SINGLE)
+        if not self._begin(unit):
+            unit.acquisition.set_mode(STOP)
+        self._show_open()
+        self._update_status()
 
     def _choose(self, name: str) -> None:
         """Choose the instrument called this, as picking it in the toolbar would."""
@@ -373,9 +415,10 @@ class MainWindow(QMainWindow):
         if not self._have(chosen.name):
             self._settle_mode()
             return
-        chosen.wanted_open = True
+        if self._takes(chosen, mode):
+            chosen.wanted_open = True
         for unit in self._in_use():
-            if not (unit is chosen or unit.wanted_open):
+            if not (unit is chosen or unit.wanted_open) or not self._takes(unit, mode):
                 continue
             # Before it starts, so that an instrument that triggers itself is
             # told from the first whether to wait for ever or not.
@@ -552,11 +595,14 @@ class MainWindow(QMainWindow):
             return
         if not live and instrument.running:
             self._restart(unit, lambda: instrument.set(key, value))
+            self._show_reading()
             return
         instrument.set(key, value)
         if live:
             # The same channels, on a new range: named for it, with what is held kept.
             unit.capture.update_channels(instrument.channels())
+        # How it is read may be what changed, and with it what the toolbar offers.
+        self._show_reading()
 
     def _drop_unit(self, unit: Unit) -> None:
         if unit.instrument is not None:
@@ -596,6 +642,7 @@ class MainWindow(QMainWindow):
                 # It stopped by itself -- a scope unplugged -- or was told to.
                 unit.acquisition.set_mode(STOP)
                 self._settle_mode()
+        self._show_reading()
         self._update_status()
 
     @Slot(int)

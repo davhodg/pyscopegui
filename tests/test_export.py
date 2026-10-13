@@ -3,6 +3,7 @@
 """Writing what a plot shows as CSV."""
 
 import csv
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -171,3 +172,54 @@ def test_the_folder_last_exported_to_is_where_the_next_starts(window, tmp_path, 
     assert window.ctx.settings.get(EXPORT_FOLDER) == str(tmp_path / "sub")
     window.scope.ask_export()
     assert asked[1] == str(tmp_path / "sub" / "capture.csv")
+
+
+# --- a picture of the plot ---------------------------------------------------------------------
+def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window, monkeypatch):
+    asked = []
+    monkeypatch.setattr(type(window.scope), "ask_export", lambda self: asked.append("csv"))
+    button = window.scope.export_button
+    assert button.text() == "Export CSV..."
+    assert [action.text() for action in button.menu().actions()] == [
+        "Export CSV...",
+        "Export PNG...",
+    ]
+    file_menu = window.menuBar().actions()[0].menu()
+    assert "Export PNG..." in [action.text() for action in file_menu.actions()]
+
+
+def test_pressing_the_export_button_itself_is_still_csv(window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    asked = []
+
+    def fake(parent, title, start, kinds):
+        asked.append((title, Path(start).name))
+        return "", ""
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(fake))
+    window.scope.export_button.click()
+    window.scope.export_button.menu().actions()[1].trigger()
+    assert asked == [("Export CSV", "capture.csv"), ("Export PNG", "capture.png")]
+
+
+def test_a_picture_of_the_plot_is_saved_as_png(window, tmp_path):
+    from PySide6.QtGui import QImage
+
+    window.set_mode("auto")
+    feed(window)
+    assert window.scope.export_png(tmp_path / "shot.png")
+    picture = QImage(str(tmp_path / "shot.png"))
+    assert not picture.isNull() and picture.width() > 200 and picture.height() > 100
+    assert "Saved a picture of the plot" in window.log.toPlainText()
+    assert "shot.png" in window.log.toPlainText()
+
+
+def test_a_picture_is_named_png_whatever_was_typed(window, tmp_path):
+    assert window.scope.export_png(tmp_path / "shot")
+    assert (tmp_path / "shot.png").is_file()
+
+
+def test_a_picture_that_cannot_be_saved_says_so(window, tmp_path):
+    assert not window.scope.export_png(tmp_path / "no such folder" / "shot.png")
+    assert "could not be saved" in window.log.toPlainText()

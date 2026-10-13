@@ -21,6 +21,11 @@ Whichever of the four is pressed in is what the instrument is doing:
 | **Normal** | Shows each trigger as it comes, and holds the last one until the next |
 | **Auto** | Shows each trigger as it comes, and what there is anyway when none does |
 
+An instrument that is read as it is, with nothing on it changed -- a
+[Tektronix](tektronix.md) can be -- has no trigger here to wait for. It has a button of its
+own beside **Open**, **Read**, which takes what it shows once; **Auto** keeps reading it,
+and **Single** and **Normal** leave it alone.
+
 With no trigger chosen there is nothing to wait for: **Auto** and **Normal** both follow the
 newest samples, as a chart recorder does, and **Single** reads one plot's worth and stops.
 

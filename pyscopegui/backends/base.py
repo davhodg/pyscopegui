@@ -162,6 +162,14 @@ class Instrument(QObject):
         """Whether it sends sweeps, each complete in itself, rather than a stream."""
         return False
 
+    @property
+    def reads_as_is(self) -> bool:
+        """Whether it is read as it is, with nothing on it changed. Its own
+        trigger is then in charge and the toolbar's has no say: there is
+        nothing to wait for, only what it shows to be read, once or over
+        and over."""
+        return False
+
     def set_trigger(
         self, source: str | None, level: float, rising: bool, position: float, auto: bool
     ) -> None:

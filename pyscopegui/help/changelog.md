@@ -13,6 +13,10 @@ since the last version, and comes out in the next one.
 
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
+- **Export PNG**, under the arrow on the plot's Export button and under *File*: a picture
+  of the plot and its channel list.
+- **Read**, for a Tektronix read as it is: one reading of what its screen shows. The
+  trigger, **Single** and **Normal** are greyed out for it, since its trigger is its own.
 - *Tools > Settings > Add shortcut to desktop* on Windows; both shortcuts for a pip
   installation too.
 - Rigol over **USB**, through an installed VISA library, as well as over the network.

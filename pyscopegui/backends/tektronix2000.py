@@ -564,6 +564,8 @@ class Scope:
         #: How the scope was acquiring before it was made to take single
         #: sweeps -- (stop after, running) -- to be put back when the run ends.
         self._before: tuple[str, bool] | None = None
+        #: Read as it is: whether the screen has been read since the run began.
+        self._read_once = False
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -599,6 +601,7 @@ class Scope:
     def start(self, settings: Settings, trigger: Trigger) -> None:
         self.settings, self.trigger = settings, trigger
         self._said_reading = False
+        self._read_once = False
         self.running = True
         if settings.as_is:
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
@@ -669,7 +672,14 @@ class Scope:
                 self._arm()
             return None
         if self.settings.as_is:
-            return self._read()
+            if self._read_once and not self.trigger.auto:
+                # One reading was asked for and has been taken: a second,
+                # begun before the stop arrives, would hold the scope for
+                # seconds to no purpose.
+                return None
+            block = self._read()
+            self._read_once = True
+            return block
         if self._link.ask("ACQUIRE:STATE?") != "0":
             return None  # still waiting for its trigger, or still averaging
         block = self._read()
@@ -843,6 +853,10 @@ class Tektronix2000(Instrument):
     @property
     def sweeps(self) -> bool:
         return True
+
+    @property
+    def reads_as_is(self) -> bool:
+        return self.settings.as_is
 
     def set_trigger(
         self, source: str | None, level: float, rising: bool, position: float, auto: bool

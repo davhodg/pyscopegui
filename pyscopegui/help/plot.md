@@ -28,6 +28,13 @@ view is a million rows.
 To write everything that is held and not only what is in view, choose **All** beside
 **Time** first. The [Event Log](event-log.md) says how many samples went where.
 
+## Saving a picture
+
+The arrow on the **Export CSV...** button has **Export PNG...**, which is under *File* as
+well. It saves a picture of the plot and its channel list as they look at that moment, at
+the size they are on the screen: for a report, or to send to somebody. Pressing the button
+itself still writes CSV.
+
 ## The channel list
 
 A tick shows a channel and unticking hides it; which are hidden is remembered. The name is
