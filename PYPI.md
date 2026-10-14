@@ -53,6 +53,7 @@ sudo apt install libxcb-cursor0
 - **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
 - **Export to CSV**: every sample of what the plot shows, with time measured from the trigger.
+- **Save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments; and CSV files -- pyscopegui's own, or another tool's, with lines to skip and columns to choose -- opened the same way.
 - **Deep captures stay quick**: what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered.
 - **Light and dark** themes, or whichever the system is set to.

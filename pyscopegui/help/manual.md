@@ -3,6 +3,7 @@
 ## Basics
 
 - [Your files](files.md) --- what pyscopegui keeps, and where, and workspaces: one for each bench
+- [Saving and opening captures](captures.md) --- a capture kept to look at again, and CSV files opened
 - [Panes and layout](panes.md) --- docking, floating, pinning, more than one plot
 
 ## Panes

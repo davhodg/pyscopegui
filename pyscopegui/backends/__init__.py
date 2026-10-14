@@ -29,6 +29,8 @@ class Backend(NamedTuple):
     title: str
     #: A word for it, to tell its channels from another instrument's.
     short: str
+    #: Offered under Add instrument. A capture file is opened, not added.
+    listed: bool = True
 
 
 #: Name -> where it lives. The name is what is remembered between runs.
@@ -39,6 +41,9 @@ BACKENDS: dict[str, Backend] = {
         "PicoScope2000",
         "PicoScope 2000 series (ps2000)",
         "Pico",
+    ),
+    "file": Backend(
+        "pyscopegui.backends.capture_file", "CaptureFile", "Capture file", "File", listed=False
     ),
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
@@ -58,8 +63,8 @@ NUMBERED = "#"
 
 
 def names() -> list[str]:
-    """The kinds of instrument there are."""
-    return list(BACKENDS)
+    """The kinds of instrument there are to add."""
+    return [name for name, backend in BACKENDS.items() if backend.listed]
 
 
 def kind(name: str) -> str:

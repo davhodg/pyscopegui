@@ -226,7 +226,14 @@ def test_one_bench_never_meets_the_word(win):
 def test_the_workspace_menu_is_in_the_file_menu_above_exit(win):
     file_menu = next(a.menu() for a in win.menuBar().actions() if a.text() == "&File")
     texts = [a.text() for a in file_menu.actions() if not a.isSeparator()]
-    assert texts == ["Export CSV...", "Export PNG...", "Workspace", "Exit"]
+    assert texts == [
+        "Open capture...",
+        "Save capture...",
+        "Export CSV...",
+        "Export PNG...",
+        "Workspace",
+        "Exit",
+    ]
     inside = [a.text() for a in win.workspace_menu.menu.actions()]
     assert inside == ["New...", "Save as...", "Switch to", "Manage...", "", "Open folder"]
 

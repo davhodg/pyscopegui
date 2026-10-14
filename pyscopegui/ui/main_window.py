@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QAction,
@@ -15,6 +17,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QFileDialog,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -26,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import shortcut, workspaces
+from pyscopegui.core import capture_file, shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -36,6 +40,7 @@ from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.help_menu import HelpMenu
+from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
@@ -69,6 +74,8 @@ STATUS_MS = 500
 #: this machine, where a shortcut is made.
 SHORTCUT_TOLD_KEY = "shortcut/told"
 HISTORY_KEY = "capture.history_s"
+#: Where the last capture was opened from or saved to.
+CAPTURE_FOLDER = "capture.folder"
 #: The instruments in the Instrument pane, by name, and the one chosen.
 ADDED_KEY = "instruments.added"
 CHOSEN_KEY = "instrument.name"
@@ -199,6 +206,17 @@ class MainWindow(QMainWindow):
 
         # --- menus & layout persistence --------------------------------------
         file_menu = self.menuBar().addMenu("&File")
+        open_action = file_menu.addAction("Open capture...", self.ask_open_capture)
+        open_action.setToolTip(
+            "Open a capture saved here, or a CSV -- Export CSV's, or any other --\n"
+            "and show it beside the instruments, as one of them."
+        )
+        save_action = file_menu.addAction("Save capture...", self.ask_save_capture)
+        save_action.setToolTip(
+            "Save everything held, of every instrument on the first plot, to open again\n"
+            "later exactly as it is: one file for each instrument."
+        )
+        file_menu.addSeparator()
         export_action = file_menu.addAction("Export CSV...", lambda: self.scope.ask_export())
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
@@ -496,6 +514,51 @@ class MainWindow(QMainWindow):
         ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
         self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
         self.trigger_bar.show_usable()
+
+    # --- captures in files -------------------------------------------------------------------
+    def ask_open_capture(self) -> None:
+        """Ask which files, and for a CSV how it is laid out, and open each."""
+        folder = self.ctx.settings.get(CAPTURE_FOLDER)
+        chosen, _filter = QFileDialog.getOpenFileNames(
+            self,
+            "Open capture",
+            folder if isinstance(folder, str) else "",
+            "Captures (*.npz *.csv *.txt);;pyscopegui captures (*.npz);;CSV (*.csv *.txt);;"
+            "All files (*)",
+        )
+        for text in chosen:
+            path = Path(text)
+            self.ctx.settings.set(CAPTURE_FOLDER, str(path.parent))
+            if capture_file.is_own(path):
+                self.open_capture(path)
+                continue
+            dialog = ImportDialog(path, self)
+            if dialog.exec() == QDialog.Accepted:
+                self.open_capture(path, dialog.layout())
+
+    def open_capture(self, path: Path, layout=None) -> str:
+        """Open a capture file as an instrument of its own, and put it on the plot.
+        Its name, in the Instrument pane."""
+        name = backends.another("file", self._added)
+        options = {"path": str(path)}
+        if layout is not None:
+            options["csv"] = layout.as_options()
+        self.ctx.settings.set(f"instrument.{name}", options)
+        self.choose(name)
+        self.open_instrument()
+        if self.unit.is_open:
+            self.read_once()
+        return name
+
+    def ask_save_capture(self) -> None:
+        folder = self.ctx.settings.get(CAPTURE_FOLDER)
+        start = str(Path(folder) / "capture.npz") if isinstance(folder, str) else "capture.npz"
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self, "Save capture", start, "pyscopegui captures (*.npz)"
+        )
+        if chosen:
+            self.ctx.settings.set(CAPTURE_FOLDER, str(Path(chosen).parent))
+            self.scope.save_captures(Path(chosen))
 
     @Slot()
     def read_once(self) -> None:

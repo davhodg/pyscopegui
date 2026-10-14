@@ -40,6 +40,7 @@ MANUAL = "manual.md"
 PAGES = (
     MANUAL,
     "files.md",
+    "captures.md",
     "panes.md",
     "plot.md",
     "instruments.md",

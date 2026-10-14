@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Save capture** and **Open capture**, under *File*: everything held, kept in a file to
+  open again exactly as it was; and a CSV -- Export CSV's, or another's, with lines to skip
+  and columns to choose -- opened beside the instruments as one of them.
 - **Python Console**, under *View*: a Python prompt with commands to drive the scopes --
   `add`, `open`, `set`, `run`, `single`, `data`, `export_csv` and the rest -- and *Run
   script...* for a file of them.
