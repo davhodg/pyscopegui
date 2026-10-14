@@ -12,6 +12,12 @@ as the `python` prompt does: Up and Down go through what was typed, a block carr
 `...`, and a mistake is shown as Python shows it. **Run script...** runs a `.py` file with the
 same names.
 
+*File > Run script...* does the same from the File menu, and shows the console first, so that
+what the script prints and any traceback can be read. *File > Recent scripts* lists the last
+five run in the workspace, by either, newest first: one click runs one again. A script kept
+in the workspace's own folder is remembered relative to it, and found wherever the workspace
+is taken.
+
 ## The commands
 
 | Command | What it does |

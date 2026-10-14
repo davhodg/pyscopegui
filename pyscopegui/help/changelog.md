@@ -11,6 +11,7 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- *File > Run script...* and *File > Recent scripts*, the last five run in the workspace.
 - **Reference traces**: a capture opened from a file drawn faded, behind the instruments'
   own, to compare them with.
 - **Save capture** and **Open capture**, under *File*: everything held, kept in a file to

@@ -46,6 +46,7 @@ from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
 from pyscopegui.ui.scripting import Scripting
+from pyscopegui.ui.scripts_menu import ScriptsMenu
 from pyscopegui.ui.traffic_view import TrafficView
 from pyscopegui.ui.trigger_bar import TriggerBar
 from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
@@ -228,6 +229,12 @@ class MainWindow(QMainWindow):
         quit_action = file_menu.addAction("Exit", self.close)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)
+        #: A script run in the console, and the last few that were.
+        self.scripts_menu = ScriptsMenu(self, self.ctx)
+        self.scripts_menu.install(file_menu, before=quit_action)
+        self.scripts_menu.run_wanted.connect(self.run_script_in_console)
+        # The console's own Run script... button is remembered too.
+        self.console.ran.connect(self.scripts_menu.remember)
         #: One workspace per bench or setup: new, save as, switch to and manage.
         self.workspace_menu = WorkspaceMenu(self, self.ctx)
         self.workspace_menu.install(file_menu, before=quit_action)
@@ -524,6 +531,12 @@ class MainWindow(QMainWindow):
         ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
         self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
         self.trigger_bar.show_usable()
+
+    def run_script_in_console(self, path: str) -> None:
+        """File > Run script... and Recent scripts: in the console, shown, so
+        that what the script prints is there to be read."""
+        self.panes.show("console")
+        self.console.run_file(path)
 
     # --- captures in files -------------------------------------------------------------------
     def ask_open_capture(self) -> None:
