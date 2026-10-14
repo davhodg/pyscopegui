@@ -10,6 +10,7 @@
 - [Channels and Plot](plot.md) --- analog and logic channels on one time axis
 - [Instrument](instruments.md) --- choosing an instrument, running it, and setting it up
 - [Event Log](event-log.md) --- everything the tool says, and at what level
+- [Instrument traffic](traffic.md) --- every command and answer, while it is open
 
 ## Instruments
 

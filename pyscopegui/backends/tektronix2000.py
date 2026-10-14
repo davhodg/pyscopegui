@@ -30,6 +30,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core.traffic import traced
 
 CHANNELS = ("CH1", "CH2", "CH3", "CH4")
 #: Divisions on the screen: across, and up.
@@ -596,8 +597,9 @@ class Scope:
                 "pane: COM3, or /dev/ttyUSB0."
             )
         settings = self.settings
-        self._link = Link(
-            settings.port, settings.baud, settings.hard_flow, settings.parity, settings.eol
+        self._link = traced(
+            Link(settings.port, settings.baud, settings.hard_flow, settings.parity, settings.eol),
+            f"Tektronix {settings.port}",
         )
         self._link.clear()
         # Answers with nothing in front of them, whatever the scope was left at.

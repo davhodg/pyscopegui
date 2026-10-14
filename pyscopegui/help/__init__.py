@@ -47,6 +47,7 @@ PAGES = (
     "rigol.md",
     "tektronix.md",
     "event-log.md",
+    "traffic.md",
     "about.md",
     "changelog.md",
 )

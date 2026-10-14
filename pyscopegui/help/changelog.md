@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Instrument traffic**, under *View*: every command sent to an instrument, every answer
+  and how long it took, and every call into a maker's library, kept only while the pane is
+  open.
 - **Workspaces**, under *File > Workspace*: one for each bench or setup, each with its own
   instruments, settings and panes. There is one called `default`, and what was kept before
   is moved into it. *File > Workspace > Open folder* takes the place of *Tools > Open

@@ -39,6 +39,7 @@ from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.traffic_view import TrafficView
 from pyscopegui.ui.trigger_bar import TriggerBar
 from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
 
@@ -180,6 +181,9 @@ class MainWindow(QMainWindow):
         self._on_chosen()
         self.scope = self.panes.view(self.panes.add("scope"))
         self.panes.add("log")
+        #: Every command and answer, kept only while it is on screen.
+        self.traffic = self.panes.view(self.panes.add("traffic"))
+        self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
         self.setStatusBar(QStatusBar())
@@ -253,6 +257,7 @@ class MainWindow(QMainWindow):
         self._say_how_to_add_a_shortcut()
         self._restore_layout()
         self.panes.restore_state()
+        self._put_traffic_away()
 
     # --- the instruments ---------------------------------------------------------------
     def _unit(self, name: str) -> Unit:
@@ -813,6 +818,27 @@ class MainWindow(QMainWindow):
         self.panes.register(
             PaneKind("log", "Event Log", Qt.BottomDockWidgetArea, lambda _name: self.log)
         )
+        self.panes.register(
+            PaneKind(
+                "traffic", "Instrument traffic", Qt.BottomDockWidgetArea, lambda _n: TrafficView()
+            )
+        )
+
+    def _on_pane_shown(self, name: str, on: bool) -> None:
+        if name == "traffic":
+            self.traffic.listen(on)
+
+    def _put_traffic_away(self) -> None:
+        """Start with the traffic pane put away, however it was left.
+
+        It keeps every command and answer while it is open, which nobody
+        should be paying for because they once looked: opening it is asked
+        for each time, from the View menu.
+        """
+        if (window := self.panes.detached.get("traffic")) is not None:
+            window.close()
+        self.panes.docks["traffic"].hide()
+        self.traffic.listen(False)
 
     def _make_scope(self, name: str) -> ScopeView:
         view = ScopeView(self.session, self.ctx, key=name)
@@ -923,6 +949,8 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.TopDockWidgetArea, instrument)
         self.splitDockWidget(instrument, log, Qt.Vertical)
         self.splitDockWidget(instrument, scope, Qt.Horizontal)
+        # Behind the Event Log, put away until it is asked for.
+        self.tabifyDockWidget(log, self.panes.docks["traffic"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)
@@ -984,6 +1012,7 @@ class MainWindow(QMainWindow):
         self._status_timer.stop()
         for unit in self.session.units.values():
             self._drop_unit(unit)
+        self.traffic.listen(False)
         self.help_menu.shutdown()
         self.exceptions.remove()
         super().closeEvent(event)

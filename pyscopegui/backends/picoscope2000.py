@@ -39,6 +39,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core.traffic import traced_library
 
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
@@ -577,7 +578,8 @@ class Stream:
         settings: Settings,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
-        self._library = library
+        #: Pico's library, with each call noted while the traffic pane is open.
+        self._library = traced_library(library, "PicoScope")
         self.settings = settings
         self._clock = clock
         self._handle = 0

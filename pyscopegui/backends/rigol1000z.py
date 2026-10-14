@@ -37,6 +37,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core.traffic import traced
 
 PORT = 5555
 #: Seconds to wait to be connected, and for an answer once connected.
@@ -561,7 +562,7 @@ class Scope:
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
         if self.settings.usb:
-            self._link = VisaLink(self.settings.usb_device)
+            self._link = traced(VisaLink(self.settings.usb_device), "Rigol USB")
             where = "on USB"
             self.notes.append((f"On USB: {self._link.name}.", False))
         elif not self.settings.host:
@@ -570,7 +571,9 @@ class Scope:
                 "it shows it under Utility > IO > LAN Conf. Or choose USB."
             )
         else:
-            self._link = Link(self.settings.host, self.settings.port)
+            self._link = traced(
+                Link(self.settings.host, self.settings.port), f"Rigol {self.settings.host}"
+            )
             where = f"at {self.settings.host}"
         said = self._link.ask("*IDN?")
         parts = [part.strip() for part in said.split(",")]
