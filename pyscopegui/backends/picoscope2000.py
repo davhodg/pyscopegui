@@ -39,7 +39,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
-from pyscopegui.core.traffic import traced_library
+from pyscopegui.core.traffic import RECEIVED, traced_library, traffic
 
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
@@ -137,6 +137,8 @@ IDLE_S = 0.1
 CHECK_AFTER_S = 5.0
 #: How far out it may be before it is said.
 RATE_TOLERANCE = 0.05
+#: The least time between two warnings of samples the driver lost.
+LOST_SAID_S = 5.0
 
 #: The callback fast streaming hands its buffers to: four of them -- A's
 #: highest and lowest, then B's -- and how many values each holds.
@@ -610,8 +612,13 @@ class Stream:
         #: Settings waiting to be taken up by the next poll, or None. Set from
         #: the GUI thread, taken by the thread that owns the scope.
         self.wanted: Settings | None = None
-        #: What the callback copied out during the poll in progress.
-        self._arrived: dict[str, np.ndarray] = {}
+        #: What the callback copied out during the poll in progress: every
+        #: batch of it, in order, since the driver may call it more than once.
+        self._arrived: dict[str, list[np.ndarray]] = {}
+        #: Samples the driver said it lost, not yet said in the Event Log,
+        #: and when that was last said: once in a while, not every poll.
+        self._lost = 0
+        self._lost_said_at = -LOST_SAID_S
         # Kept for as long as the driver may call it: ctypes does not, and a
         # callback that has been collected is a crash inside the driver.
         self._callback = OverviewCallback(self._on_values)
@@ -939,11 +946,16 @@ class Stream:
         the buffers are the driver's and are reused as soon as this returns."""
         if count == 0:
             return
+        # For the traffic pane: how the samples arrive, batch by batch.
+        traffic.note("PicoScope", RECEIVED, f"{count:,} samples")
         # Unaggregated, the highest and the lowest are the same sample, so
-        # the first buffer of each pair is the channel.
+        # the first buffer of each pair is the channel. Added to what came
+        # before in this poll, never put in its place: a batch replaced is
+        # samples gone without a word, and every time after them wrong.
         for key, index in (("A", 0), ("B", 2)):
             if self.settings.enabled[key] and buffers[index]:
-                self._arrived[key] = np.ctypeslib.as_array(buffers[index], shape=(count,)).copy()
+                batch = np.ctypeslib.as_array(buffers[index], shape=(count,)).copy()
+                self._arrived.setdefault(key, []).append(batch)
 
     def poll(self) -> Block | None:
         """Whatever has arrived since the last poll, or None if nothing has."""
@@ -957,19 +969,46 @@ class Stream:
         self._library.ps2000_get_streaming_last_values(self._handle, self._callback)
         if not self._arrived:
             return None
-        count = min(len(samples) for samples in self._arrived.values())
+        arrived = {key: np.concatenate(batches) for key, batches in self._arrived.items()}
+        count = min(len(samples) for samples in arrived.values())
         data = {}
-        for key, raw in self._arrived.items():
+        lost = 0
+        for key, raw in arrived.items():
             volts = self.settings.volts(key)
             scaled = raw[:count].astype(np.float32) * np.float32(volts / MAX_VALUE)
-            scaled[raw[:count] == LOST_DATA] = np.nan
+            gone = raw[:count] == LOST_DATA
+            scaled[gone] = np.nan
+            lost = max(lost, int(np.count_nonzero(gone)))
             data[key] = scaled
         block = Block(self._sent, self.settings.rate, data, after_pause=self._paused)
         self._paused = False
         self._sent += count
+        self._check_lost(lost)
         self._check_overrun()
         self._check_rate()
         return block
+
+    def _check_lost(self, lost: int) -> None:
+        """Say so when the driver marks samples as lost: they are drawn as a gap,
+        and a gap nobody explains looks like a fault in the signal.
+
+        Said once in a while with how many there were since, not at every poll:
+        a computer that cannot keep up loses some at every one.
+        """
+        self._lost += lost
+        now = self._clock()
+        if self._lost and now - self._lost_said_at >= LOST_SAID_S:
+            self.notes.append(
+                (
+                    f"The driver lost {self._lost:,} "
+                    f"{'sample, which is' if self._lost == 1 else 'samples, which are'} "
+                    "shown as a gap. "
+                    "The computer did not read them in time: a lower rate, or fewer "
+                    "programs running, may stop it.",
+                    True,
+                )
+            )
+            self._lost, self._lost_said_at = 0, now
 
     def _check_overrun(self) -> None:
         overrun = ctypes.c_int16(0)

@@ -56,6 +56,9 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
+  were partly dropped, without a word, and the time of everything after them was out;
+  and samples the driver lost were drawn as a gap the Event Log said nothing about.
 - *Help > Licences* said the third-party file held the full text of every licence. It is a
   list of the packages a build was made with, and now says so.
 
