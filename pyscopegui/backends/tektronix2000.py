@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import queue
 import re
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,10 +40,20 @@ POINTS = 2500
 #: Seconds to wait for an answer to a question, and for a waveform, which at
 #: the slowest speed the scope has is most of a minute by itself.
 ANSWER_S = 3.0
-#: Seconds the scope may take over one setting. It takes each in turn, and
-#: most of a second for some, so a question asked after twenty of them is
-#: not answered for a long while.
-SETTING_S = 1.5
+#: Seconds the scope may take over one setting. A TPS2014 takes most of a
+#: second over some, so thirty of them is half a minute. Each is sent once
+#: the one before is done, so that the scope never has a queue of them, and
+#: this is how long each may take before the scope is taken to have gone.
+SETTING_S = 15.0
+#: Seconds a scope opened just after it was sent a set-up may take to answer
+#: who it is: it answers once it has done what it was sent, which can be
+#: most of a minute.
+BUSY_S = 60.0
+#: Said when a scope that did not answer may only have been busy.
+BUSY_HINT = (
+    " If it was being set up a moment ago it may still be busy with that: wait until it "
+    "has finished, and press Open again."
+)
 WAVEFORM_BITS = (POINTS + 16) * 10
 
 SET_UP = "set"
@@ -446,7 +457,9 @@ def open_port(port: str, baud: int, hard_flow: bool, parity: str = "N"):
         stopbits=1,
         rtscts=hard_flow,
         timeout=ANSWER_S,
-        write_timeout=ANSWER_S,
+        # With flow control the scope holds the line while it is busy, which
+        # is as long as a setting takes.
+        write_timeout=SETTING_S,
     )
 
 
@@ -473,12 +486,12 @@ class Link:
         #: Long enough for a waveform at this speed, with as much again to spare.
         self._waveform_s = max(ANSWER_S, 2 * WAVEFORM_BITS / baud)
 
-    def _fail(self, what: str, exc: Exception | None = None) -> ScopeError:
+    def _fail(self, what: str, exc: Exception | None = None, hint: str = "") -> ScopeError:
         said = f": {exc}" if exc is not None else ""
         return ScopeError(
             f"The scope did not answer {what} on {self.port} at {self.baud} baud{said}. Check "
             "the cable, and that the speed, flow control, parity and end of line here are "
-            "what the scope has under Utility > Options > RS232 Setup."
+            f"what the scope has under Utility > Options > RS232 Setup.{hint}"
         )
 
     def write(self, command: str) -> None:
@@ -491,17 +504,22 @@ class Link:
         """Ask, and wait for the answer: for ``wait`` seconds where the scope
         has other things to finish first."""
         self.write(command)
+        return self.answer(command, wait)
+
+    def answer(self, command: str, wait: float | None = None, hint: str = "") -> str:
+        """The answer to what was asked last, waited for: for ``wait`` seconds
+        where the scope has other things to finish first."""
         before = self._serial.timeout
         if wait is not None:
             self._serial.timeout = wait
         try:
             line = self._serial.read_until(self._eol)
         except OSError as exc:
-            raise self._fail(command, exc) from exc
+            raise self._fail(command, exc, hint) from exc
         finally:
             self._serial.timeout = before
         if not line.endswith(self._eol):
-            raise self._fail(command)
+            raise self._fail(command, hint=hint)
         return line.decode("ascii", "replace").strip()
 
     def ask_bytes(self, command: str) -> bytes:
@@ -561,6 +579,9 @@ class Scope:
         self._said_reading = False
         #: Told what it is busy with, in a few words: everything here is slow.
         self.doing = lambda _text: None
+        #: Whether something else has been asked for meanwhile -- Stop, Close
+        #: -- which a set-up that takes half a minute gives way to.
+        self.interrupted = lambda: False
         #: How the scope was acquiring before it was made to take single
         #: sweeps -- (stop after, running) -- to be put back when the run ends.
         self._before: tuple[str, bool] | None = None
@@ -581,7 +602,7 @@ class Scope:
         self._link.clear()
         # Answers with nothing in front of them, whatever the scope was left at.
         self._link.write("HEADER OFF")
-        said = self._link.ask("*IDN?")
+        said = self._identify()
         parts = [part.strip() for part in said.split(",")]
         if len(parts) < 2 or "TEK" not in parts[0].upper():
             raise ScopeError(f"What answered on {self.settings.port} is not this scope: {said!r}.")
@@ -597,6 +618,35 @@ class Scope:
                 )
             )
 
+    def _identify(self) -> str:
+        """Who the scope says it is: waited for, when it does not say at once.
+
+        A scope that was sent a set-up a moment ago -- and closed before it
+        had done it -- answers nothing until it has, and that can be most of a
+        minute. Anything else it says first, an answer to something asked
+        before, is not who it is.
+        """
+        link = self._link
+        link.write("*IDN?")
+        try:
+            said = link.answer("*IDN?")
+        except ScopeError:
+            self.doing("waiting for the scope, which may still be busy")
+            self.notes.append(
+                (
+                    "The scope did not answer at once. Waiting for it: it does not answer "
+                    "while it is still busy with a set-up it was sent.",
+                    False,
+                )
+            )
+            said = link.answer("*IDN?", wait=BUSY_S, hint=BUSY_HINT)
+        for _late in range(5):
+            if "," in said:
+                break
+            said = link.answer("*IDN?", hint=BUSY_HINT)
+        self.doing("")
+        return said
+
     # --- running ---------------------------------------------------------------------------
     def start(self, settings: Settings, trigger: Trigger) -> None:
         self.settings, self.trigger = settings, trigger
@@ -606,7 +656,8 @@ class Scope:
         if settings.as_is:
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
             return
-        self._set_up()
+        if not self._set_up():
+            return  # given way to what was asked next
         if self._before is None:
             after = self._link.ask("ACQUIRE:STOPAFTER?")
             self._before = (after, self._link.ask("ACQUIRE:STATE?") in ("1", "RUN"))
@@ -628,27 +679,42 @@ class Scope:
         except ScopeError:
             pass  # it has gone, and there is nothing to put back
 
-    def _set_up(self) -> None:
-        """Send whatever of the setup is not what was last sent."""
+    def _set_up(self) -> bool:
+        """Send whatever of the setup is not what was last sent, a setting at a time.
+
+        Each is sent once the scope has done the one before, and says so:
+        sent all at once, they queue in the scope, which takes most of a
+        second over some, and it answers nothing else until it is through
+        them. So what it is at can be said as it goes, and Stop or Close is
+        not kept waiting for the rest. False if it gave way to one of them.
+        """
         wanted = setup(self.settings, self.trigger, self.channels)
         changed = [(what, to) for what, to in wanted.items() if self._sent.get(what) != to]
         if not changed:
-            return
+            return True
+        began = time.monotonic()
         if len(changed) > 3:
             self.notes.append(
                 (
-                    f"Setting the scope up: {len(changed)} settings, which it takes up to a "
-                    "second over each.",
+                    f"Setting the scope up: {len(changed)} settings, one at a time, which it "
+                    "takes up to a second over each.",
                     False,
                 )
             )
-        self.doing("setting up the scope")
-        for what, to in changed:
+        for number, (what, to) in enumerate(changed, start=1):
+            if self.interrupted():
+                self.doing("")
+                return False
+            self.doing(f"setting up the scope ({number} of {len(changed)})")
             self._link.write(f"{what} {to}")
-        self._sent.update(wanted)
-        # Answered once all of it has been done, which is not soon: nothing is
-        # read before then.
-        self._link.ask("*OPC?", wait=ANSWER_S + SETTING_S * len(changed))
+            try:
+                self._link.ask("*OPC?", wait=SETTING_S)
+            except ScopeError as exc:
+                raise ScopeError(f"Setting {what} to {to}: {exc}") from exc
+            self._sent[what] = to
+        if len(changed) > 3:
+            self.notes.append((f"Set up in {time.monotonic() - began:.1f} s.", False))
+        return True
 
     def _arm(self) -> None:
         """Have the scope take one sweep and stop, which is its Single."""
@@ -667,8 +733,7 @@ class Scope:
             settings, self.wanted = self.wanted or self.settings, None
             trigger, self.wanted_trigger = self.wanted_trigger or self.trigger, None
             self.settings, self.trigger = settings, trigger
-            if not settings.as_is:
-                self._set_up()
+            if not settings.as_is and self._set_up():
                 self._arm()
             return None
         if self.settings.as_is:
@@ -774,6 +839,8 @@ class _Reader(QThread):
         self._scope = scope
         self._asked: queue.SimpleQueue = queue.SimpleQueue()
         scope.doing = self._doing
+        # Something asked for while the scope is being set up is not kept waiting.
+        scope.interrupted = lambda: not self._asked.empty()
 
     def _doing(self, text: str) -> None:
         # What was noted on the way is said first: it is about what led to this.

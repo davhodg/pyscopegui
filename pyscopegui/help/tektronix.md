@@ -41,9 +41,17 @@ capture off the scope and onto the computer -- to look at closely, or to
 [export as CSV](plot.md) -- and not for watching a signal move.
 
 Setting the scope up takes a while too: it takes up to a second over each setting, and a
-first run sends a dozen or more. So that a silence is not taken for a fault, the status
-bar and the plot say what the scope is at -- *setting up the scope*, *waiting for a sweep*,
-*reading CH2 (2 of 4)* -- and the [Event Log](event-log.md) says when it starts setting up.
+first run with four channels sends about thirty, which can be half a minute. They are sent
+one at a time, each once the scope has done the one before, so the status bar and the plot
+can say how far it has got -- *setting up the scope (7 of 31)*, *waiting for a sweep*,
+*reading CH2 (2 of 4)* -- and the [Event Log](event-log.md) says how long the set-up took.
+After that only what changes is sent. **Stop** or **Close** part way through a set-up stops
+it after the setting in hand.
+
+A scope that is closed part way through a set-up, by something other than **Close** --
+pyscopegui itself closed, or a cable pulled -- may still be busy with what it was sent the
+next time it is opened. It answers nothing until it has done, so opening waits up to a
+minute for it to say who it is, and the Event Log says it is waiting.
 
 ## Two ways of reading
 
@@ -108,6 +116,8 @@ would take for one of its own.
 - *No port to open* --- **Port** in the Instrument pane is empty.
 - *The serial port ... could not be opened* --- the name is wrong, or another program has
   the port.
+- *Setting ... to ...: the scope did not answer* --- it was being set up, and did not say
+  it had done that setting within fifteen seconds. It may have been unplugged.
 - *The scope did not answer ...* --- the cable is not a null modem one, or the speed, flow
   control, parity or end of line here is not what the scope has. With hard flagging and a cable that lacks
   those wires, nothing is ever sent: try **None**, on the scope and here.

@@ -570,8 +570,8 @@ def test_the_port_box_is_a_list_with_a_hint_when_empty(window, app):
 
 
 # --- saying what it is at, since all of it is slow ----------------------------------------------
-def test_setting_up_waits_as_long_as_the_scope_takes_over_each_setting(port):
-    """Twenty settings at most of a second each: the answer after them is a long time coming."""
+def test_setting_up_sends_a_setting_once_the_scope_has_done_the_one_before(port):
+    """Sent all at once they queue in the scope, which then answers nothing for half a minute."""
     waited = []
     real = port.read_until
 
@@ -582,12 +582,99 @@ def test_setting_up_waits_as_long_as_the_scope_takes_over_each_setting(port):
     port.read_until = note
     scope = opened(port, enabled_2=True)
     waited.clear()
+    del port.heard[:]
     scope.start(scope.settings, tek.Trigger("CH1", auto=False))
-    changed = len(tek.setup(scope.settings, scope.trigger, 4))
-    assert max(waited) == pytest.approx(tek.ANSWER_S + tek.SETTING_S * changed)
+    changed = list(tek.setup(scope.settings, scope.trigger, 4).items())
+    sent = port.heard[: 2 * len(changed)]
+    assert sent[0::2] == [f"{what} {to}" for what, to in changed]
+    assert sent[1::2] == ["*OPC?"] * len(changed), "each one waited for"
+    assert waited[: len(changed)] == [tek.SETTING_S] * len(changed)
     assert port.timeout == 3.0, "and the ordinary wait is put back"
     assert any("Setting the scope up" in text for text, _warning in scope.notes)
+    assert any(text.startswith("Set up in") for text, _warning in scope.notes)
     scope.close()
+
+
+def test_a_setting_the_scope_does_not_finish_is_named(port):
+    scope = opened(port)
+    real = port._hear
+
+    def stuck(command):
+        real(command)
+        if command.startswith("CH1:SCALE"):
+            port.dead = True
+
+    port._hear = stuck
+    with pytest.raises(tek.ScopeError, match=r"Setting CH1:SCALE to .*did not answer"):
+        scope.start(scope.settings, tek.Trigger())
+
+
+def test_a_set_up_gives_way_to_a_stop_asked_for_meanwhile(port):
+    scope = opened(port, enabled_2=True)
+    asked = []
+    scope.interrupted = lambda: len(asked) > 0
+    real = port._hear
+
+    def stop_after_three(command):
+        real(command)
+        if command == "*OPC?" and port.sent("*OPC?") == 3:
+            asked.append("stop")
+
+    port._hear = stop_after_three
+    scope.start(scope.settings, tek.Trigger())
+    assert port.sent("*OPC?") == 3, "and nothing more of it sent"
+    assert "ACQUIRE:STOPAFTER SEQUENCE" not in port.heard, "nor a sweep asked for"
+    scope.close()
+
+
+def test_a_scope_still_busy_when_it_is_opened_is_waited_for(port):
+    """What happens when it is opened again before it has done a set-up it was sent."""
+    real = port._hear
+    waited = []
+
+    def busy(command):
+        real(command)
+        if command == "*IDN?":
+            # It says nothing until it is through what it had: the answer is there
+            # for the long wait, and not the first.
+            answer, port._out = bytes(port._out), bytearray()
+            later = port.read_until
+
+            def read_until(expected=b"\n"):
+                waited.append(port.timeout)
+                if port.timeout >= tek.BUSY_S:
+                    port._out += answer
+                    port.read_until = later
+                return later(expected)
+
+            port.read_until = read_until
+
+    port._hear = busy
+    said = []
+    scope = tek.Scope(tek.Settings({"port": "COM9"}))
+    scope.doing = said.append
+    scope.open()
+    assert scope.model == "TPS 2014"
+    assert waited == [tek.ANSWER_S, tek.BUSY_S]
+    assert "waiting for the scope, which may still be busy" in said
+    assert any("did not answer at once" in text for text, _warning in scope.notes)
+    scope.close()
+
+
+def test_an_answer_left_over_from_before_is_not_taken_for_who_it_is(port):
+    port._out += b"1\n"  # the end of a set-up it was sent before it was closed
+    real = port.reset_input_buffer
+    port.reset_input_buffer = lambda: None  # arrived after the port was cleared
+    scope = opened(port)
+    assert scope.model == "TPS 2014"
+    port.reset_input_buffer = real
+    scope.close()
+
+
+def test_a_scope_that_stays_busy_says_it_may_be(port):
+    port.dead = True
+    with pytest.raises(tek.ScopeError, match="still be busy"):
+        opened(port)
 
 
 def test_the_scope_says_what_it_is_busy_with(port):
@@ -595,9 +682,14 @@ def test_the_scope_says_what_it_is_busy_with(port):
     scope = opened(port, enabled_2=True)
     scope.doing = said.append
     scope.start(scope.settings, tek.Trigger())
-    assert said == ["setting up the scope", "waiting for a sweep"]
+    count = len(tek.setup(scope.settings, scope.trigger, 4))
+    assert said == [
+        *(f"setting up the scope ({n} of {count})" for n in range(1, count + 1)),
+        "waiting for a sweep",
+    ]
+    del said[:]
     sweep_of(scope)
-    assert said[2:] == ["reading CH1 (1 of 2)", "reading CH2 (2 of 2)", "waiting for a sweep"]
+    assert said == ["reading CH1 (1 of 2)", "reading CH2 (2 of 2)", "waiting for a sweep"]
     scope.stop()
     assert said[-1] == "", "and nothing, once it has stopped"
     scope.close()
