@@ -1,32 +1,42 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""The toolbar: which instrument, Open, and Stop, Single, Normal and Auto.
+"""The toolbar: Add instrument, and the buttons Stop, Single, Normal and Auto.
 
-Connecting to an instrument and reading it are two things. Open connects --
-which for a scope is the slow part, done once -- and Close lets it go, so
-that another program can have it. The four beside it are a scope's own:
-whichever is pressed in is what it is doing.
+Add instrument lists the kinds of instrument there are, and puts one more in
+the Instrument pane, which is where each is then opened, set up and removed.
+The same kind can be added twice: two scopes of one model are two instruments.
 
-More than one instrument can be open at once. The list chooses which of them
-Open, the Instrument pane and the trigger toolbar are about, and says which
-are open; the Open button says what pressing it will do to the one chosen,
-Open or Close. Stop, Single, Normal and Auto are for every one that is open.
+The four run buttons are a scope's own: whichever is pressed in is what the
+instruments are doing, and they are for every one that is open. Read is
+there for an instrument that is read as it is, with nothing on it changed:
+it has no trigger here to wait for, so one reading of what it shows is asked
+for by a button of its own.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QComboBox, QLabel, QToolBar, QToolButton
+from PySide6.QtWidgets import QButtonGroup, QMenu, QToolBar, QToolButton
 
 from pyscopegui import backends
 from pyscopegui.core.acquire import AUTO, MODES, NORMAL, SINGLE, STOP
 from pyscopegui.core.context import Context
 
-SETTING = "instrument.name"
-OPEN_TIP = "Connect to the instrument chosen, ready to be run."
-#: Said after an instrument's name in the list while it is open.
-OPEN_MARK = "  (open)"
-CLOSE_TIP = "Stop, and let go of the instrument, so that another program can use it."
+ADD_TIP = (
+    "Add an instrument to the Instrument pane, where it is opened and set up.\n"
+    "Several can be in use at once, and two of the same kind.\n"
+    "A maker's own library is not included: it has to be installed\n"
+    "for its instrument to open."
+)
+READ_TIP = (
+    "Read what the instrument shows, once, with nothing on it changed.\n"
+    "Auto reads it over and over."
+)
+#: Said under Single and Normal when there is no trigger for them to wait for.
+NO_TRIGGER_TIP = (
+    "\n\nNot for an instrument read as it is, which has no trigger here to wait for:\n"
+    "Read takes what it shows once, and Auto keeps reading it."
+)
 #: Mode -> what its button says, and what it means.
 BUTTONS = {
     STOP: ("Stop", "Stop reading. What has been collected stays on the plot."),
@@ -49,11 +59,12 @@ BUTTONS = {
 
 
 class InstrumentBar(QToolBar):
-    #: The back end's name.
-    open_requested = Signal(str)
-    close_requested = Signal()
+    #: The kind of instrument to add one more of: a back end's name.
+    add_requested = Signal(str)
     #: One of the modes in pyscopegui.core.acquire.
     mode_requested = Signal(str)
+    #: Read what the instrument chosen shows, once.
+    read_requested = Signal()
 
     def __init__(self, ctx: Context) -> None:
         super().__init__("Instrument")
@@ -61,25 +72,18 @@ class InstrumentBar(QToolBar):
         self.setMovable(False)
         self._ctx = ctx
 
-        self.instrument = QComboBox()
+        self.add = QToolButton()
+        self.add.setText("Add instrument")
+        self.add.setToolTip(ADD_TIP)
+        # The button is its list: a press of either part of it opens that.
+        self.add.setPopupMode(QToolButton.MenuButtonPopup)
+        self.add.clicked.connect(self.add.showMenu)
+        self.kinds = QMenu(self.add)
         for name in backends.names():
-            self.instrument.addItem(backends.title(name), name)
-        self.instrument.setToolTip(
-            "Which instrument Open, the Instrument pane and the trigger are about.\n"
-            "Several can be open at once: choose another and open that too.\n"
-            "A maker's own library is not included: it has to be installed\n"
-            "for its instrument to open."
-        )
-        saved = ctx.settings.get(SETTING, backends.DEFAULT)
-        if (index := self.instrument.findData(saved)) >= 0:
-            self.instrument.setCurrentIndex(index)
-        self.instrument.currentIndexChanged.connect(
-            lambda _i: ctx.settings.set(SETTING, self.current())
-        )
-
-        self.open = QToolButton()
-        self.open.setCheckable(True)
-        self.open.clicked.connect(self._on_open_clicked)
+            action = self.kinds.addAction(backends.title(name))
+            action.setData(name)
+            action.triggered.connect(lambda _on=False, n=name: self.add_requested.emit(n))
+        self.add.setMenu(self.kinds)
 
         #: Mode -> its button. One of them is always pressed in.
         self.modes: dict[str, QToolButton] = {}
@@ -96,37 +100,42 @@ class InstrumentBar(QToolBar):
             self._group.addButton(button)
             self.modes[mode] = button
 
-        self.addWidget(QLabel(" Instrument: "))
-        self.addWidget(self.instrument)
-        self.addWidget(self.open)
-        self.addSeparator()
-        for button in self.modes.values():
-            self.addWidget(button)
-        self.set_open(False)
+        self.read = QToolButton()
+        self.read.setText("Read")
+        self.read.setToolTip(READ_TIP)
+        self.read.clicked.connect(self.read_requested)
+
+        self.addWidget(self.add)
+        # Shown through its action, which is how a toolbar shows and hides
+        # what is on it. Only for an instrument that is read as it is.
+        self._read_action = self.addWidget(self.read)
+        self._read_action.setVisible(False)
+        # The four run buttons are made and answered for here, and shown in
+        # the trigger toolbar's frame: they are how a trigger is waited for.
         self.set_mode(STOP)
 
-    def current(self) -> str:
-        return str(self.instrument.currentData())
+    def add_kind(self, name: str) -> None:
+        """Ask for one more instrument of this kind, as choosing it in the list does."""
+        for action in self.kinds.actions():
+            if action.data() == name:
+                action.trigger()
 
-    def _on_open_clicked(self, on: bool) -> None:
-        if on:
-            self.open_requested.emit(self.current())
-        else:
-            self.close_requested.emit()
+    def set_reads(self, shown: bool, busy: bool = False) -> None:
+        """Offer Read, for an instrument that is read as it is; not while it is reading."""
+        self._read_action.setVisible(shown)
+        self.read.setEnabled(not busy)
 
-    def set_open(self, is_open: bool) -> None:
-        """Show what is so, without asking for it again."""
-        self.open.setChecked(is_open)
-        self.open.setText("Close" if is_open else "Open")
-        self.open.setToolTip(CLOSE_TIP if is_open else OPEN_TIP)
+    def reads(self) -> bool:
+        """Whether Read is offered."""
+        return self._read_action.isVisible()
 
-    def mark_open(self, names: set[str]) -> None:
-        """Say in the list which instruments are open."""
-        for index in range(self.instrument.count()):
-            name = self.instrument.itemData(index)
-            text = backends.title(name) + (OPEN_MARK if name in names else "")
-            if self.instrument.itemText(index) != text:
-                self.instrument.setItemText(index, text)
+    def set_triggered(self, triggered: bool) -> None:
+        """Whether there is a trigger for Single and Normal to wait for: there is
+        none when every instrument they would run is read as it is."""
+        for mode in (SINGLE, NORMAL):
+            button = self.modes[mode]
+            button.setEnabled(triggered)
+            button.setToolTip(BUTTONS[mode][1] + ("" if triggered else NO_TRIGGER_TIP))
 
     def set_mode(self, mode: str) -> None:
         """Press in the button for what is being done, without asking for it again."""

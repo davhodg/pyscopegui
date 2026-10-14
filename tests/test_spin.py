@@ -94,8 +94,7 @@ def test_an_instruments_number_steps_as_it_says(app):
 def test_the_generators_numbers_do_not_jump_a_volt_at_a_press(window):
     from pyscopegui.backends import picoscope2000 as pico
 
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
+    window.choose("picoscope2000")
     controls = window.instrument_view.controls
     controls["gen_amplitude"].stepUp()
     controls["gen_offset"].stepDown()

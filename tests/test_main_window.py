@@ -21,14 +21,16 @@ def feed(window, seconds=0.05):
 
 
 def test_it_opens_with_the_settings_the_plot_and_the_log(window):
-    assert set(window.panes.names()) == set(DEFAULT_VISIBLE)
+    assert set(window.panes.names()) == {*DEFAULT_VISIBLE, "traffic"}
     assert all(window.panes.on_screen(name) for name in DEFAULT_VISIBLE)
+    assert not window.panes.on_screen("traffic"), "which is opened when it is wanted"
 
 
-def test_the_view_menu_lists_every_pane_ticked(window):
+def test_the_view_menu_lists_every_pane_ticked_while_it_is_on_screen(window):
     window._build_view_menu()
-    assert list(window._view_actions) == ["instrument", "scope", "log"]
-    assert all(action.isChecked() for action in window._view_actions.values())
+    assert list(window._view_actions) == ["instrument", "scope", "log", "traffic"]
+    ticked = [name for name, action in window._view_actions.items() if action.isChecked()]
+    assert ticked == ["instrument", "scope", "log"]
 
 
 def test_run_fills_the_plot_from_the_demo(window):
@@ -102,13 +104,14 @@ def test_a_back_end_that_will_not_load_is_said_and_not_raised(window, monkeypatc
     assert "could not be started" in window.log.toPlainText()
     assert window.instrument is None
     assert window.instrument_bar.mode() == "stop"
-    assert not window.instrument_bar.open.isChecked()
+    assert window.instrument_view.open.text() == "Open"
 
 
 def test_the_instrument_chosen_is_remembered(window):
-    assert window.instrument_bar.current() == backends.DEFAULT
-    window.instrument_bar.instrument.currentIndexChanged.emit(0)
-    assert window.ctx.settings.get("instrument.name") == backends.DEFAULT
+    assert window.chosen == backends.DEFAULT and window.added == [backends.DEFAULT]
+    window.choose("picoscope2000")
+    assert window.ctx.settings.get("instrument.name") == "picoscope2000"
+    assert window.ctx.settings.get("instruments.added") == [backends.DEFAULT, "picoscope2000"]
 
 
 # --- open and close, and the four a scope has --------------------------------------------------
@@ -118,20 +121,19 @@ def press(window, mode):
 
 
 def test_it_starts_closed_and_stopped(window):
-    bar = window.instrument_bar
-    assert bar.open.text() == "Open" and not bar.open.isChecked()
-    assert bar.mode() == "stop"
-    assert bar.instrument.isEnabled()
+    assert window.instrument_view.open.text() == "Open"
+    assert window.instrument_bar.mode() == "stop"
     assert window.instrument is None
 
 
 def test_open_connects_and_reads_nothing(window):
-    bar = window.instrument_bar
-    bar.open.click()
+    view = window.instrument_view
+    view.open.click()
     assert window.instrument.is_open and not window.instrument.running
-    assert bar.open.text() == "Close"
-    assert bar.instrument.isEnabled(), "another can be chosen, and opened beside it"
-    assert bar.instrument.currentText() == "Demo signals  (open)"
+    assert view.open.text() == "Close"
+    assert view.instruments.tabText(0) == "Demo \u25cf"
+    assert "Open." in view.instruments.tabToolTip(0)
+    assert window.instrument_bar.add.isEnabled(), "another can be added, and opened beside it"
     assert window.capture.stored() == 0
     assert set(window.capture.records) == {c.key for c in demo.CHANNELS}, "its channels, empty"
     assert "open, stopped" in window.status.text()
@@ -140,18 +142,17 @@ def test_open_connects_and_reads_nothing(window):
 def test_close_lets_go_and_keeps_what_is_on_the_plot(window):
     press(window, "auto")
     feed(window)
-    window.instrument_bar.open.click()  # which says Close while it is open
+    window.instrument_view.open.click()  # which says Close while it is open
     assert not window.instrument.is_open and not window.instrument.running
-    assert window.instrument_bar.open.text() == "Open"
+    assert window.instrument_view.open.text() == "Open"
     assert window.instrument_bar.mode() == "stop"
-    assert window.instrument_bar.instrument.isEnabled()
     assert window.capture.stored() > 0
 
 
 def test_a_run_button_opens_the_instrument_if_it_is_not_open(window):
     press(window, "normal")
     assert window.instrument.is_open and window.instrument.running
-    assert window.instrument_bar.open.text() == "Close"
+    assert window.instrument_view.open.text() == "Close"
     assert window.instrument_bar.mode() == "normal" == window.acquisition.mode
 
 
@@ -181,9 +182,8 @@ def test_choosing_another_instrument_lets_go_of_the_one_there_was(window, monkey
     press(window, "auto")
     first = window.instrument
     window.close_instrument()
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData("picoscope2000"))
-    window.instrument_bar.open.click()
+    window.choose("picoscope2000")
+    window.instrument_view.open.click()
     assert window.instrument is not first
     assert set(window.capture.records) == {"A", "B"}
     window.close_instrument()

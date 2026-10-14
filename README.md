@@ -15,7 +15,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 
 ![pyscopegui with a Rigol DS1054Z and a PicoScope 2204A open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](pyscopegui/help/main-window.png)
 
-**This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and back ends for both ranges of the PicoScope 2000 series and the Rigol DS1000Z series.
+**This is an early version.** The window, the panes, the build and the installer are in place, with a built-in demo that needs no hardware and back ends for both ranges of the PicoScope 2000 series, the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series.
 
 ## What it does
 
@@ -23,7 +23,8 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 - **Auto Y**, on to start with, fits the voltage axis to the signal; unticked, the axis is the range the channels are set to, as on a scope's screen.
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes if you ask, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
-- **Several instruments at once**: open one, choose another and open that too. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
+- **Several instruments at once**, and two of the same kind: **Add instrument** puts each in the Instrument pane with a tab of its own, where it is opened and set up. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
+- **Workspaces**: one for each bench or setup -- the scopes at home, the one at work -- each with its own instruments, settings and panes, chosen under *File > Workspace*.
 - **Export to CSV**: every sample of what the plot shows, with time measured from the trigger, one file for each instrument.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has. A scope's channels are set one at a time, and how every channel is set is read beside its name in the plot's list: click one there to change it.
 - **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.
@@ -38,6 +39,7 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 - **Demo signals**: two analog and four digital channels, with no hardware.
 - **PicoScope 2000 series**, both ranges of them. On Pico's `ps2000` driver (2202, 2203, 2204, 2204A, 2205, 2205A): both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. On the `ps2000a` driver (2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the MSO models): two or four channels and an MSO's sixteen logic inputs, streamed at up to 31.25 MS/s, or read in blocks of up to a million samples at the scope's full rate.
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory. The logic inputs and signal generator that some models have are not used yet. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
+- **Tektronix TDS/TPS 2000 series** (TDS200, TDS1000, TDS2000 and TPS2000), over a serial port: two or four channels, a sweep at a time around the scope's own trigger, or what is on its screen read off with nothing on the scope changed. For taking a capture off the scope: a serial port is too slow to watch one.
 
 Pico's library is not bundled. Install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads). If Pico's own PicoScope 7 is running, close it first, since only one program can have the scope open.
 
@@ -115,6 +117,7 @@ pyscopegui is Apache-2.0 and is a pure-Python application on top of these packag
 | [pyqtgraph](https://www.pyqtgraph.org) | Plotting | MIT |
 | [numpy](https://numpy.org) | Sample arrays | BSD-3-Clause (with 0BSD / MIT / Zlib / CC0 parts) |
 | [pyvisa](https://github.com/pyvisa/pyvisa) | A scope on USB, through an installed VISA library | MIT |
+| [pyserial](https://github.com/pyserial/pyserial) | Serial port, for the Tektronix scopes | BSD-3-Clause |
 
 Only LGPL Qt modules are used (QtCore, QtGui, QtWidgets). pyscopegui depends on **PySide6-Essentials** rather than the full PySide6, so the GPL-only add-on modules (Qt Charts, Qt Data Visualization and the rest) are never installed.
 

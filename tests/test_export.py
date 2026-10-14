@@ -3,6 +3,7 @@
 """Writing what a plot shows as CSV."""
 
 import csv
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -29,7 +30,8 @@ def test_every_sample_in_the_stretch_is_written_with_its_time(tmp_path):
     done = export.write_csv(tmp_path / "out.csv", held, origin=0.0, t_from=0.001, t_to=0.003)
     rows = rows_of(tmp_path / "out.csv")
     assert rows[0] == ["time (s)", "A (V)"]
-    assert rows[1:] == [["0.001", "0.5"], ["0.002", "1"], ["0.003", "1.5"]]
+    # Time to a tenth of a sample: at 1 kS/s, four places.
+    assert rows[1:] == [["0.0010", "0.5"], ["0.0020", "1"], ["0.0030", "1.5"]]
     assert (done.rows, done.channels) == (3, 1)
 
 
@@ -37,11 +39,11 @@ def test_time_is_from_the_trigger_as_the_plot_has_it(tmp_path):
     held = {"A": record("A", [1, 2, 3, 4, 5])}
     export.write_csv(tmp_path / "out.csv", held, origin=0.002, t_from=-0.002, t_to=0.002)
     assert [row[0] for row in rows_of(tmp_path / "out.csv")[1:]] == [
-        "-0.002",
-        "-0.001",
-        "0",
-        "0.001",
-        "0.002",
+        "-0.0020",
+        "-0.0010",
+        "0.0000",
+        "0.0010",
+        "0.0020",
     ]
 
 
@@ -53,8 +55,8 @@ def test_a_logic_channel_is_noughts_and_ones_with_no_unit(tmp_path):
     export.write_csv(tmp_path / "out.csv", held, 0.0, 0.0, 1.0)
     assert rows_of(tmp_path / "out.csv") == [
         ["time (s)", "A (V)", "D0"],
-        ["0", "0.25", "0"],
-        ["0.001", "0.5", "1"],
+        ["0.0000", "0.25", "0"],
+        ["0.0010", "0.5", "1"],
     ]
 
 
@@ -103,6 +105,32 @@ def test_one_instrument_has_the_name_asked_for_and_several_have_their_own(tmp_pa
         "Pico": tmp_path / "capture-Pico.csv",
         "Rigol": tmp_path / "capture-Rigol.csv",
     }
+
+
+@pytest.mark.parametrize(
+    ("rate", "start_s"),
+    [(1e6, 1000.0), (31.25e6, 10.0), (500e6, 0.0), (5000.0, 3600.0), (100.0, 0.0)],
+)
+def test_every_sample_has_a_time_of_its_own_however_far_into_a_run(tmp_path, rate, start_s):
+    """Nine figures were a microsecond a thousand seconds in: at 1 MS/s every
+    sample there was written at the same time as its neighbours."""
+    made = Record(Channel("A", "A"), rate, 10)
+    made.skip(round(start_s * rate))  # where the run had got to
+    made.append(np.arange(4, dtype=np.float32))
+    t_from = (made.total - 4) / rate
+    export.write_csv(tmp_path / "out.csv", {"A": made}, 0.0, t_from, t_from + 3.5 / rate)
+    times = [float(row[0]) for row in rows_of(tmp_path / "out.csv")[1:]]
+    assert len(times) == 4 and len(set(times)) == 4
+    for row, time in enumerate(times):
+        assert time == pytest.approx(start_s + row / rate, abs=0.1 / rate)
+
+
+def test_time_is_written_to_a_tenth_of_a_sample():
+    assert export.time_format(1e6) == "%.7f"
+    assert export.time_format(31.25e6) == "%.9f"
+    assert export.time_format(500e6) == "%.10f"
+    assert export.time_format(1.0) == "%.1f"
+    assert export.time_format(0.0) == "%.1f", "and something sensible for no rate at all"
 
 
 # --- from the plot -----------------------------------------------------------------------------
@@ -171,3 +199,54 @@ def test_the_folder_last_exported_to_is_where_the_next_starts(window, tmp_path, 
     assert window.ctx.settings.get(EXPORT_FOLDER) == str(tmp_path / "sub")
     window.scope.ask_export()
     assert asked[1] == str(tmp_path / "sub" / "capture.csv")
+
+
+# --- a picture of the plot ---------------------------------------------------------------------
+def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window, monkeypatch):
+    asked = []
+    monkeypatch.setattr(type(window.scope), "ask_export", lambda self: asked.append("csv"))
+    button = window.scope.export_button
+    assert button.text() == "Export CSV..."
+    assert [action.text() for action in button.menu().actions()] == [
+        "Export CSV...",
+        "Export PNG...",
+    ]
+    file_menu = window.menuBar().actions()[0].menu()
+    assert "Export PNG..." in [action.text() for action in file_menu.actions()]
+
+
+def test_pressing_the_export_button_itself_is_still_csv(window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    asked = []
+
+    def fake(parent, title, start, kinds):
+        asked.append((title, Path(start).name))
+        return "", ""
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(fake))
+    window.scope.export_button.click()
+    window.scope.export_button.menu().actions()[1].trigger()
+    assert asked == [("Export CSV", "capture.csv"), ("Export PNG", "capture.png")]
+
+
+def test_a_picture_of_the_plot_is_saved_as_png(window, tmp_path):
+    from PySide6.QtGui import QImage
+
+    window.set_mode("auto")
+    feed(window)
+    assert window.scope.export_png(tmp_path / "shot.png")
+    picture = QImage(str(tmp_path / "shot.png"))
+    assert not picture.isNull() and picture.width() > 200 and picture.height() > 100
+    assert "Saved a picture of the plot" in window.log.toPlainText()
+    assert "shot.png" in window.log.toPlainText()
+
+
+def test_a_picture_is_named_png_whatever_was_typed(window, tmp_path):
+    assert window.scope.export_png(tmp_path / "shot")
+    assert (tmp_path / "shot.png").is_file()
+
+
+def test_a_picture_that_cannot_be_saved_says_so(window, tmp_path):
+    assert not window.scope.export_png(tmp_path / "no such folder" / "shot.png")
+    assert "could not be saved" in window.log.toPlainText()

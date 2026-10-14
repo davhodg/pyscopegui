@@ -37,6 +37,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core.traffic import traced
 
 PORT = 5555
 #: Seconds to wait to be connected, and for an answer once connected.
@@ -81,6 +82,10 @@ class ScopeError(Exception):
 
 class GivenUpError(Exception):
     """A read was abandoned part way, because something else was asked for."""
+
+
+#: Each channel in the colour the scope's own screen draws it in.
+COLOURS = {"CH1": "#f2e600", "CH2": "#00e5ff", "CH3": "#ff40d0", "CH4": "#3d7bff"}
 
 
 # --- the settings ---------------------------------------------------------------------------
@@ -145,10 +150,11 @@ def make_settings() -> tuple[Setting, ...]:
             LAN,
             choices=((LAN, "Network"), (USB, "USB")),
             group="Connection",
+            closed=True,
             tip=(
                 "How the scope is plugged in. The network needs nothing installed.\n"
                 "USB needs a VISA library, which Rigol's own software installs.\n"
-                "Taken up at the next Open."
+                "Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -156,10 +162,11 @@ def make_settings() -> tuple[Setting, ...]:
             "Address",
             "",
             group="Connection",
+            closed=True,
             needs=("connection", LAN),
             tip=(
                 "The scope's address on the network, as it shows under\n"
-                "Utility > IO > LAN Conf: 192.168.1.50. Taken up at the next Open."
+                "Utility > IO > LAN Conf: 192.168.1.50. Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -167,13 +174,14 @@ def make_settings() -> tuple[Setting, ...]:
             "USB device",
             "",
             group="Connection",
+            closed=True,
             needs=("connection", USB),
             found=usb_scopes,
             empty="First Rigol found",
             tip=(
                 "Which scope, where more than one is plugged in. The list is of\n"
                 "those plugged in now; a serial number can be typed too. Left\n"
-                "empty, the first Rigol found is used. Taken up at the next Open."
+                "empty, the first Rigol found is used. Changed while the scope is closed."
             ),
         ),
         Setting(
@@ -558,7 +566,7 @@ class Scope:
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
         if self.settings.usb:
-            self._link = VisaLink(self.settings.usb_device)
+            self._link = traced(VisaLink(self.settings.usb_device), "Rigol USB")
             where = "on USB"
             self.notes.append((f"On USB: {self._link.name}.", False))
         elif not self.settings.host:
@@ -567,7 +575,9 @@ class Scope:
                 "it shows it under Utility > IO > LAN Conf. Or choose USB."
             )
         else:
-            self._link = Link(self.settings.host, self.settings.port)
+            self._link = traced(
+                Link(self.settings.host, self.settings.port), f"Rigol {self.settings.host}"
+            )
             where = f"at {self.settings.host}"
         said = self._link.ask("*IDN?")
         parts = [part.strip() for part in said.split(",")]
@@ -856,6 +866,7 @@ class Rigol1000Z(Instrument):
                 full_scale=self.settings.scale[key] * UP / 2,
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
+                colour=COLOURS.get(key, ""),
             )
             for key in self.settings.keys()
         ]

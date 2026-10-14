@@ -33,6 +33,7 @@ body:
         - A new instrument
         - PicoScope
         - Rigol
+        - Tektronix
         - Trigger and run modes
         - Several instruments at once
         - Event Log

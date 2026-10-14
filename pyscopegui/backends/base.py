@@ -44,6 +44,9 @@ class Channel:
     #: The group its settings are listed under, so that choosing the channel
     #: can show them: "Channel A". Empty where it has none.
     group: str = ""
+    #: The colour the instrument itself draws it in, as "#rrggbb", so that the
+    #: plot and the scope's own screen agree. Empty where it has none.
+    colour: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,9 @@ class Setting:
     #: (key, value) of another setting this one depends on: it has a say only
     #: while that one is at that value, and is greyed out otherwise.
     needs: tuple[str, object] | None = None
+    #: Says how the instrument is reached -- an address, a port -- so it is
+    #: used when the instrument is opened, and greyed out while it is open.
+    closed: bool = False
     tip: str = ""
 
 
@@ -140,6 +146,10 @@ class Instrument(QObject):
     note = Signal(str)
     #: It is still running, but what it is sending is not what was asked for.
     warning = Signal(str)
+    #: What it is busy with at this moment, in a few words, for an instrument
+    #: slow enough that a silence looks like a fault: "reading CH2 (2 of 4)".
+    #: Empty when it is busy with nothing in particular.
+    activity = Signal(str)
 
     #: What can be set, in the order it should be listed, before anything
     #: is known about the instrument that is plugged in.
@@ -153,6 +163,14 @@ class Instrument(QObject):
     @property
     def sweeps(self) -> bool:
         """Whether it sends sweeps, each complete in itself, rather than a stream."""
+        return False
+
+    @property
+    def reads_as_is(self) -> bool:
+        """Whether it is read as it is, with nothing on it changed. Its own
+        trigger is then in charge and the toolbar's has no say: there is
+        nothing to wait for, only what it shows to be read, once or over
+        and over."""
         return False
 
     def set_trigger(

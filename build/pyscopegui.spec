@@ -37,6 +37,8 @@ from pyscopegui.backends import BACKENDS  # noqa: E402
 HIDDEN = sorted({backend.module for backend in BACKENDS.values()})
 # pyvisa chooses the wrapper for the installed VISA library by name, at run time.
 HIDDEN += ["pyvisa", "pyvisa.ctwrapper"]
+# The serial port, and the list of the ports there are, for the Tektronix scopes.
+HIDDEN += ["serial", "serial.tools.list_ports"]
 
 # Qt modules that are GPL or commercial only. Shipping one would change the
 # licence of the whole application, so they are kept out deliberately.

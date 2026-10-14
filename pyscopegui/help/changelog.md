@@ -15,16 +15,42 @@ since the last version, and comes out in the next one.
   their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
   their sixteen logic inputs -- streamed at up to 31.25 MS/s, or read in blocks of up to a
   million samples.
+- **Channel colours** as each scope draws its channels, kept by a channel whatever else is
+  open, and chosen by right-clicking it in the channel list.
+- **Instrument traffic**, under *View*: every command sent to an instrument, every answer
+  and how long it took, and every call into a maker's library, kept only while the pane is
+  open.
+- **Workspaces**, under *File > Workspace*: one for each bench or setup, each with its own
+  instruments, settings and panes. There is one called `default`, and what was kept before
+  is moved into it. *File > Workspace > Open folder* takes the place of *Tools > Open
+  settings folder*.
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
+- **Cursors** on the plot, one or two: the channel list reads every channel at each, to the
+  nearest sample, and two give the time and the change between them.
+
+- **Export PNG**, under the arrow on the plot's Export button and under *File*: a picture
+  of the plot and its channel list.
+- **Read**, for a Tektronix read as it is: one reading of what its screen shows. The
+  trigger, **Single** and **Normal** are greyed out for it, since its trigger is its own.
 - *Tools > Settings > Add shortcut to desktop* on Windows; both shortcuts for a pip
   installation too.
 - Rigol over **USB**, through an installed VISA library, as well as over the network.
 - Rigol: a **20 MHz limit** for each channel, and the scope's **acquisition mode** --
   normal, high resolution or peak detect.
+- **Tektronix TDS200, TDS1000, TDS2000 and TPS2000** scopes, over a serial port: a sweep at
+  a time, or what is on the scope's screen read off with nothing on it changed. A set-up is
+  sent a setting at a time, with how far it has got shown, and opening waits for a scope
+  that is still busy with one. Read as it is, the plot shows the whole of what is read.
 
 ### Changed
 
+- **Add instrument** takes the place of the list of instruments on the toolbar. Each
+  instrument added has a tab in the Instrument pane, where **Open** now is, under
+  **Connection**; the cross on a tab removes it.
+- **Two instruments of the same kind** can be in use at once, each with its own settings.
+- The channel list's **Value** column, which said what each channel read now, is gone: with
+  no cursor the list has names and settings only, and the plot has the room.
 - The launchers no longer ask about a Start menu entry: the first start says in the Event
   Log where a shortcut is made.
 - The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not

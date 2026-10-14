@@ -13,6 +13,7 @@ where there is one.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,8 +25,6 @@ from pyscopegui.core.capture import Record
 #: Rows written at a time: enough to be quick, without a second copy of a
 #: deep capture in memory as text.
 CHUNK = 100_000
-#: Nine figures of time: a nanosecond in a second's worth.
-TIME_FORMAT = "%.9g"
 ANALOG_FORMAT = "%.6g"
 DIGITAL_FORMAT = "%d"
 
@@ -45,6 +44,20 @@ def paths_for(path: Path, names: list[str]) -> dict[str, Path]:
     if len(names) <= 1:
         return {name: path for name in names}
     return {name: path.with_name(f"{path.stem}-{name}{path.suffix}") for name in names}
+
+
+def time_format(rate: float) -> str:
+    """Time in seconds to a tenth of the time between two samples, however far
+    into a run it is.
+
+    A number of figures will not do: nine of them are a nanosecond a second
+    into a run, and a microsecond a thousand seconds in, where every sample
+    at 1 MS/s would be written at the same time as its neighbours. So the
+    places after the point are what the rate needs, and the figures before it
+    are as many as there are.
+    """
+    interval = 1.0 / rate if rate > 0 else 1.0
+    return f"%.{max(0, math.ceil(-math.log10(interval))) + 1}f"
 
 
 def heading(record: Record, name: str) -> str:
@@ -84,7 +97,7 @@ def write_csv(
         (heading(records[name], name), samples[first - start : last - start], records[name])
         for name, (start, samples) in pieces.items()
     ]
-    formats = [TIME_FORMAT] + [
+    formats = [time_format(rate)] + [
         ANALOG_FORMAT if record.channel.kind == ANALOG else DIGITAL_FORMAT
         for _heading, _samples, record in columns
     ]

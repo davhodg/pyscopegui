@@ -19,7 +19,8 @@ authors = [{ name = "davhodg" }]
 # What PyPI shows as tags, and searches on.
 keywords = [
     "oscilloscope", "logic analyzer", "logic analyser", "mixed signal", "PicoScope",
-    "Rigol", "DS1054Z", "SCPI", "VISA", "USBTMC", "test and measurement", "embedded", "Qt",
+    "Rigol", "DS1054Z", "Tektronix", "TPS2014", "SCPI", "VISA", "USBTMC",
+    "test and measurement", "embedded", "Qt",
 ]
 # Checked against the official list by tests/test_readme.py: PyPI refuses an
 # upload with a classifier it does not know, which is the last step of a
@@ -52,6 +53,8 @@ dependencies = [
     # For a scope on USB, through whichever VISA library is installed. Imported
     # only when one is opened that way.
     "pyvisa>=1.13",
+    # The serial port a Tektronix TDS or TPS scope is on. Imported only when one is opened.
+    "pyserial>=3.5",
 ]
 
 [project.urls]

@@ -6,10 +6,11 @@ import time
 
 import pytest
 
+from pyscopegui import backends
 from pyscopegui.backends import picoscope2000 as pico
 from pyscopegui.core.capture import Capture
 from pyscopegui.core.session import Session
-from pyscopegui.ui.instrument_bar import OPEN_MARK
+from pyscopegui.ui.instrument_view import OPEN_MARK
 from pyscopegui.ui.main_window import MainWindow
 from pyscopegui.ui.scope_view import STOPPED, TRIGGERED, ScopeView
 from tests.test_rigol1000z import fake  # noqa: F401  the stand-in scope, as a fixture
@@ -26,8 +27,7 @@ def wait_for(app, done, seconds=5.0):
 
 
 def choose(window, name):
-    box = window.instrument_bar.instrument
-    box.setCurrentIndex(box.findData(name))
+    window.choose(name)
 
 
 def choose_source(window, key):
@@ -48,9 +48,9 @@ def both(window, fake, app):  # noqa: F811
     """The window with the demo and a pretend Rigol both open, the Rigol chosen."""
     window.ctx.settings.set(f"instrument.{RIGOL}", {"address": fake.address})
     choose(window, "demo")
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose(window, RIGOL)
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     wait_for(app, lambda: window.instrument.is_open)
     yield window
     for name in ("demo", RIGOL):
@@ -79,10 +79,8 @@ def test_a_second_instrument_opens_beside_the_first(both):
     window = both
     units = window.session.units
     assert units["demo"].is_open and units[RIGOL].is_open
-    bar = window.instrument_bar
-    assert bar.instrument.isEnabled()
-    marked = [bar.instrument.itemText(i).endswith(OPEN_MARK) for i in range(bar.instrument.count())]
-    assert marked.count(True) == 2
+    bar = window.instrument_view.instruments
+    assert [bar.tabText(i) for i in range(bar.count())] == ["Demo" + OPEN_MARK, "Rigol" + OPEN_MARK]
     assert "Demo:" in window.status.text() and "Rigol:" in window.status.text()
 
 
@@ -94,22 +92,22 @@ def test_the_plot_lists_the_channels_of_both_and_says_whose_each_is(both):
 
 
 def test_one_instrument_by_itself_is_not_named(window):
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     assert not window.scope._names["demo:A"].startswith("Demo")
 
 
 def test_open_and_the_pane_are_about_the_one_chosen(both):
     window = both
     assert "address" in window.instrument_view.controls
-    assert window.instrument_bar.open.text() == "Close"
+    assert window.instrument_view.open.text() == "Close"
     choose(window, "demo")
     assert "address" not in window.instrument_view.controls
-    window.instrument_bar.open.click()  # which closes the demo, and only the demo
+    window.instrument_view.open.click()  # which closes the demo, and only the demo
     assert not window.session.units["demo"].is_open
     assert window.session.units[RIGOL].is_open
-    assert window.instrument_bar.open.text() == "Open"
+    assert window.instrument_view.open.text() == "Open"
     choose(window, RIGOL)
-    assert window.instrument_bar.open.text() == "Close"
+    assert window.instrument_view.open.text() == "Close"
 
 
 def test_a_closed_instruments_traces_stay_until_another_is_run(both, app):
@@ -196,7 +194,7 @@ def test_a_trigger_saved_before_there_were_several_is_still_used(window):
     window.close()
     again = MainWindow()
     try:
-        again.instrument_bar.open.click()
+        again.instrument_view.open.click()
         assert (again.acquisition.source, again.acquisition.level) == ("B", 0.3)
         assert again.trigger_bar.level.value() == 0.3
     finally:
@@ -253,10 +251,10 @@ def test_two_that_send_sweeps_are_shown_whole(window, fake, monkeypatch, app):  
     window.ctx.settings.set(f"instrument.{RIGOL}", {"address": fake.address})
     window.ctx.settings.set("instrument.picoscope2000", {"mode": "block"})
     choose(window, "picoscope2000")
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "A")
     choose(window, RIGOL)
-    window.instrument_bar.open.click()
+    window.instrument_view.open.click()
     choose_source(window, "CH1")
     window.set_mode("normal")
     units = window.session.units
@@ -328,7 +326,7 @@ def test_clicking_a_channel_on_the_plot_brings_its_settings_up(both, app):
     assert window.instrument_view.tabs is None
     item = window.scope.channel_list._items[f"{RIGOL}:CH1"]
     window.scope.channel_list.itemClicked.emit(item, 0)
-    assert window.instrument_bar.current() == RIGOL, "the instrument it belongs to is chosen"
+    assert window.chosen == RIGOL, "the instrument it belongs to is chosen"
     assert window.instrument_view.tabs.currentIndex() == 0
     app.processEvents()  # new controls are shown when the event loop gets to them
     assert window.instrument_view.controls["scale_1"].isVisibleTo(window.instrument_view)
@@ -345,38 +343,188 @@ def test_a_setting_that_starts_the_run_again_says_so(both):
 
 # --- a tab for each instrument in the pane -------------------------------------------------------
 def tab_names(window):
+    """What each tab is called, without whether it is open."""
     bar = window.instrument_view.instruments
-    return [bar.tabText(i) for i in range(bar.count())]
+    return [bar.tabText(i).removesuffix(OPEN_MARK) for i in range(bar.count())]
 
 
-def test_one_instrument_has_no_tabs_to_choose_between(window):
-    window.instrument_bar.open.click()
-    assert window.instrument_view.instruments.isHidden()
+def test_one_instrument_has_a_tab_that_says_which_it_is_and_cannot_be_removed(window):
+    bar = window.instrument_view.instruments
+    assert not bar.isHidden() and tab_names(window) == ["Demo"]
+    assert not bar.tabsClosable(), "there is always one for the pane to be about"
+    assert bar.tabToolTip(0) == "Demo signals\nNot open."
+    window.remove_instrument()
+    assert window.added == ["demo"]
 
 
 def test_the_pane_has_a_tab_for_each_instrument_in_use(both):
     window = both
     bar = window.instrument_view.instruments
     assert not bar.isHidden()
-    assert tab_names(window) == ["Demo", "Rigol"] and bar.tabText(bar.currentIndex()) == "Rigol"
+    assert tab_names(window) == ["Demo", "Rigol"]
+    assert bar.tabText(bar.currentIndex()) == "Rigol" + OPEN_MARK
 
 
 def test_a_tab_chooses_its_instrument_as_the_list_does(both):
     window = both
     bar = window.instrument_view.instruments
     bar.setCurrentIndex(0)
-    assert window.instrument_bar.current() == "demo"
+    assert window.chosen == "demo"
     assert "address" not in window.instrument_view.controls
     assert window.trigger_bar.label.text() == " Trigger, Demo: "
     assert tab_names(window) == ["Demo", "Rigol"], "still both"
     assert bar.currentIndex() == 0
     choose(window, RIGOL)
-    assert bar.tabText(bar.currentIndex()) == "Rigol", "and the list moves the tab"
+    assert bar.tabText(bar.currentIndex()).startswith("Rigol"), "and choosing moves the tab"
 
 
-def test_an_instrument_only_chosen_has_a_tab_while_it_is(both):
+def test_an_instrument_added_stays_in_the_pane_until_it_is_removed(both):
     window = both
-    choose(window, "picoscope2000")
+    window.add_instrument("picoscope2000")
     assert tab_names(window) == ["Demo", "Rigol", "Pico"]
     choose(window, "demo")
+    assert tab_names(window) == ["Demo", "Rigol", "Pico"], "opened or not"
+    window.remove_instrument("picoscope2000")
     assert tab_names(window) == ["Demo", "Rigol"]
+
+
+# --- how an instrument is reached, which cannot change while it is open ------------------------
+def test_the_connection_settings_are_greyed_out_while_it_is_open(both, app):
+    window = both
+    controls = window.instrument_view.controls
+    assert not controls["connection"].isEnabled() and not controls["address"].isEnabled()
+    assert controls["time_div"].isEnabled(), "everything else can still be set"
+    window.close_instrument()
+    wait_for(app, lambda: not window.instrument.is_open)
+    controls = window.instrument_view.controls
+    assert controls["connection"].isEnabled() and controls["address"].isEnabled()
+    assert not controls["usb"].isEnabled(), "which is for USB, and the network is chosen"
+
+
+def test_choosing_another_instrument_shows_whether_that_one_is_open(both):
+    window = both
+    choose(window, "picoscope2000")  # which has not been opened
+    choose(window, RIGOL)
+    assert not window.instrument_view.controls["address"].isEnabled()
+
+
+# --- an instrument read as it is, beside one that is not ----------------------------------------
+def test_with_another_instrument_open_single_is_still_for_that_one(both):
+    """Single is greyed out only when there is nothing it could run."""
+    window = both
+    assert window.instrument_bar.modes["single"].isEnabled()
+    assert not window.instrument_bar.reads(), "neither of these is read as it is"
+
+
+# --- adding and removing instruments ------------------------------------------------------------
+def test_add_instrument_lists_every_kind_and_puts_one_in_the_pane(window):
+    bar = window.instrument_bar
+    assert [action.data() for action in bar.kinds.actions()] == backends.names()
+    bar.add_kind("picoscope2000")
+    assert window.added == ["demo", "picoscope2000"] and window.chosen == "picoscope2000"
+    assert tab_names(window) == ["Demo", "Pico"]
+    assert window.instrument is None, "added, and not opened: how it is reached may come first"
+    assert window.instrument_view.open.text() == "Open"
+
+
+def test_two_of_the_same_kind_are_two_instruments_with_settings_of_their_own(window, fake, app):  # noqa: F811
+    window.add_instrument(RIGOL)
+    second = window.add_instrument(RIGOL)
+    assert second == f"{RIGOL}#2" and window.chosen == second
+    assert tab_names(window) == ["Demo", "Rigol", "Rigol 2"]
+    assert backends.title(second) == "Rigol DS1000Z series 2"
+    # Each is told how it is reached, and remembers it for itself.
+    address = window.instrument_view.controls["address"]
+    address.setText(fake.address)
+    address.editingFinished.emit()
+    assert window.ctx.settings.get(f"instrument.{second}") == {"address": fake.address}
+    assert window.ctx.settings.get(f"instrument.{RIGOL}") is None
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert window.session.units[second].is_open
+    assert RIGOL not in window.session.units or not window.session.units[RIGOL].is_open
+    assert f"{second}:CH1" in window.scope._curves
+    window.close_instrument()
+
+
+def test_the_cross_on_a_tab_closes_its_instrument_and_takes_it_out(both, app):
+    window = both
+    bar = window.instrument_view.instruments
+    assert bar.tabsClosable() and "cross" in bar.tabToolTip(1)
+    rigol = window.session.units[RIGOL]
+    bar.tabCloseRequested.emit(1)
+    assert window.added == ["demo"] and window.chosen == "demo"
+    assert RIGOL not in window.session.units and rigol.instrument is None
+    wait_for(app, lambda: "closed" in window.log.toPlainText().lower())
+    assert not any(key.startswith(RIGOL) for key in window.scope._curves)
+    assert window.session.units["demo"].is_open, "and the other is left as it was"
+    assert window.ctx.settings.get(f"instrument.{RIGOL}") is not None, "its settings are kept"
+    window.choose(RIGOL)  # for the fixture, which closes both
+
+
+def test_removing_one_that_is_not_chosen_leaves_the_chosen_one_chosen(both):
+    window = both
+    window.remove_instrument("demo")
+    assert window.added == [RIGOL] and window.chosen == RIGOL
+    assert window.instrument.is_open
+    window.choose("demo")
+
+
+def test_the_number_of_one_removed_is_used_again(window):
+    for _ in range(3):
+        window.add_instrument("demo")
+    assert window.added == ["demo", "demo#2", "demo#3", "demo#4"]
+    window.remove_instrument("demo#3")
+    assert window.add_instrument("demo") == "demo#3"
+
+
+def test_what_was_in_the_pane_is_there_the_next_time(window, app):
+    from pyscopegui.ui.main_window import MainWindow
+
+    window.add_instrument("picoscope2000")
+    window.add_instrument("demo")
+    window.choose("picoscope2000")
+    again = MainWindow()
+    try:
+        assert again.added == ["demo", "picoscope2000", "demo#2"]
+        assert again.chosen == "picoscope2000"
+    finally:
+        again.close()
+        again.deleteLater()
+
+
+def test_an_instrument_saved_that_there_is_no_longer_is_left_out(window):
+    from pyscopegui.ui.main_window import MainWindow
+
+    window.ctx.settings.set("instruments.added", ["nosuch", "demo#2", "demo#2", "demo#x", 7])
+    window.ctx.settings.set("instrument.name", "nosuch")
+    again = MainWindow()
+    try:
+        assert again.added == ["demo#2"] and again.chosen == "demo#2"
+    finally:
+        again.close()
+        again.deleteLater()
+
+
+def test_open_is_under_connection_below_how_the_instrument_is_reached(both, app):
+    window = both
+    view = window.instrument_view
+    form = view._forms["Connection"]
+    assert form.getWidgetPosition(view.open)[0] == form.rowCount() - 1, "the last row of it"
+    assert form.getWidgetPosition(view.controls["address"])[0] < form.rowCount() - 1
+    choose(window, "demo")  # which has nothing to say about how it is reached
+    form = view._forms["Connection"]
+    assert form.rowCount() == 1 and form.getWidgetPosition(view.open)[0] == 0
+    app.processEvents()  # new controls are shown when the event loop gets to them
+    assert view.open.isVisibleTo(view)
+    choose(window, RIGOL)
+
+
+def test_names_for_instruments_of_a_kind():
+    assert backends.another("demo", []) == "demo"
+    assert backends.another("demo", ["demo", "demo#2"]) == "demo#3"
+    assert (backends.kind("demo#3"), backends.number("demo#3")) == ("demo", 3)
+    assert backends.short("demo") == "Demo" and backends.short("demo#2") == "Demo 2"
+    assert backends.known("demo") and backends.known("demo#2")
+    for wrong in ("demo#1", "demo#02", "demo#", "demo#x", "other", None, 3):
+        assert not backends.known(wrong), wrong

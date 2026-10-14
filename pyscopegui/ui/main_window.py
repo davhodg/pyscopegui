@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
-    QDesktopServices,
     QFont,
     QKeySequence,
     QTextCharFormat,
@@ -20,26 +19,29 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QStatusBar,
 )
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import shortcut
-from pyscopegui.core.acquire import AUTO, STOP, Acquisition
+from pyscopegui.core import shortcut, workspaces
+from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.session import Session, Unit
-from pyscopegui.ui import event_colours, theme
+from pyscopegui.ui import event_colours, messages, theme
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.traffic_view import TrafficView
 from pyscopegui.ui.trigger_bar import TriggerBar
+from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
 
 # Bumped whenever the set of docks changes. restoreState declines a state
 # saved under a different version, so an old layout is replaced by the current
@@ -65,6 +67,9 @@ STATUS_MS = 500
 #: this machine, where a shortcut is made.
 SHORTCUT_TOLD_KEY = "shortcut/told"
 HISTORY_KEY = "capture.history_s"
+#: The instruments in the Instrument pane, by name, and the one chosen.
+ADDED_KEY = "instruments.added"
+CHOSEN_KEY = "instrument.name"
 HISTORY_TIP = (
     "How much of each channel is kept, for the plot to go back over. Past it the\n"
     "oldest samples are dropped. It is all held in memory: four bytes a sample\n"
@@ -97,10 +102,26 @@ def short_rate(rate: float) -> str:
     return f"{rate:g} S/s"
 
 
+def window_title() -> str:
+    """The workspace is named only when it is not the one everybody has.
+
+    Somebody with a single bench should not be able to tell from the window
+    that workspaces were built, and a title bar reading "default" would be the
+    one place that gave it away.
+    """
+    name = workspaces.active()
+    return f"{APP_NAME} {__version__}" + ("" if name == workspaces.DEFAULT else f" - {name}")
+
+
 class MainWindow(QMainWindow):
+    #: Open this workspace instead. Emitted rather than acted on, because a
+    #: switch is a full reload and the window that asks is the one that goes:
+    #: something outside it has to close it and open the next.
+    reopen_requested = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} {__version__}")
+        self.setWindowTitle(window_title())
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         self.setDockNestingEnabled(True)  # full grid layouts, not just the four edges
 
@@ -126,18 +147,23 @@ class MainWindow(QMainWindow):
         self.exceptions.install()
 
         # --- the instruments, and what they have sent --------------------------
-        #: Every instrument chosen so far, each with what it has sent and
-        #: the trigger it waits for. The one chosen in the toolbar is the one
-        #: Open, the Instrument pane and the trigger toolbar are about; Stop,
+        #: Every instrument added, each with what it has sent and the
+        #: trigger it waits for. The one chosen in the Instrument pane is the
+        #: one that pane, Open and the trigger toolbar are about; Stop,
         #: Single, Normal and Auto are for all that are open.
         self.session = Session(history_s=self._saved_history(), parent=self)
+        #: The instruments in the Instrument pane, by name, in the order they
+        #: were added; and the one chosen. There is always at least one.
+        self._added, self._chosen = self._saved_instruments()
 
         self.instrument_bar = InstrumentBar(self.ctx)
         self.addToolBar(self.instrument_bar)
-        self.instrument_bar.open_requested.connect(self.open_instrument)
-        self.instrument_bar.close_requested.connect(self.close_instrument)
+        self.instrument_bar.add_requested.connect(self.add_instrument)
         self.instrument_bar.mode_requested.connect(self.set_mode)
-        self.trigger_bar = TriggerBar(self.session, self.ctx)
+        self.instrument_bar.read_requested.connect(self.read_once)
+        self.trigger_bar = TriggerBar(
+            self.session, self.ctx, modes=tuple(self.instrument_bar.modes.values())
+        )
         self.addToolBar(self.trigger_bar)
         self.session.channels_changed.connect(self._show_trigger_sources)
 
@@ -148,11 +174,16 @@ class MainWindow(QMainWindow):
         # every saved layout and setting knows it by.
         self.instrument_view = self.panes.view(self.panes.add("instrument"))
         self.instrument_view.changed.connect(self._on_setting)
-        self.instrument_view.instrument_chosen.connect(self._choose)
-        self.instrument_bar.instrument.currentIndexChanged.connect(lambda _i: self._on_chosen())
+        self.instrument_view.instrument_chosen.connect(self.choose)
+        self.instrument_view.instrument_removed.connect(self.remove_instrument)
+        self.instrument_view.open_requested.connect(self.open_instrument)
+        self.instrument_view.close_requested.connect(self.close_instrument)
         self._on_chosen()
         self.scope = self.panes.view(self.panes.add("scope"))
         self.panes.add("log")
+        #: Every command and answer, kept only while it is on screen.
+        self.traffic = self.panes.view(self.panes.add("traffic"))
+        self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
         self.setStatusBar(QStatusBar())
@@ -168,11 +199,17 @@ class MainWindow(QMainWindow):
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
         )
+        picture_action = file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture())
+        picture_action.setToolTip("Save a picture of the first plot, as it looks now.")
         file_menu.setToolTipsVisible(True)
         file_menu.addSeparator()
         quit_action = file_menu.addAction("Exit", self.close)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)
+        #: One workspace per bench or setup: new, save as, switch to and manage.
+        self.workspace_menu = WorkspaceMenu(self, self.ctx)
+        self.workspace_menu.install(file_menu, before=quit_action)
+        self.workspace_menu.switch_requested.connect(self._switch_workspace)
 
         self.view_menu = self.menuBar().addMenu("&View")
         self.view_menu.setToolTipsVisible(True)
@@ -214,14 +251,13 @@ class MainWindow(QMainWindow):
                     self.desktop_action = action
                 else:
                     self.shortcut_action = action
-        folder = tools_menu.addAction("Open settings folder", self._open_settings_folder)
-        folder.setToolTip("Where settings.json and the pane arrangement are kept.")
 
         self.help_menu = HelpMenu(self)
 
         self._say_how_to_add_a_shortcut()
         self._restore_layout()
         self.panes.restore_state()
+        self._put_traffic_away()
 
     # --- the instruments ---------------------------------------------------------------
     def _unit(self, name: str) -> Unit:
@@ -236,10 +272,96 @@ class MainWindow(QMainWindow):
             self.trigger_bar.prime(unit)
         return unit
 
+    def _saved_instruments(self) -> tuple[list[str], str]:
+        """The instruments that were in the pane last time, and the one chosen.
+
+        Anything saved that is not an instrument there is now is left out,
+        and with nothing left there is the one chosen before there was a
+        list, or the demo.
+        """
+        saved = self.ctx.settings.get(ADDED_KEY)
+        added: list[str] = []
+        for name in saved if isinstance(saved, list) else []:
+            if backends.known(name) and name not in added:
+                added.append(name)
+        chosen = self.ctx.settings.get(CHOSEN_KEY)
+        if not added:
+            added = [chosen if backends.known(chosen) else backends.DEFAULT]
+        return added, chosen if chosen in added else added[0]
+
+    def _save_instruments(self) -> None:
+        self.ctx.settings.set(ADDED_KEY, list(self._added))
+        self.ctx.settings.set(CHOSEN_KEY, self._chosen)
+
+    @property
+    def added(self) -> list[str]:
+        """The instruments in the Instrument pane, by name."""
+        return list(self._added)
+
+    @property
+    def chosen(self) -> str:
+        """The name of the instrument chosen in the Instrument pane."""
+        return self._chosen
+
     @property
     def unit(self) -> Unit:
-        """The instrument chosen in the toolbar."""
-        return self._unit(self.instrument_bar.current())
+        """The instrument chosen in the Instrument pane."""
+        return self._unit(self._chosen)
+
+    @Slot(str)
+    def add_instrument(self, kind: str) -> str:
+        """Put one more instrument of this kind in the Instrument pane, and choose it.
+
+        It is not opened: how it is reached may have to be said first.
+        """
+        if kind not in backends.BACKENDS:
+            return ""
+        name = backends.another(kind, self._added)
+        self._added.append(name)
+        self.choose(name)
+        self.panes.show("instrument")
+        return name
+
+    @Slot(str)
+    def remove_instrument(self, name: str = "") -> None:
+        """Close the instrument called this, or the one chosen, and take it out of the pane.
+
+        Its settings stay saved, for when one of its kind is added again. The
+        last instrument there is stays: there is always one to be about.
+        """
+        name = name or self._chosen
+        if name not in self._added or len(self._added) == 1:
+            return
+        unit = self.session.units.get(name)
+        if unit is not None:
+            unit.acquisition.set_mode(STOP)
+            self._drop_unit(unit)
+            unit.capture.set_channels([], 1.0)
+            self.session.forget(name)
+        at = self._added.index(name)
+        self._added.remove(name)
+        if self._chosen == name:
+            # The one beside it: after it, or before it if it was the last.
+            self._chosen = self._added[min(at, len(self._added) - 1)]
+            self._save_instruments()
+            self._on_chosen()
+        else:
+            self._save_instruments()
+            self._show_open()
+        self._settle_mode()
+
+    @Slot(str)
+    def choose(self, name: str) -> None:
+        """Choose the instrument called this, as pressing its tab does. One that
+        is not in the pane yet, and is of a kind there is, is put there."""
+        if name not in self._added:
+            if not backends.known(name):
+                return
+            self._added.append(name)
+        if name != self._chosen or name not in self.instrument_view.listed():
+            self._chosen = name
+            self._save_instruments()
+            self._on_chosen()
 
     @property
     def instrument(self) -> Instrument | None:
@@ -281,6 +403,7 @@ class MainWindow(QMainWindow):
         instrument.error.connect(self.events.error)
         instrument.note.connect(self.events.information)
         instrument.warning.connect(self.events.warning)
+        instrument.activity.connect(lambda text, u=unit: self._on_activity(u, text))
         unit.instrument = instrument
         # Its channels, empty: to be looked at, and to choose a trigger
         # from, before anything is run.
@@ -307,7 +430,7 @@ class MainWindow(QMainWindow):
         """Connect to the instrument called this, or the one chosen, and leave it stopped."""
         # An address typed and not yet finished with is the one meant.
         self.instrument_view.commit()
-        name = name or self.instrument_bar.current()
+        name = name or self._chosen
         unit = self._unit(name)
         self._forget_closed(unit)
         if not self._have(name):
@@ -331,27 +454,62 @@ class MainWindow(QMainWindow):
         self._show_open()
 
     def _show_open(self) -> None:
-        """Say on the toolbar which instruments are open, and whether the one chosen is."""
+        """Say in the Instrument pane which instruments there are, which are
+        open, and whether the one chosen is."""
         unit = self.unit
-        self.instrument_bar.set_open(unit.wanted_open or unit.is_open)
-        self.instrument_bar.mark_open(
-            {u.name for u in self.session.units.values() if u.wanted_open or u.is_open}
-        )
-        # A tab in the Instrument pane for each in use, and for the one chosen.
+        self.instrument_view.set_open(unit.wanted_open or unit.is_open)
+        units = self.session.units
         self.instrument_view.set_instruments(
             [
-                (u.name, u.short)
-                for u in self.session.units.values()
-                if u is unit or u.instrument is not None
+                (
+                    name,
+                    backends.short(name),
+                    backends.title(name),
+                    name in units and (units[name].wanted_open or units[name].is_open),
+                )
+                for name in self._added
             ],
             unit.name,
         )
+        self._show_reading()
 
-    def _choose(self, name: str) -> None:
-        """Choose the instrument called this, as picking it in the toolbar would."""
-        box = self.instrument_bar.instrument
-        if name != self.instrument_bar.current() and box.findData(name) >= 0:
-            box.setCurrentIndex(box.findData(name))
+    @staticmethod
+    def _as_is(unit: Unit) -> bool:
+        """Whether an instrument is read as it is: no trigger of ours, only what it shows."""
+        return unit.instrument is not None and unit.instrument.reads_as_is
+
+    def _takes(self, unit: Unit, mode: str) -> bool:
+        """Whether a run button means anything to an instrument. Single and Normal
+        wait for a trigger, and one read as it is has none here to wait for."""
+        return mode == AUTO or not self._as_is(unit)
+
+    def _show_reading(self) -> None:
+        """Offer what there is for an instrument read as it is: Read, and no trigger."""
+        chosen = self.unit
+        as_is = self._as_is(chosen)
+        self.instrument_bar.set_reads(as_is, busy=as_is and chosen.running)
+        # Single and Normal are for whatever a run button would run.
+        ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
+        self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
+        self.trigger_bar.show_usable()
+
+    @Slot()
+    def read_once(self) -> None:
+        """Read what the instrument chosen shows, once, and leave the others as they are."""
+        self.instrument_view.commit()
+        unit = self.unit
+        self._forget_closed(unit)
+        if not self._have(unit.name):
+            self._show_open()
+            return
+        unit.wanted_open = True
+        if unit.instrument.running:
+            unit.instrument.stop()
+        unit.acquisition.set_mode(SINGLE)
+        if not self._begin(unit):
+            unit.acquisition.set_mode(STOP)
+        self._show_open()
+        self._update_status()
 
     @Slot(str)
     def set_mode(self, mode: str) -> None:
@@ -369,9 +527,10 @@ class MainWindow(QMainWindow):
         if not self._have(chosen.name):
             self._settle_mode()
             return
-        chosen.wanted_open = True
+        if self._takes(chosen, mode):
+            chosen.wanted_open = True
         for unit in self._in_use():
-            if not (unit is chosen or unit.wanted_open):
+            if not (unit is chosen or unit.wanted_open) or not self._takes(unit, mode):
                 continue
             # Before it starts, so that an instrument that triggers itself is
             # told from the first whether to wait for ever or not.
@@ -386,10 +545,9 @@ class MainWindow(QMainWindow):
 
     def run(self, name: str = "") -> None:
         """Choose the instrument called this and run it as Auto, from an empty plot."""
-        box = self.instrument_bar.instrument
-        if name and name != self.instrument_bar.current():
+        if name and name != self._chosen:
             self.close_instrument()
-            box.setCurrentIndex(box.findData(name))
+            self.choose(name)
         self.set_mode(STOP)
         self.set_mode(AUTO)
 
@@ -480,6 +638,12 @@ class MainWindow(QMainWindow):
         unit.capture.add(block)
         unit.acquisition.examine(block)
 
+    def _on_activity(self, unit: Unit, text: str) -> None:
+        """An instrument says what it is busy with: shown, so that a slow one is not
+        taken for one that has stopped."""
+        unit.doing = text
+        self._update_status()
+
     def _on_single_done(self, unit: Unit) -> None:
         """One instrument has its capture: it stops, and the others go on waiting for theirs."""
         unit.acquisition.set_mode(STOP)
@@ -506,7 +670,7 @@ class MainWindow(QMainWindow):
 
     def _show_settings(self) -> None:
         """Fill the Instrument pane for whichever instrument is chosen."""
-        name = self.instrument_bar.current()
+        name = self._chosen
         unit = self._unit(name)
         try:
             if unit.is_open:
@@ -532,7 +696,7 @@ class MainWindow(QMainWindow):
         and started again from an empty plot. Either way the instrument stays
         open, which is what makes it quick.
         """
-        name = self.instrument_bar.current()
+        name = self._chosen
         options = self._options(name)
         options[key] = value
         self.ctx.settings.set(f"instrument.{name}", options)
@@ -540,13 +704,29 @@ class MainWindow(QMainWindow):
         instrument = unit.instrument
         if instrument is None:
             return
+        was_as_is = self._as_is(unit)
         if not live and instrument.running:
             self._restart(unit, lambda: instrument.set(key, value))
-            return
-        instrument.set(key, value)
-        if live:
-            # The same channels, on a new range: named for it, with what is held kept.
-            unit.capture.update_channels(instrument.channels())
+        else:
+            instrument.set(key, value)
+            if live:
+                # The same channels, on a new range: named for it, with what is held kept.
+                unit.capture.update_channels(instrument.channels())
+        if self._as_is(unit) and not was_as_is:
+            self._show_whole_snapshots()
+        # How it is read may be what changed, and with it what the toolbar offers.
+        self._show_reading()
+
+    def _show_whole_snapshots(self) -> None:
+        """Have every plot show all it holds, for an instrument read as it is.
+
+        Done once, when it is set to be read that way or is opened so: what it
+        sends is a snapshot of its screen, and Follow's stretch of time around
+        the trigger can cut it short. What is chosen after that is left alone.
+        """
+        for name in self.panes.instances("scope"):
+            if (view := self.panes.view(name)) is not None:
+                view.show_all()
 
     def _drop_unit(self, unit: Unit) -> None:
         if unit.instrument is not None:
@@ -561,8 +741,11 @@ class MainWindow(QMainWindow):
         if not is_open:
             unit.acquisition.set_mode(STOP)
             self._settle_mode()
-        elif unit is self.unit:
-            self._show_settings()
+        else:
+            if unit is self.unit:
+                self._show_settings()
+            if self._as_is(unit):
+                self._show_whole_snapshots()
         self._show_open()
         self._update_status()
 
@@ -580,11 +763,13 @@ class MainWindow(QMainWindow):
                 rate = short_rate(instrument.rate)
                 self.events.information(f"{title}: running, {channels} at {rate}.")
         else:
+            unit.doing = ""
             self.events.information(f"{title}: stopped.")
             if not unit.restarting:
                 # It stopped by itself -- a scope unplugged -- or was told to.
                 unit.acquisition.set_mode(STOP)
                 self._settle_mode()
+        self._show_reading()
         self._update_status()
 
     @Slot(int)
@@ -597,7 +782,9 @@ class MainWindow(QMainWindow):
     def _update_status(self) -> None:
         units = self._in_use()
         if not units:
-            self.status.setText("No instrument open: choose one and press Open, or Auto to run it.")
+            self.status.setText(
+                "No instrument open: press Open in the Instrument pane, or Auto to run it."
+            )
             return
         said = []
         for unit in units:
@@ -605,6 +792,8 @@ class MainWindow(QMainWindow):
             held = (capture.newest() or 0.0) - (capture.oldest() or 0.0)
             if instrument.running:
                 doing = f"running ({unit.acquisition.mode})"
+                if unit.doing:
+                    doing += f", {unit.doing}"
             else:
                 doing = "open, stopped" if instrument.is_open else "closed"
             title = backends.title(unit.name) if len(units) == 1 else unit.short
@@ -629,6 +818,27 @@ class MainWindow(QMainWindow):
         self.panes.register(
             PaneKind("log", "Event Log", Qt.BottomDockWidgetArea, lambda _name: self.log)
         )
+        self.panes.register(
+            PaneKind(
+                "traffic", "Instrument traffic", Qt.BottomDockWidgetArea, lambda _n: TrafficView()
+            )
+        )
+
+    def _on_pane_shown(self, name: str, on: bool) -> None:
+        if name == "traffic":
+            self.traffic.listen(on)
+
+    def _put_traffic_away(self) -> None:
+        """Start with the traffic pane put away, however it was left.
+
+        It keeps every command and answer while it is open, which nobody
+        should be paying for because they once looked: opening it is asked
+        for each time, from the View menu.
+        """
+        if (window := self.panes.detached.get("traffic")) is not None:
+            window.close()
+        self.panes.docks["traffic"].hide()
+        self.traffic.listen(False)
 
     def _make_scope(self, name: str) -> ScopeView:
         view = ScopeView(self.session, self.ctx, key=name)
@@ -637,7 +847,7 @@ class MainWindow(QMainWindow):
 
     def _on_channel_picked(self, instrument: str, group: str) -> None:
         """A channel was clicked on a plot: show its settings, to be changed."""
-        self._choose(instrument)
+        self.choose(instrument)
         self.instrument_view.select_group(group)
         self.panes.show("instrument")
 
@@ -739,6 +949,8 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.TopDockWidgetArea, instrument)
         self.splitDockWidget(instrument, log, Qt.Vertical)
         self.splitDockWidget(instrument, scope, Qt.Horizontal)
+        # Behind the Event Log, put away until it is asked for.
+        self.tabifyDockWidget(log, self.panes.docks["traffic"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)
@@ -800,6 +1012,7 @@ class MainWindow(QMainWindow):
         self._status_timer.stop()
         for unit in self.session.units.values():
             self._drop_unit(unit)
+        self.traffic.listen(False)
         self.help_menu.shutdown()
         self.exceptions.remove()
         super().closeEvent(event)
@@ -866,8 +1079,35 @@ class MainWindow(QMainWindow):
             "This is said once."
         )
 
-    def _open_settings_folder(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.ctx.user_dir)))
+    # --- workspaces ----------------------------------------------------------------------
+    def _switch_workspace(self, name: str) -> None:
+        """Open another workspace, once it is agreed that what is open here is closed.
+
+        A workspace holds which instruments there are and how each is
+        reached, so opening one closes this one's instruments. Worth a
+        question, and only when there is something open to lose.
+        """
+        if name == self.ctx.workspace or not workspaces.exists(name):
+            return
+        open_now = [unit for unit in self._in_use() if unit.wanted_open or unit.is_open]
+        if open_now:
+            what = (
+                f"{backends.title(open_now[0].name)} is"
+                if len(open_now) == 1
+                else f"{len(open_now)} instruments are"
+            )
+            answer = messages.question(
+                self,
+                "Close what is open, and open another workspace?",
+                SWITCH_WHILE_OPEN.format(
+                    what=what, them="it" if len(open_now) == 1 else "them", name=name
+                ),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Yes:
+                return
+        self.reopen_requested.emit(name)
 
     # --- the Event Log -------------------------------------------------------------------
     @Slot(str, str)

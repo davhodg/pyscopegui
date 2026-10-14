@@ -81,9 +81,9 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 
 | Setting | What it is |
 |---------|------------|
-| Connection | Network, or USB. Taken up at the next **Open** |
-| Address | For the network: where the scope is. Taken up at the next **Open** |
-| USB device | For USB: which scope, where there are several. Taken up at the next **Open** |
+| Connection | Network, or USB. Set while the scope is closed |
+| Address | For the network: where the scope is. Set while the scope is closed |
+| USB device | For USB: which scope, where there are several. Set while the scope is closed |
 | Reading | The screen, or the memory: see above |
 | Time | Seconds a division, of the twelve across the screen |
 | Acquisition | How each point is made from the samples taken: see below |

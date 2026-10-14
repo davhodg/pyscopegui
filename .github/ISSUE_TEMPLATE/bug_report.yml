@@ -40,6 +40,7 @@ body:
         - PicoScope 2000 series on the ps2000 driver (2204A and the like)
         - PicoScope 2000 series on the ps2000a driver (2206B, 2206B MSO, 2406B and the like)
         - Rigol DS1000Z series (DS1054Z and the like)
+        - Tektronix TDS or TPS 2000 series, on a serial port
         - Another -- say which above
     validations:
       required: true

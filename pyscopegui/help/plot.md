@@ -18,7 +18,8 @@ stretch of time in view. Not only the few points a plot draws of them: a million
 view is a million rows.
 
 - The first column is time in seconds, as the plot's axis has it: from the trigger where
-  there is one.
+  there is one. It is written to a tenth of the time between two samples, so every sample
+  has a time of its own however long the run has been going.
 - Each channel is a column, headed with its name and what it is measured in. A logic
   channel is 0 or 1. A gap is `nan`.
 - With several instruments open there is a file for each, named for it --
@@ -28,15 +29,78 @@ view is a million rows.
 To write everything that is held and not only what is in view, choose **All** beside
 **Time** first. The [Event Log](event-log.md) says how many samples went where.
 
+## Saving a picture
+
+The arrow on the **Export CSV...** button has **Export PNG...**, which is under *File* as
+well. It saves a picture of the plot and its channel list as they look at that moment, at
+the size they are on the screen: for a report, or to send to somebody. Pressing the button
+itself still writes CSV.
+
 ## The channel list
 
 A tick shows a channel and unticking hides it; which are hidden is remembered. The name is
-in the colour its trace is drawn in, and **Value** is what the channel reads now, a few times
-a second.
+in the colour its trace is drawn in. With a [cursor](#cursors) on the plot there is a
+column for what each channel read there; with none there is no such column, and the list is
+narrower so that the plot has the room.
+
+### Colours
+
+Each channel is drawn in **the colour its scope draws it in**, so that the plot and the
+scope's own screen agree:
+
+| Scope | Channels |
+|-------|----------|
+| Rigol DS1000Z | CH1 yellow, CH2 cyan, CH3 magenta, CH4 blue |
+| Tektronix TDS and TPS 2000 | CH1 yellow, CH2 blue, CH3 magenta, CH4 green |
+| PicoScope 2000 series | A blue, B red, C green, D yellow, as Pico's PicoScope software has them |
+
+A channel whose instrument has no colour for it -- the demo's, a logic input -- takes one by
+where it is in its own instrument. Either way a channel keeps its colour whatever else is
+opened beside it.
+
+**Right-click a channel** in the list to choose another colour: for two scopes of the same
+model side by side, say, whose CH1s would otherwise both be yellow. The colour is the same on
+every plot and is kept in the [workspace](files.md); *Its own colour*, on the same menu, goes
+back to the scope's.
+
+The cursors are orange and violet, which none of the scopes uses for a channel.
 
 **Settings** is how the channel is set up, in a line -- *1 V/div, 10x, DC* -- for every
 channel of every instrument at once. Click a channel to bring its settings up in the
 [Instrument pane](instruments.md), where they are changed.
+
+## Cursors
+
+**Cursors**, above the plot, puts one or two lines down both plots. Drag a line to a moment,
+on either plot, and the channel list says what every channel read there.
+
+| Cursors | What the channel list shows |
+|---------|-----------------------------|
+| None | No readings: the names and settings only, and the most room for the plot |
+| 1 | **At cursor**: what each channel read at the cursor |
+| 2 | **Cursor 1**, **Cursor 2**, and **2 − 1**: how far the channel moved between them |
+
+Under the box, above the plot, is where each cursor is on the time axis, and with two, the
+time between them and the frequency that is one cycle of: two cursors a cycle apart on a
+1 kHz signal read *Δ 1 ms, 1 kHz*.
+
+The channel list is fitted to its columns when the number of cursors changes: wider for the
+three columns two cursors need, narrower with none. Drag the bar between the list and the
+plot to set it as you like after that; a list dragged shut is left shut.
+
+- A reading is **the nearest sample**, as it was measured, and not a value worked out
+  between two samples.
+- A dash is where nothing is held: before the oldest sample, after the newest, or in a gap.
+- A logic channel reads 0 or 1, and has no difference.
+- **A cursor stays at its time.** When the plot moves on -- following new samples, or
+  dragged somewhere else -- the cursor is left where it was put, and may be out of sight.
+  Choosing in the **Cursors** box again brings any that are out of sight back into view.
+- With several instruments open, each channel is read at the same place on the plot's time
+  axis, which is measured from each instrument's own trigger.
+
+Cursors are most use on a plot that is holding still: stopped, or drawn around a trigger.
+How many there are is remembered; where they are is not. **Export PNG** saves them and
+their readings, since the picture is of the plot and its channel list together.
 
 ## Time
 
@@ -48,7 +112,9 @@ computer, so what is drawn does not carry the jitter of the USB or the network.
 
 - **Follow** keeps the newest samples in view, and the box beside it says how many seconds.
   Its arrows go 1, 2, 5, 10, 20, 50, as a scope's timebase does; any number can be typed.
-- **All** shows everything that is held, and keeps it all in view as more arrives.
+- **All** shows everything that is held, and keeps it all in view as more arrives. With
+  several instruments on the plot that is all of each: the whole of a scope's capture, and
+  as much of a stream as is held.
 - **Manual** stays where you put it. Dragging or zooming a plot chooses it for you.
 
 Wheel to zoom, drag to move, and right-click a plot for the rest.

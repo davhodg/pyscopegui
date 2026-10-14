@@ -18,6 +18,13 @@ follows the newest samples.
 
 With more than one instrument, each keeps time for itself, and nought on the
 axis is each one's own trigger: see pyscopegui.core.session.
+
+There can be one cursor or two: lines down both plots, dragged to a moment,
+at which the channel list says what every channel read. With none the list
+has no readings at all, and is narrower, so that the plot has the room. A
+cursor is a time on the axis and stays at it, so it is left behind when the
+plot moves on; two give the time between them, and how far each channel
+moved in it.
 """
 
 from __future__ import annotations
@@ -27,16 +34,20 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
+    QSizePolicy,
     QSplitter,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -53,11 +64,16 @@ from pyscopegui.ui import fonts
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
 
-# Enough for a channel's name, how it is set and its value; the plot takes
-# whatever is left.
-LIST_WIDTH = 360
+# Enough for a channel's name and how it is set, which is all there is to
+# list with no cursor; the plot takes whatever is left.
+LIST_WIDTH = 280
 
+#: For a channel whose instrument says no colour for it: the first channel
+#: of an instrument the first of these, the next the next, whatever else is open.
 COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
+#: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
+CHOSEN_COLOURS = "channel.colours"
+COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
 
 FOLLOW, ALL, MANUAL = "Follow", "All", "Manual"
 TIME_CHOICES = (FOLLOW, ALL, MANUAL)
@@ -90,6 +106,7 @@ EXPORT_TIP = (
     "ticked, in the stretch of time in view. One file for each instrument.\n"
     "Choose All beside Time first to write everything that is held."
 )
+PICTURE_TIP = "Save a picture of this plot and its channel list, as they look now."
 #: Where the last export went, kept so the next one starts there.
 EXPORT_FOLDER = "export.folder"
 PICK_TIP = "How the channel is set up. Click it to change that in the Instrument pane."
@@ -99,7 +116,46 @@ REDRAW_MS = 33
 VALUES_MS = 250
 #: How much of a lane a digital channel's high level fills.
 LANE_HEIGHT = 0.7
-NAME, VALUE, DETAIL = 0, 1, 2
+#: The channel list's columns. The two in the middle are for a second cursor
+#: and the difference between the two, and are put away without one.
+NAME, VALUE, SECOND, DIFFERENCE, DETAIL = 0, 1, 2, 3, 4
+#: How many cursors -> what each column of readings is headed. With none
+#: there is nothing to read, and no column: the room is the plot's.
+HEADINGS = {
+    0: ("", "", ""),
+    1: ("At cursor", "", ""),
+    2: ("Cursor 1", "Cursor 2", "2 \u2212 1"),
+}
+CURSOR_CHOICES = ("None", "1", "2")
+#: The cursors' colours: unlike each other's, and unlike the yellow, cyan,
+#: magenta, blue, red and green the scopes draw their channels in.
+CURSOR_COLOURS = ("#ff8c1a", "#a066ff")
+CURSORS_TIP = (
+    "Lines down the plot, dragged to a moment: the channel list then says what\n"
+    "each channel read there, to the nearest sample. Two also give the time\n"
+    "between them and how far each channel moved in it.\n"
+    "A cursor stays at its time when the plot moves on. Choosing here again\n"
+    "brings any that are out of sight back into view."
+)
+#: Said in place of a reading where nothing is held: before the oldest
+#: sample, after the newest, or in a gap.
+NOTHING_HELD = "\u2014"
+
+
+def time_text(seconds: float) -> str:
+    """A time for reading: 0.0123 -> "12.3 ms"."""
+    size = abs(seconds)
+    for scale, unit in ((1.0, "s"), (1e-3, "ms"), (1e-6, "\u00b5s"), (1e-9, "ns")):
+        if size >= scale or unit == "ns":
+            return f"{seconds / scale:.4g} {unit}"
+    return "0 s"
+
+
+def frequency_text(hertz: float) -> str:
+    for scale, unit in ((1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz")):
+        if hertz >= scale or unit == "Hz":
+            return f"{hertz / scale:.4g} {unit}"
+    return ""
 
 
 @dataclass
@@ -120,10 +176,13 @@ class ChannelList(QTreeWidget):
     shown_changed = Signal(str, bool)
     #: A channel was clicked: its key.
     picked = Signal(str)
+    #: Asked to choose a channel's colour, or (with "") to go back to its own.
+    colour_asked = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
-        self.setHeaderLabels(["Channel", "Value", "Settings"])
+        self.setColumnCount(DETAIL + 1)
+        self.set_cursors(0)
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self._items: dict[str, QTreeWidgetItem] = {}
@@ -131,6 +190,27 @@ class ChannelList(QTreeWidget):
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
         )
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
+
+    def _menu(self, at) -> None:
+        """Colour..., and back to the instrument's own, for the channel right-clicked."""
+        item = self.itemAt(at)
+        if item is None:
+            return
+        key = item.data(NAME, Qt.UserRole)
+        menu = QMenu(self)
+        menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
+        back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
+        back.setEnabled(bool(item.data(NAME, Qt.UserRole + 1)))
+        menu.exec(self.viewport().mapToGlobal(at))
+
+    def set_cursors(self, count: int) -> None:
+        """Head the readings for this many cursors, with a column for each."""
+        self.setHeaderLabels(["Channel", *HEADINGS[count], "Settings"])
+        self.setColumnHidden(VALUE, count < 1)
+        for column in (SECOND, DIFFERENCE):
+            self.setColumnHidden(column, count < 2)
 
     def fill(
         self,
@@ -138,27 +218,34 @@ class ChannelList(QTreeWidget):
         colours: dict[str, str],
         hidden: set[str],
         details: dict[str, str] | None = None,
+        chosen: set[str] | None = None,
     ) -> None:
-        """List these channels: id -> what to call it, and how each is set up."""
+        """List these channels: id -> what to call it, and how each is set up.
+        ``chosen`` are those whose colour was chosen here, and not the instrument's."""
         self.blockSignals(True)
         self.clear()
         self._items = {}
         for key, name in names.items():
-            item = QTreeWidgetItem([name, "", (details or {}).get(key, "")])
+            item = QTreeWidgetItem([name, "", "", "", (details or {}).get(key, "")])
             item.setToolTip(DETAIL, PICK_TIP)
             item.setData(NAME, Qt.UserRole, key)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(NAME, Qt.Unchecked if key in hidden else Qt.Checked)
             item.setForeground(NAME, QBrush(QColor(colours[key])))
-            item.setFont(VALUE, fonts.mono())
-            item.setTextAlignment(VALUE, Qt.AlignRight | Qt.AlignVCenter)
+            item.setToolTip(NAME, COLOUR_TIP)
+            item.setData(NAME, Qt.UserRole + 1, key in (chosen or set()))
+            for column in (VALUE, SECOND, DIFFERENCE):
+                item.setFont(column, fonts.mono())
+                item.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
             self.addTopLevelItem(item)
             self._items[key] = item
         self.blockSignals(False)
         self.resizeColumnToContents(NAME)
         # Room for the longest a value gets, so the column does not jump about
         # as the reading changes, and the settings have what is left.
-        self.setColumnWidth(VALUE, QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V "))
+        width = QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V ")
+        for column in (VALUE, SECOND, DIFFERENCE):
+            self.setColumnWidth(column, width)
 
     def _on_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column == NAME:
@@ -166,9 +253,14 @@ class ChannelList(QTreeWidget):
                 item.data(NAME, Qt.UserRole), item.checkState(NAME) == Qt.Checked
             )
 
-    def set_value(self, key: str, text: str) -> None:
-        if (item := self._items.get(key)) is not None and item.text(VALUE) != text:
-            item.setText(VALUE, text)
+    def set_values(self, key: str, texts: tuple[str, str, str]) -> None:
+        """What a channel reads: now or at the cursor, at the second cursor, and
+        the difference between the two."""
+        if (item := self._items.get(key)) is None:
+            return
+        for column, text in zip((VALUE, SECOND, DIFFERENCE), texts, strict=True):
+            if item.text(column) != text:
+                item.setText(column, text)
 
 
 class ScopeView(QWidget):
@@ -194,9 +286,15 @@ class ScopeView(QWidget):
         self._origin = 0.0
         #: Whether the axis is measured from a trigger at the moment.
         self._relative = False
+        #: The axis changed what it is measured from, or has not been placed
+        #: yet, so the cursors' times are not where anything is.
+        self._cursors_adrift = True
         #: The ends of the sweeps on the time axis, while every instrument is
         #: sending sweeps: all of them is what there is to show.
         self._sweep_ends: tuple[float, float] | None = None
+        #: Where everything held is on the time axis, of every instrument:
+        #: what All shows.
+        self._everything: tuple[float, float] | None = None
         self._ctx = ctx
         self._key = key
         self._curves: dict[str, pg.PlotDataItem] = {}
@@ -240,6 +338,7 @@ class ScopeView(QWidget):
         self.channel_list = ChannelList()
         self.channel_list.shown_changed.connect(self._on_shown)
         self.channel_list.picked.connect(self._on_picked)
+        self.channel_list.colour_asked.connect(self._on_colour_asked)
 
         self.time = QComboBox()
         self.time.addItems(TIME_CHOICES)
@@ -268,10 +367,48 @@ class ScopeView(QWidget):
         bar.addWidget(self.auto_y)
         self.state = QLabel()
         bar.addWidget(self.state)
-        self.export_button = QPushButton("Export CSV...")
+        self.cursors = QComboBox()
+        self.cursors.addItems(CURSOR_CHOICES)
+        self.cursors.setToolTip(CURSORS_TIP)
+        #: Where the cursors are and how far apart: on a line of its own under
+        #: the controls, which have no room for it, and only while there are any.
+        self.cursor_times = QLabel()
+        self.cursor_times.hide()
+        #: Each cursor's time on the axis, and its line on each plot. A line
+        #: has its number at its top on the analog plot.
+        self._cursor_at = [0.0, 0.0]
+        self._cursor_lines = [
+            [
+                pg.InfiniteLine(
+                    angle=90,
+                    movable=True,
+                    pen=pg.mkPen(colour, width=1),
+                    hoverPen=pg.mkPen(colour, width=3),
+                    label=str(number + 1) if plot == 0 else None,
+                    labelOpts={"position": 0.96, "color": colour},
+                )
+                for plot in range(2)
+            ]
+            for number, colour in enumerate(CURSOR_COLOURS)
+        ]
+        for number, lines in enumerate(self._cursor_lines):
+            for line in lines:
+                line.sigPositionChanged.connect(lambda moved, n=number: self._on_cursor(n, moved))
+        # Pressing it writes CSV, which is what it is mostly for; its arrow
+        # has the other thing a plot can be saved as.
+        self.export_button = QToolButton()
+        self.export_button.setText("Export CSV...")
         self.export_button.setToolTip(EXPORT_TIP)
+        self.export_button.setPopupMode(QToolButton.MenuButtonPopup)
         self.export_button.clicked.connect(self.ask_export)
+        self.export_menu = QMenu(self.export_button)
+        self.export_menu.setToolTipsVisible(True)
+        self.export_menu.addAction("Export CSV...", self.ask_export).setToolTip(EXPORT_TIP)
+        self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
+        self.export_button.setMenu(self.export_menu)
         bar.addStretch()
+        bar.addWidget(QLabel("Cursors:"))
+        bar.addWidget(self.cursors)
         bar.addWidget(self.export_button)
         bar.addWidget(clear)
 
@@ -284,7 +421,8 @@ class ScopeView(QWidget):
         column = QVBoxLayout(right)
         column.setContentsMargins(2, 2, 2, 2)
         column.addLayout(bar)
-        column.addWidget(self.plots)
+        column.addWidget(self.cursor_times)
+        column.addWidget(self.plots, 1)
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.channel_list)
@@ -296,6 +434,10 @@ class ScopeView(QWidget):
         for i, widget in enumerate((self.channel_list, right)):
             widget.setMinimumWidth(0)
             self.splitter.setStretchFactor(i, i)  # the plot takes the extra room
+        # The row of controls above the plot has a least width of its own,
+        # which would otherwise be the least the plot's side can be, and so
+        # the most the list can: it is cut short before the list is.
+        right.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.splitter.setSizes([LIST_WIDTH, 4 * LIST_WIDTH])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -304,6 +446,12 @@ class ScopeView(QWidget):
         if ctx is not None:
             remember(ctx, f"{key}.window_s", self.window_s)
             remember(ctx, f"{key}.auto_y", self.auto_y)
+            remember(ctx, f"{key}.cursors", self.cursors)
+        # After what was chosen last time is put back, which is not a choice.
+        self.cursors.currentIndexChanged.connect(self._on_cursor_count)
+        # activated as well: choosing what is chosen already brings them back.
+        self.cursors.activated.connect(lambda _index: self.bring_cursors())
+        self.channel_list.set_cursors(self.cursor_count())
         self.session.channels_changed.connect(self._rebuild)
         self.session.trigger_changed.connect(self._show_trigger)
         self._rebuild()
@@ -346,7 +494,16 @@ class ScopeView(QWidget):
             plot.clear()
         self._curves, self._owners = {}, {}
         entries = self.session.entries()
-        self._colours = {key: COLOURS[i % len(COLOURS)] for i, (key, _u, _r) in enumerate(entries)}
+        chosen = self._chosen_colours()
+        self._colours = {}
+        place: dict[str, int] = {}
+        for key, unit, record in entries:
+            # Which of its instrument's channels it is, not of everything open:
+            # opening another instrument does not change anybody's colour.
+            number = place[unit.name] = place.get(unit.name, -1) + 1
+            self._colours[key] = (
+                chosen.get(key) or record.channel.colour or COLOURS[number % len(COLOURS)]
+            )
         self._names = {key: self.session.name_of(unit, r.channel) for key, unit, r in entries}
         for key, unit, record in entries:
             pen = pg.mkPen(self._colours[key], width=1)
@@ -361,7 +518,7 @@ class ScopeView(QWidget):
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         details = {key: record.channel.detail for key, _unit, record in entries}
-        self.channel_list.fill(self._names, self._colours, self._hidden, details)
+        self.channel_list.fill(self._names, self._colours, self._hidden, details, set(chosen))
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
         while len(self._level_lines) < len(self.session.shown()):
@@ -370,6 +527,10 @@ class ScopeView(QWidget):
             self.analog.addItem(line, ignoreBounds=True)
         for plot, line in zip((self.analog, self.digital), self.trigger_lines, strict=True):
             plot.addItem(line, ignoreBounds=True)
+        for lines in self._cursor_lines:
+            for plot, line in zip((self.analog, self.digital), lines, strict=True):
+                plot.addItem(line, ignoreBounds=True)
+        self._show_cursors()
         self._arrange_lanes()
         self._show_trigger()
 
@@ -409,6 +570,41 @@ class ScopeView(QWidget):
         else:
             self.analog.setYRange(-most, most, padding=RANGE_MARGIN)
 
+    # --- colours ---------------------------------------------------------------------------
+    def _chosen_colours(self) -> dict[str, str]:
+        saved = self._ctx.settings.get(CHOSEN_COLOURS) if self._ctx is not None else None
+        if not isinstance(saved, dict):
+            return {}
+        return {str(k): v for k, v in saved.items() if isinstance(v, str) and QColor(v).isValid()}
+
+    def colour_of(self, key: str) -> str:
+        """The colour a channel is drawn in, by its id."""
+        return self._colours.get(key, "")
+
+    def set_colour(self, key: str, colour: str) -> None:
+        """Draw this channel in this colour, on every plot, from now on; or with
+        "" in the instrument's own colour again."""
+        if self._ctx is None:
+            return
+        chosen = self._chosen_colours()
+        if colour:
+            chosen[key] = QColor(colour).name()
+        else:
+            chosen.pop(key, None)
+        self._ctx.settings.set(CHOSEN_COLOURS, chosen)
+        # Every plot draws its channels again, in the colours there are now.
+        self.session.channels_changed.emit()
+
+    def _on_colour_asked(self, key: str, how: str) -> None:
+        if not how:
+            self.set_colour(key, "")
+            return
+        picked = QColorDialog.getColor(
+            QColor(self.colour_of(key)), self, f"Colour of {self._names.get(key, key)}"
+        )
+        if picked.isValid():
+            self.set_colour(key, picked.name())
+
     def _on_picked(self, key: str) -> None:
         if (owner := self._owners.get(key)) is None:
             return
@@ -438,6 +634,104 @@ class ScopeView(QWidget):
         if self.window_s.isEnabled() != wanted:
             self.window_s.setEnabled(wanted)
 
+    # --- cursors --------------------------------------------------------------------------
+    def cursor_count(self) -> int:
+        return self.cursors.currentIndex()
+
+    def cursor_time(self, number: int) -> float:
+        """Where a cursor is, in seconds on the time axis: 0 is the first of them."""
+        return self._cursor_at[number]
+
+    def set_cursor(self, number: int, seconds: float) -> None:
+        """Put a cursor at this time on the axis, as dragging it there does."""
+        self._cursor_at[number] = float(seconds)
+        for line in self._cursor_lines[number]:
+            if line.value() != seconds:
+                line.blockSignals(True)
+                line.setValue(seconds)
+                line.blockSignals(False)
+        self._show_values()
+
+    def _on_cursor(self, number: int, moved) -> None:
+        self.set_cursor(number, moved.value())
+
+    def _on_cursor_count(self, *_args) -> None:
+        self.channel_list.set_cursors(self.cursor_count())
+        self._show_cursors()
+        self.bring_cursors()
+        self._fit_list()
+
+    def _fit_list(self) -> None:
+        """Make the channel list as wide as the columns it has now: wider for a
+        reading at each of two cursors, and narrower with none, so that the
+        plot has the room. A list dragged shut is left shut."""
+        tree = self.channel_list
+        have, plot = self.splitter.sizes()
+        if not tree.isVisible() or have == 0:
+            return
+        readings = (NAME, VALUE, SECOND, DIFFERENCE)
+        needed = sum(tree.columnWidth(c) for c in readings if not tree.isColumnHidden(c))
+        settings = max(tree.sizeHintForColumn(DETAIL), tree.header().sectionSizeHint(DETAIL))
+        needed += settings + 24
+        if needed != have:
+            self.splitter.setSizes([needed, max(plot + have - needed, 0)])
+
+    def _show_cursors(self) -> None:
+        for number, lines in enumerate(self._cursor_lines):
+            for line in lines:
+                line.setVisible(number < self.cursor_count())
+
+    def bring_cursors(self, every: bool = False) -> None:
+        """Put the cursors that are out of sight -- or every one -- back in view:
+        a third of the way across, and two thirds."""
+        (x_from, x_to), _y = self.analog.getViewBox().viewRange()
+        for number in range(self.cursor_count()):
+            if every or not x_from <= self._cursor_at[number] <= x_to:
+                self.set_cursor(number, x_from + (x_to - x_from) * (number + 1) / 3)
+        self._show_values()
+
+    def _reading(self, key: str, seconds: float) -> float | None:
+        """What a channel read at this time on the axis: the sample nearest to
+        it. None where nothing is held there."""
+        unit, channel = self._owners[key]
+        record = unit.capture.records.get(channel)
+        timing = self._timings.get(unit.name)
+        if record is None or not record.count:
+            return None
+        origin = timing.origin if timing is not None else 0.0
+        at = round((seconds + origin) * record.rate)
+        if not record.first <= at < record.total:
+            return None
+        value = float(record.view()[at - record.first])
+        return None if np.isnan(value) else value
+
+    @staticmethod
+    def _value_text(record, value: float | None, difference: bool = False) -> str:
+        if value is None:
+            return NOTHING_HELD
+        if record.channel.kind == DIGITAL:
+            # How far a logic level moved is not a number worth a column.
+            return "" if difference else str(int(value))
+        sign = "+" if difference and value > 0 else ""
+        return f"{sign}{value:.3f} {record.channel.unit}".rstrip()
+
+    def _show_cursor_times(self) -> None:
+        count = self.cursor_count()
+        first, second = (time_text(at) for at in self._cursor_at)
+        if count == 0:
+            text = ""
+        elif count == 1:
+            text = f"Cursor at {first}"
+        else:
+            between = self._cursor_at[1] - self._cursor_at[0]
+            text = f"Cursor 1 at {first}, cursor 2 at {second}: \u0394 {time_text(between)}"
+            if between:
+                text += f", {frequency_text(1 / abs(between))}"
+        if self.cursor_times.text() != text:
+            self.cursor_times.setText(text)
+        if self.cursor_times.isHidden() == bool(count):
+            self.cursor_times.setVisible(bool(count))
+
     # --- the trigger ----------------------------------------------------------------------
     def _show_trigger(self) -> None:
         """Draw each trigger's level where its settings say it is, if it is on this plot."""
@@ -449,6 +743,9 @@ class ScopeView(QWidget):
                 record is not None
                 and record.channel.kind == ANALOG
                 and unit.id(record.channel.key) not in self._hidden
+                # Read as it is, an instrument triggers on what it was set to
+                # itself, which is not the level here.
+                and not (unit.instrument is not None and unit.instrument.reads_as_is)
             )
             line.setVisible(on_plot)
             if on_plot:
@@ -524,6 +821,9 @@ class ScopeView(QWidget):
         several = len(units) > 1
         origins: dict[str, float | None] = {}
         states, ends, relative, streams = [], [], False, False
+        #: Where each instrument's samples are on the axis: all of a sweep,
+        #: and all that is held of a stream. What All shows.
+        spans: list[tuple[float, float]] = []
         for unit in units:
             timing = self._timings.setdefault(unit.name, _Timing())
             origin, state, is_relative, sweep_ends = self._find_origin(unit, timing, several)
@@ -531,10 +831,17 @@ class ScopeView(QWidget):
             relative = relative or is_relative
             if sweep_ends is None:
                 streams = True
+                held = (unit.capture.oldest(), unit.capture.newest())
+                if origin is not None and None not in held:
+                    spans.append((held[0] - origin, held[1] - origin))
             else:
                 ends.append(sweep_ends)
+                spans.append(sweep_ends)
             if origin is not None:
                 timing.origin = origin
+            if unit.doing and unit.running:
+                # A slow instrument says what it is at, so that it is not taken for stuck.
+                state = f"{state} ({unit.doing})" if state else unit.doing.capitalize()
             if state:
                 states.append(f"{unit.short or unit.name}: {state}" if several else state)
         # Two instruments have no time in common but their triggers.
@@ -543,7 +850,13 @@ class ScopeView(QWidget):
             self._sweep_ends = (min(e[0] for e in ends), max(e[1] for e in ends))
         else:
             self._sweep_ends = None
+        self._everything = (min(s[0] for s in spans), max(s[1] for s in spans)) if spans else None
         return origins, "   ".join(states)
+
+    def show_all(self) -> None:
+        """Show everything held: what a snapshot of a scope's screen wants, where
+        Follow's stretch of time around the trigger would cut it short."""
+        self.time.setCurrentText(ALL)
 
     def _show_relative(self, was_relative: bool) -> None:
         """Take up a change between time from the start and time from a trigger."""
@@ -552,6 +865,8 @@ class ScopeView(QWidget):
         # A stretch chosen by hand on one axis means nothing on the other.
         self.time.setCurrentText(FOLLOW)
         self._show_time()
+        # Nor does a cursor's time: they are put back in view once it is placed.
+        self._cursors_adrift = True
         self.digital.setLabel(
             "bottom", "time from trigger" if self._relative else "time", units="s"
         )
@@ -565,8 +880,12 @@ class ScopeView(QWidget):
             self.analog.setXRange(*self._sweep_ends, padding=0)
             return
         if self._relative:
-            # Around the trigger, which is at nought: All has no meaning of
-            # its own here, and is the same as Follow.
+            # All is everything held, of every instrument: a sweep beside a
+            # stream is all of the sweep, and as much of the stream as there is.
+            if choice == ALL and self._everything is not None:
+                self.analog.setXRange(*self._everything, padding=0)
+                return
+            # Follow is the stretch asked for around the trigger, which is at nought.
             window = self.window_s.value()
             before = self.session.shown()[0].acquisition.position * window
             self.analog.setXRange(-before, window - before, padding=0)
@@ -598,6 +917,9 @@ class ScopeView(QWidget):
             return  # waiting for a trigger: what was drawn last stays
         self._origin = known[0]
         self._place()
+        if self._cursors_adrift:
+            self._cursors_adrift = False
+            self.bring_cursors(every=True)
         (x_from, x_to), _y = self.analog.getViewBox().viewRange()
         columns = max(int(self.analog.getViewBox().width()), 1)
         for key, curve in self._curves.items():
@@ -616,19 +938,47 @@ class ScopeView(QWidget):
             curve.setData(times, values)
 
     # --- writing it out -------------------------------------------------------------------
-    def ask_export(self) -> None:
-        """Ask where to, and write what the plot shows as CSV."""
+    def _ask_where(self, title: str, name: str, kinds: str) -> Path | None:
+        """Ask for a file to write, starting where the last one went."""
         folder = self._ctx.settings.get(EXPORT_FOLDER) if self._ctx is not None else None
-        start = str(Path(folder) / "capture.csv") if isinstance(folder, str) else "capture.csv"
-        chosen, _filter = QFileDialog.getSaveFileName(
-            self, "Export CSV", start, "Comma-separated values (*.csv)"
-        )
+        start = str(Path(folder) / name) if isinstance(folder, str) else name
+        chosen, _filter = QFileDialog.getSaveFileName(self, title, start, kinds)
         if not chosen:
-            return
+            return None
         path = Path(chosen)
         if self._ctx is not None:
             self._ctx.settings.set(EXPORT_FOLDER, str(path.parent))
-        self.export_csv(path)
+        return path
+
+    def ask_export(self) -> None:
+        """Ask where to, and write what the plot shows as CSV."""
+        path = self._ask_where("Export CSV", "capture.csv", "Comma-separated values (*.csv)")
+        if path is not None:
+            self.export_csv(path)
+
+    def ask_picture(self) -> None:
+        """Ask where to, and save a picture of the plot."""
+        path = self._ask_where("Export PNG", "capture.png", "PNG picture (*.png)")
+        if path is not None:
+            self.export_png(path)
+
+    def export_png(self, path: Path) -> bool:
+        """Save a picture of the pane as it looks now: the plot, and the channel
+        list that says what is on it. Says where it went, or that it did not."""
+        self.redraw()  # so that what is saved is what there is now
+        if path.suffix.lower() != ".png":
+            path = path.with_name(path.name + ".png")
+        # What it says it is doing was written a moment ago, and is given its
+        # room only when the pane is next laid out: now, not after the picture.
+        QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+        picture = self.grab()
+        if not picture.save(str(path), "PNG"):
+            self._say(f"The picture could not be saved to {path}.", problem=True)
+            return False
+        self._say(
+            f"Saved a picture of the plot, {picture.width()} by {picture.height()}, to {path}."
+        )
+        return True
 
     def export_csv(self, path: Path) -> list[export.Written]:
         """Write the channels that are ticked, in the stretch of time in view:
@@ -670,16 +1020,29 @@ class ScopeView(QWidget):
             self._ctx.log(message)
 
     def _show_values(self) -> None:
+        """What each channel reads: now, with no cursor; at the cursor, with one;
+        at each and the difference between them, with two."""
         if not self.isVisible():
             return
+        count = self.cursor_count()
+        self._show_cursor_times()
         for key, record in self._records():
             if not record.count:
-                text = ""
-            elif record.channel.kind == DIGITAL:
-                text = str(int(record.view()[-1]))
+                texts = ("", "", "")
+            elif count == 0:
+                texts = ("", "", "")  # nothing to read, and no column to read it in
             else:
-                text = f"{record.view()[-1]:.3f} {record.channel.unit}".rstrip()
-            self.channel_list.set_value(key, text)
+                first = self._reading(key, self._cursor_at[0])
+                texts = (self._value_text(record, first), "", "")
+                if count == 2:
+                    second = self._reading(key, self._cursor_at[1])
+                    apart = None if first is None or second is None else second - first
+                    texts = (
+                        texts[0],
+                        self._value_text(record, second),
+                        self._value_text(record, apart, difference=True),
+                    )
+            self.channel_list.set_values(key, texts)
 
     # --- layout, saved with the rest of the window state ---------------------
     def save_state(self):
