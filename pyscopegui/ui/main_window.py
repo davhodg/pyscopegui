@@ -486,7 +486,7 @@ class MainWindow(QMainWindow):
                 (
                     name,
                     backends.short(name),
-                    backends.title(name),
+                    self._described(name),
                     name in units and (units[name].wanted_open or units[name].is_open),
                 )
                 for name in self._added
@@ -494,6 +494,16 @@ class MainWindow(QMainWindow):
             unit.name,
         )
         self._show_reading()
+
+    def _described(self, name: str) -> str:
+        """What an instrument is, in full, for its tab's tip. A capture file's tab
+        says only File, so which file is said here."""
+        title = backends.title(name)
+        if backends.kind(name) == "file":
+            path = self._options(name).get("path")
+            if isinstance(path, str) and path:
+                return f"{title}: {Path(path).name}\n{Path(path).parent}"
+        return title
 
     @staticmethod
     def _as_is(unit: Unit) -> bool:

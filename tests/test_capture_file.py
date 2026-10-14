@@ -247,3 +247,14 @@ def test_the_dialog_asks_for_a_rate_only_without_a_column_of_time(tmp_path):
     dialog = ImportDialog(write(tmp_path, "time,v\n0,1\n1,2\n", "t.csv"))
     assert not dialog.rate.isEnabled()
     dialog.deleteLater()
+
+
+def test_a_files_tab_says_which_file_when_it_is_pointed_at(held, tmp_path):
+    window = held
+    window.scope.save_captures(tmp_path / "bench2_capture.npz")
+    window.open_capture(tmp_path / "bench2_capture.npz")
+    bar = window.instrument_view.instruments
+    index = window.instrument_view.listed().index("file")
+    assert bar.tabText(index).startswith("File"), "short on the tab"
+    tip = bar.tabToolTip(index)
+    assert tip.startswith("Capture file: bench2_capture.npz\n" + str(tmp_path))

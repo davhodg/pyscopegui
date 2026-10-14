@@ -24,8 +24,9 @@ seconds = np.arange(len(volts)) / meta["rate"]
 ## Opening
 
 *File > Open capture...* opens one or more files, each as an instrument of its own: a tab in
-the [Instrument](instruments.md) pane, *File*, *File 2* and so on, its channels on the plot
-beside the instruments that are open, lined up on its trigger. Everything that works on an
+the [Instrument](instruments.md) pane, *File*, *File 2* and so on -- point at one to see which
+file it is -- and its channels on the plot beside the instruments that are open, lined up on
+its trigger. Everything that works on an
 instrument works on it -- the channel list, [cursors](plot.md), colours, Export, the
 [Python Console](console.md) -- and the cross on its tab closes it.
 
