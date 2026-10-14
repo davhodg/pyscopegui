@@ -71,6 +71,11 @@ LIST_WIDTH = 280
 #: For a channel whose instrument says no colour for it: the first channel
 #: of an instrument the first of these, the next the next, whatever else is open.
 COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
+#: How much of its colour a reference trace is drawn with: enough to be
+#: told apart, little enough to be behind what is live.
+REFERENCE_ALPHA = 100
+#: Below every live trace, which are at nought.
+REFERENCE_Z = -10
 #: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
 CHOSEN_COLOURS = "channel.colours"
 COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
@@ -505,20 +510,29 @@ class ScopeView(QWidget):
                 chosen.get(key) or record.channel.colour or COLOURS[number % len(COLOURS)]
             )
         self._names = {key: self.session.name_of(unit, r.channel) for key, unit, r in entries}
+        #: What each is drawn in: its colour, or that faded for a reference.
+        drawn: dict[str, str] = {}
         for key, unit, record in entries:
-            pen = pg.mkPen(self._colours[key], width=1)
+            reference = unit.instrument is not None and unit.instrument.reference
+            colour = QColor(self._colours[key])
+            if reference:
+                colour.setAlpha(REFERENCE_ALPHA)
+            drawn[key] = colour.name(QColor.HexArgb)
+            pen = pg.mkPen(colour, width=1)
             if record.channel.kind == ANALOG:
                 curve = self.analog.plot(pen=pen)
             else:
                 # Held until the next sample, which is what a logic level does.
                 curve = self.digital.plot(pen=pen, stepMode="left")
+            if reference:
+                curve.setZValue(REFERENCE_Z)
             self._curves[key] = curve
             self._owners[key] = (unit, record.channel.key)
         channels = [record.channel for _key, _unit, record in entries]
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         details = {key: record.channel.detail for key, _unit, record in entries}
-        self.channel_list.fill(self._names, self._colours, self._hidden, details, set(chosen))
+        self.channel_list.fill(self._names, drawn, self._hidden, details, set(chosen))
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
         while len(self._level_lines) < len(self.session.shown()):

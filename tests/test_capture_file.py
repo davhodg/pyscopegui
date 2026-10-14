@@ -258,3 +258,76 @@ def test_a_files_tab_says_which_file_when_it_is_pointed_at(held, tmp_path):
     assert bar.tabText(index).startswith("File"), "short on the tab"
     tip = bar.tabToolTip(index)
     assert tip.startswith("Capture file: bench2_capture.npz\n" + str(tmp_path))
+
+
+# --- as a reference ------------------------------------------------------------------------------
+@pytest.fixture
+def opened(held, tmp_path, app):
+    """The demo's capture saved, and opened again beside it."""
+    held.scope.save_captures(tmp_path / "good.npz")
+    held.open_capture(tmp_path / "good.npz")
+    app.processEvents()
+    return held
+
+
+def pen(window, key):
+    return window.scope._curves[key].opts["pen"].color()
+
+
+def test_a_capture_is_drawn_as_any_other_until_it_is_made_a_reference(opened):
+    window = opened
+    assert pen(window, "file:A").alpha() == 255
+    assert window.scope._curves["file:A"].zValue() == 0
+    assert "Draw as a reference" in [s.label for s in window.instrument.settings_offered()]
+
+
+def test_a_reference_is_faded_behind_and_said_in_the_list(opened, app):
+    from pyscopegui.ui.scope_view import DETAIL, REFERENCE_ALPHA, REFERENCE_Z
+
+    window = opened
+    window.instrument_view.controls["reference"].click()
+    app.processEvents()
+    assert pen(window, "file:A").alpha() == REFERENCE_ALPHA
+    assert window.scope._curves["file:A"].zValue() == REFERENCE_Z
+    assert pen(window, "demo:A").alpha() == 255, "the live instrument is as it was"
+    assert window.scope._curves["demo:A"].zValue() == 0
+    item = window.scope.channel_list._items["file:A"]
+    assert item.text(DETAIL).endswith("reference")
+    assert window.ctx.settings.get("instrument.file")["reference"] is True
+
+
+def test_a_reference_keeps_its_colour_and_its_samples(opened, app):
+    window = opened
+    before = window.session.units["file"].capture.records["A"].view().copy()
+    colour = window.scope.colour_of("file:A")
+    window.instrument_view.controls["reference"].click()
+    app.processEvents()
+    assert window.scope.colour_of("file:A") == colour, "faded, not another colour"
+    assert np.array_equal(window.session.units["file"].capture.records["A"].view(), before)
+
+
+def test_unticked_it_is_drawn_as_any_other_again(opened, app):
+    window = opened
+    tick = window.instrument_view.controls["reference"]
+    tick.click()
+    app.processEvents()
+    window.instrument_view.controls["reference"].click()
+    app.processEvents()
+    assert pen(window, "file:A").alpha() == 255
+
+
+def test_cursors_read_a_reference_as_any_other(opened, app):
+    window = opened
+    window.instrument_view.controls["reference"].click()
+    app.processEvents()
+    window.scope.cursors.setCurrentIndex(1)
+    window.scope.set_cursor(0, window.scope.cursor_time(0))
+    from pyscopegui.ui.scope_view import VALUE
+
+    assert window.scope.channel_list._items["file:A"].text(VALUE).endswith(" V")
+
+
+def test_putting_a_file_on_the_plot_is_not_said_as_running_and_stopping(opened):
+    log = opened.log.toPlainText()
+    assert "Capture file: running" not in log and "Capture file: stopped" not in log
+    assert "Opened good.npz" in log

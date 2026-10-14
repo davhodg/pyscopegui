@@ -11,6 +11,8 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Reference traces**: a capture opened from a file drawn faded, behind the instruments'
+  own, to compare them with.
 - **Save capture** and **Open capture**, under *File*: everything held, kept in a file to
   open again exactly as it was; and a CSV -- Export CSV's, or another's, with lines to skip
   and columns to choose -- opened beside the instruments as one of them.

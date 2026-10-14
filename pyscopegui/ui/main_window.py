@@ -830,7 +830,12 @@ class MainWindow(QMainWindow):
         if unit.instrument is not instrument:
             return
         title = backends.title(unit.name)
-        if running:
+        # A file is put on the plot whole, and that is all: its "running" and
+        # "stopped" are a moment apart and say nothing. Opening it is said.
+        quiet = backends.kind(unit.name) == "file"
+        if running and quiet:
+            pass
+        elif running:
             count = len(instrument.channels())
             channels = f"{count} channel" if count == 1 else f"{count} channels"
             if instrument.sweeps:
@@ -841,7 +846,8 @@ class MainWindow(QMainWindow):
                 self.events.information(f"{title}: running, {channels} at {rate}.")
         else:
             unit.doing = ""
-            self.events.information(f"{title}: stopped.")
+            if not quiet:
+                self.events.information(f"{title}: stopped.")
             if not unit.restarting:
                 # It stopped by itself -- a scope unplugged -- or was told to.
                 unit.acquisition.set_mode(STOP)

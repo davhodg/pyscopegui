@@ -15,6 +15,7 @@ chosen, not added empty.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer
@@ -34,6 +35,17 @@ SETTINGS = (
         closed=True,
         empty="File > Open capture... chooses one",
         tip="The file this capture is read from. Another is opened from File > Open capture...",
+    ),
+    Setting(
+        "reference",
+        "Draw as a reference",
+        False,
+        group="Display",
+        live=True,
+        tip=(
+            "Draw this capture faded, behind the instruments' traces, to compare what\n"
+            "they show now with it: a known good one, say. Cursors still read it."
+        ),
     ),
 )
 
@@ -70,9 +82,20 @@ class CaptureFile(Instrument):
     # --- what it is ------------------------------------------------------------------------
     def channels(self) -> list[Channel]:
         try:
-            return list(self._load().channels)
+            channels = list(self._load().channels)
         except CaptureError:
             return []  # said when it is opened
+        if not self.reference:
+            return channels
+        # Said beside how it is set, so the list says which traces are the faded ones.
+        return [
+            replace(c, detail=f"{c.detail}, reference" if c.detail else "reference")
+            for c in channels
+        ]
+
+    @property
+    def reference(self) -> bool:
+        return self._options.get("reference") is True
 
     @property
     def rate(self) -> float:

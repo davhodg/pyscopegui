@@ -36,6 +36,17 @@ opened, so one written since is seen as it is now.
 
 A file of pyscopegui's own opens as it was saved. A **CSV** opens through a dialog first.
 
+## As a reference
+
+Tick **Draw as a reference**, in the Instrument pane, for a capture that has been opened, and
+its traces are drawn faded and behind the instruments' own: a known good capture, say, with
+what a scope shows now drawn over it, lined up on the trigger. What has changed -- an edge
+that comes later, a level that is lower, a glitch that was not there -- is plain to see.
+
+The channel list says *reference* beside each of its channels, and cursors read it as they
+read any other channel, so the two can be compared in numbers as well. It is kept with the
+[workspace](files.md); untick it to draw the capture as any other.
+
 ## Opening a CSV
 
 pyscopegui's own **Export CSV** is right as it opens: press **Open**. Anything else -- a

@@ -166,6 +166,12 @@ class Instrument(QObject):
         return False
 
     @property
+    def reference(self) -> bool:
+        """Whether what it holds is to be drawn as a reference: faded, behind the
+        others, to compare them with. A capture opened from a file can be."""
+        return False
+
+    @property
     def reads_as_is(self) -> bool:
         """Whether it is read as it is, with nothing on it changed. Its own
         trigger is then in charge and the toolbar's has no say: there is
