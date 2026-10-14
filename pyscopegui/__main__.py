@@ -170,6 +170,7 @@ def main() -> int:
     # up is a window that never appears and not one word about why.
     try:
         from pyscopegui.ui.main_window import MainWindow
+        from pyscopegui.ui.windows import Windows
     except Exception as exc:
         # Not ImportError alone: a library that is installed and will not
         # load fails however it likes.
@@ -179,8 +180,10 @@ def main() -> int:
         sys.stderr and sys.stderr.write(why_it_cannot_start(exc) + "\n")
         return 1
 
-    window = MainWindow()
-    window.show()
+    # Held by Windows rather than a local, because switching workspace
+    # replaces the window rather than reconfiguring it.
+    windows = Windows(MainWindow)
+    windows.open()
     return app.exec()
 
 

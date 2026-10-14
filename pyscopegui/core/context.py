@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from pyscopegui.core import paths
+from pyscopegui.core import paths, workspaces
 from pyscopegui.core.events import ERROR, GOOD, INFORMATION, WARNING, EventLog
 from pyscopegui.core.layout import Layout
 from pyscopegui.core.settings import Settings
@@ -24,10 +24,13 @@ class Context:
         events: EventLog | None = None,
     ) -> None:
         self.user_dir: Path = paths.user_dir()
-        self.settings = Settings(paths.settings_path())
-        #: The dock arrangement, in a file beside the settings rather than in
-        #: QSettings, so that the folder is one thing that can be copied.
-        self.layout = Layout(paths.layout_path())
+        #: Which bench or setup is being worked on. Everything below belongs to it.
+        self.workspace: str = workspaces.active()
+        self.workspace_dir: Path = workspaces.active_dir()
+        self.settings = Settings(workspaces.settings_path())
+        #: The dock arrangement, in the workspace folder rather than in
+        #: QSettings, so that the workspace is one thing that can be copied.
+        self.layout = Layout(workspaces.layout_path())
         #: Everything said to the user goes through here, with a level.
         self.events = events if events is not None else EventLog()
         if events is None:

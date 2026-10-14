@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Workspaces**, under *File > Workspace*: one for each bench or setup, each with its own
+  instruments, settings and panes. There is one called `default`, and what was kept before
+  is moved into it. *File > Workspace > Open folder* takes the place of *Tools > Open
+  settings folder*.
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
 - **Cursors** on the plot, one or two: the channel list reads every channel at each, to the

@@ -24,6 +24,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes if you ask, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Open and Close**, and a scope's own **Stop, Single, Normal and Auto**, with a trigger on any channel: rising or falling, at a level, placed anywhere in the plot.
 - **Several instruments at once**, and two of the same kind: **Add instrument** puts each in the Instrument pane with a tab of its own, where it is opened and set up. Each has its own trigger, and nought on the time axis is each one's trigger, so two instruments triggered by the same edge line up.
+- **Workspaces**: one for each bench or setup -- the scopes at home, the one at work -- each with its own instruments, settings and panes, chosen under *File > Workspace*.
 - **Export to CSV**: every sample of what the plot shows, with time measured from the trigger, one file for each instrument.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has. A scope's channels are set one at a time, and how every channel is set is read beside its name in the plot's list: click one there to change it.
 - **The same settings on every scope**: volts a division, probe and coupling, whichever maker's it is.

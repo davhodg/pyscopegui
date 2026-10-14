@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-r"""Where your own things live: the settings and the pane arrangement.
+r"""Where your own things live: the folder the workspaces all sit under.
+
+The settings and the pane arrangement are in a workspace -- see
+``core/workspaces.py`` -- because they are about what is being measured
+rather than about this computer.
 
 Windows:  %APPDATA%\pyscopegui        (e.g. C:\Users\you\AppData\Roaming\pyscopegui)
 Linux:    $XDG_CONFIG_HOME/pyscopegui  (default ~/.config/pyscopegui)
@@ -40,11 +44,3 @@ def user_dir() -> Path:
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
     return made(base)
-
-
-def settings_path() -> Path:
-    return user_dir() / "settings.json"
-
-
-def layout_path() -> Path:
-    return user_dir() / "layout.json"

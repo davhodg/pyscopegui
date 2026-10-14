@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
-    QDesktopServices,
     QFont,
     QKeySequence,
     QTextCharFormat,
@@ -20,26 +19,28 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QStatusBar,
 )
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import shortcut
+from pyscopegui.core import shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.session import Session, Unit
-from pyscopegui.ui import event_colours, theme
+from pyscopegui.ui import event_colours, messages, theme
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
 from pyscopegui.ui.trigger_bar import TriggerBar
+from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
 
 # Bumped whenever the set of docks changes. restoreState declines a state
 # saved under a different version, so an old layout is replaced by the current
@@ -100,10 +101,26 @@ def short_rate(rate: float) -> str:
     return f"{rate:g} S/s"
 
 
+def window_title() -> str:
+    """The workspace is named only when it is not the one everybody has.
+
+    Somebody with a single bench should not be able to tell from the window
+    that workspaces were built, and a title bar reading "default" would be the
+    one place that gave it away.
+    """
+    name = workspaces.active()
+    return f"{APP_NAME} {__version__}" + ("" if name == workspaces.DEFAULT else f" - {name}")
+
+
 class MainWindow(QMainWindow):
+    #: Open this workspace instead. Emitted rather than acted on, because a
+    #: switch is a full reload and the window that asks is the one that goes:
+    #: something outside it has to close it and open the next.
+    reopen_requested = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} {__version__}")
+        self.setWindowTitle(window_title())
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         self.setDockNestingEnabled(True)  # full grid layouts, not just the four edges
 
@@ -185,6 +202,10 @@ class MainWindow(QMainWindow):
         quit_action = file_menu.addAction("Exit", self.close)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)
+        #: One workspace per bench or setup: new, save as, switch to and manage.
+        self.workspace_menu = WorkspaceMenu(self, self.ctx)
+        self.workspace_menu.install(file_menu, before=quit_action)
+        self.workspace_menu.switch_requested.connect(self._switch_workspace)
 
         self.view_menu = self.menuBar().addMenu("&View")
         self.view_menu.setToolTipsVisible(True)
@@ -226,8 +247,6 @@ class MainWindow(QMainWindow):
                     self.desktop_action = action
                 else:
                     self.shortcut_action = action
-        folder = tools_menu.addAction("Open settings folder", self._open_settings_folder)
-        folder.setToolTip("Where settings.json and the pane arrangement are kept.")
 
         self.help_menu = HelpMenu(self)
 
@@ -1015,8 +1034,35 @@ class MainWindow(QMainWindow):
             "This is said once."
         )
 
-    def _open_settings_folder(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.ctx.user_dir)))
+    # --- workspaces ----------------------------------------------------------------------
+    def _switch_workspace(self, name: str) -> None:
+        """Open another workspace, once it is agreed that what is open here is closed.
+
+        A workspace holds which instruments there are and how each is
+        reached, so opening one closes this one's instruments. Worth a
+        question, and only when there is something open to lose.
+        """
+        if name == self.ctx.workspace or not workspaces.exists(name):
+            return
+        open_now = [unit for unit in self._in_use() if unit.wanted_open or unit.is_open]
+        if open_now:
+            what = (
+                f"{backends.title(open_now[0].name)} is"
+                if len(open_now) == 1
+                else f"{len(open_now)} instruments are"
+            )
+            answer = messages.question(
+                self,
+                "Close what is open, and open another workspace?",
+                SWITCH_WHILE_OPEN.format(
+                    what=what, them="it" if len(open_now) == 1 else "them", name=name
+                ),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Yes:
+                return
+        self.reopen_requested.emit(name)
 
     # --- the Event Log -------------------------------------------------------------------
     @Slot(str, str)
