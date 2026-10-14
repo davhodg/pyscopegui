@@ -21,14 +21,14 @@ def feed(window, seconds=0.05):
 
 
 def test_it_opens_with_the_settings_the_plot_and_the_log(window):
-    assert set(window.panes.names()) == {*DEFAULT_VISIBLE, "traffic"}
+    assert set(window.panes.names()) == {*DEFAULT_VISIBLE, "traffic", "console"}
     assert all(window.panes.on_screen(name) for name in DEFAULT_VISIBLE)
     assert not window.panes.on_screen("traffic"), "which is opened when it is wanted"
 
 
 def test_the_view_menu_lists_every_pane_ticked_while_it_is_on_screen(window):
     window._build_view_menu()
-    assert list(window._view_actions) == ["instrument", "scope", "log", "traffic"]
+    assert list(window._view_actions) == ["instrument", "scope", "log", "traffic", "console"]
     ticked = [name for name, action in window._view_actions.items() if action.isChecked()]
     assert ticked == ["instrument", "scope", "log"]
 

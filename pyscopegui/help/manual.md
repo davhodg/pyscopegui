@@ -3,6 +3,7 @@
 ## Basics
 
 - [Your files](files.md) --- what pyscopegui keeps, and where, and workspaces: one for each bench
+- [Saving and opening captures](captures.md) --- a capture kept to look at again, and CSV files opened
 - [Panes and layout](panes.md) --- docking, floating, pinning, more than one plot
 
 ## Panes
@@ -11,6 +12,7 @@
 - [Instrument](instruments.md) --- choosing an instrument, running it, and setting it up
 - [Event Log](event-log.md) --- everything the tool says, and at what level
 - [Instrument traffic](traffic.md) --- every command and answer, while it is open
+- [Python Console](console.md) --- Python, with commands to drive the scopes
 
 ## Instruments
 

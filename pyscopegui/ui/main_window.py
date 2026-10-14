@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import (
     QAction,
@@ -15,6 +17,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QFileDialog,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -26,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import shortcut, workspaces
+from pyscopegui.core import capture_file, shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -34,11 +38,15 @@ from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import event_colours, messages, theme
+from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.help_menu import HelpMenu
+from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.scripting import Scripting
+from pyscopegui.ui.scripts_menu import ScriptsMenu
 from pyscopegui.ui.traffic_view import TrafficView
 from pyscopegui.ui.trigger_bar import TriggerBar
 from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
@@ -67,6 +75,8 @@ STATUS_MS = 500
 #: this machine, where a shortcut is made.
 SHORTCUT_TOLD_KEY = "shortcut/told"
 HISTORY_KEY = "capture.history_s"
+#: Where the last capture was opened from or saved to.
+CAPTURE_FOLDER = "capture.folder"
 #: The instruments in the Instrument pane, by name, and the one chosen.
 ADDED_KEY = "instruments.added"
 CHOSEN_KEY = "instrument.name"
@@ -183,6 +193,8 @@ class MainWindow(QMainWindow):
         self.panes.add("log")
         #: Every command and answer, kept only while it is on screen.
         self.traffic = self.panes.view(self.panes.add("traffic"))
+        #: Python, with the window and a few commands to drive the scopes.
+        self.console = self.panes.view(self.panes.add("console"))
         self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
@@ -195,6 +207,17 @@ class MainWindow(QMainWindow):
 
         # --- menus & layout persistence --------------------------------------
         file_menu = self.menuBar().addMenu("&File")
+        open_action = file_menu.addAction("Open capture...", self.ask_open_capture)
+        open_action.setToolTip(
+            "Open a capture saved here, or a CSV -- Export CSV's, or any other --\n"
+            "and show it beside the instruments, as one of them."
+        )
+        save_action = file_menu.addAction("Save capture...", self.ask_save_capture)
+        save_action.setToolTip(
+            "Save everything held, of every instrument on the first plot, to open again\n"
+            "later exactly as it is: one file for each instrument."
+        )
+        file_menu.addSeparator()
         export_action = file_menu.addAction("Export CSV...", lambda: self.scope.ask_export())
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
@@ -206,6 +229,12 @@ class MainWindow(QMainWindow):
         quit_action = file_menu.addAction("Exit", self.close)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)
+        #: A script run in the console, and the last few that were.
+        self.scripts_menu = ScriptsMenu(self, self.ctx)
+        self.scripts_menu.install(file_menu, before=quit_action)
+        self.scripts_menu.run_wanted.connect(self.run_script_in_console)
+        # The console's own Run script... button is remembered too.
+        self.console.ran.connect(self.scripts_menu.remember)
         #: One workspace per bench or setup: new, save as, switch to and manage.
         self.workspace_menu = WorkspaceMenu(self, self.ctx)
         self.workspace_menu.install(file_menu, before=quit_action)
@@ -464,7 +493,7 @@ class MainWindow(QMainWindow):
                 (
                     name,
                     backends.short(name),
-                    backends.title(name),
+                    self._described(name),
                     name in units and (units[name].wanted_open or units[name].is_open),
                 )
                 for name in self._added
@@ -472,6 +501,16 @@ class MainWindow(QMainWindow):
             unit.name,
         )
         self._show_reading()
+
+    def _described(self, name: str) -> str:
+        """What an instrument is, in full, for its tab's tip. A capture file's tab
+        says only File, so which file is said here."""
+        title = backends.title(name)
+        if backends.kind(name) == "file":
+            path = self._options(name).get("path")
+            if isinstance(path, str) and path:
+                return f"{title}: {Path(path).name}\n{Path(path).parent}"
+        return title
 
     @staticmethod
     def _as_is(unit: Unit) -> bool:
@@ -492,6 +531,57 @@ class MainWindow(QMainWindow):
         ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
         self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
         self.trigger_bar.show_usable()
+
+    def run_script_in_console(self, path: str) -> None:
+        """File > Run script... and Recent scripts: in the console, shown, so
+        that what the script prints is there to be read."""
+        self.panes.show("console")
+        self.console.run_file(path)
+
+    # --- captures in files -------------------------------------------------------------------
+    def ask_open_capture(self) -> None:
+        """Ask which files, and for a CSV how it is laid out, and open each."""
+        folder = self.ctx.settings.get(CAPTURE_FOLDER)
+        chosen, _filter = QFileDialog.getOpenFileNames(
+            self,
+            "Open capture",
+            folder if isinstance(folder, str) else "",
+            "Captures (*.npz *.csv *.txt);;pyscopegui captures (*.npz);;CSV (*.csv *.txt);;"
+            "All files (*)",
+        )
+        for text in chosen:
+            path = Path(text)
+            self.ctx.settings.set(CAPTURE_FOLDER, str(path.parent))
+            if capture_file.is_own(path):
+                self.open_capture(path)
+                continue
+            dialog = ImportDialog(path, self)
+            if dialog.exec() == QDialog.Accepted:
+                self.open_capture(path, dialog.layout())
+
+    def open_capture(self, path: Path, layout=None) -> str:
+        """Open a capture file as an instrument of its own, and put it on the plot.
+        Its name, in the Instrument pane."""
+        name = backends.another("file", self._added)
+        options = {"path": str(path)}
+        if layout is not None:
+            options["csv"] = layout.as_options()
+        self.ctx.settings.set(f"instrument.{name}", options)
+        self.choose(name)
+        self.open_instrument()
+        if self.unit.is_open:
+            self.read_once()
+        return name
+
+    def ask_save_capture(self) -> None:
+        folder = self.ctx.settings.get(CAPTURE_FOLDER)
+        start = str(Path(folder) / "capture.npz") if isinstance(folder, str) else "capture.npz"
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self, "Save capture", start, "pyscopegui captures (*.npz)"
+        )
+        if chosen:
+            self.ctx.settings.set(CAPTURE_FOLDER, str(Path(chosen).parent))
+            self.scope.save_captures(Path(chosen))
 
     @Slot()
     def read_once(self) -> None:
@@ -753,7 +843,12 @@ class MainWindow(QMainWindow):
         if unit.instrument is not instrument:
             return
         title = backends.title(unit.name)
-        if running:
+        # A file is put on the plot whole, and that is all: its "running" and
+        # "stopped" are a moment apart and say nothing. Opening it is said.
+        quiet = backends.kind(unit.name) == "file"
+        if running and quiet:
+            pass
+        elif running:
             count = len(instrument.channels())
             channels = f"{count} channel" if count == 1 else f"{count} channels"
             if instrument.sweeps:
@@ -764,7 +859,8 @@ class MainWindow(QMainWindow):
                 self.events.information(f"{title}: running, {channels} at {rate}.")
         else:
             unit.doing = ""
-            self.events.information(f"{title}: stopped.")
+            if not quiet:
+                self.events.information(f"{title}: stopped.")
             if not unit.restarting:
                 # It stopped by itself -- a scope unplugged -- or was told to.
                 unit.acquisition.set_mode(STOP)
@@ -821,6 +917,14 @@ class MainWindow(QMainWindow):
         self.panes.register(
             PaneKind(
                 "traffic", "Instrument traffic", Qt.BottomDockWidgetArea, lambda _n: TrafficView()
+            )
+        )
+        self.panes.register(
+            PaneKind(
+                "console",
+                "Python Console",
+                Qt.BottomDockWidgetArea,
+                lambda _n: ConsoleView(Scripting(self).names(), self.ctx),
             )
         )
 
@@ -949,8 +1053,9 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.TopDockWidgetArea, instrument)
         self.splitDockWidget(instrument, log, Qt.Vertical)
         self.splitDockWidget(instrument, scope, Qt.Horizontal)
-        # Behind the Event Log, put away until it is asked for.
+        # Behind the Event Log, put away until they are asked for.
         self.tabifyDockWidget(log, self.panes.docks["traffic"])
+        self.tabifyDockWidget(log, self.panes.docks["console"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)

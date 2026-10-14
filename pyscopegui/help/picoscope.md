@@ -179,6 +179,8 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   to that rate, and the times on the plot are out by that ratio. Choose a lower rate.
 - *The driver's buffer filled before it was read* --- the computer did not keep up, and
   samples were lost.
+- *The driver lost ... samples, which are shown as a gap* --- the same, said for the
+  samples it marked as lost. Said once in a while, with how many since the last time.
 - *That is the longest block the scope can take* --- the block length asked for is more than
   its memory holds at its slowest. Streaming reads for longer.
 - *The scope stopped answering* --- while a block was being waited for. It may have been

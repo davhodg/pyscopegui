@@ -302,3 +302,19 @@ def test_a_note_is_a_line_of_its_own_text():
 
     entry = Entry(Note(0.0, "Rigol", SENT, "*IDN?"))
     assert entry.text().endswith("Rigol                  -> *IDN?")
+
+
+def test_each_batch_a_picoscope_hands_over_is_noted():
+    """Two in one poll was where samples went missing: it is seen here."""
+    from pyscopegui.backends import picoscope2000 as pico
+    from tests.test_picoscope2000 import FakeLibrary as FakePico
+
+    library = FakePico()
+    reading = pico.Stream(library, pico.Settings())
+    reading.open()
+    reading.start()
+    traffic.listen(True)
+    library.waiting.append(([1] * 10, [1] * 10))
+    reading.poll()
+    said = [(n.direction, n.text) for n in traffic.take()]
+    assert (RECEIVED, "10 samples") in said

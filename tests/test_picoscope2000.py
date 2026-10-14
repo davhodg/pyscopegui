@@ -336,6 +336,64 @@ def test_the_samples_are_copied_out_of_the_drivers_buffer():
     assert block.data["A"][0] != 0
 
 
+def test_every_batch_the_driver_hands_over_in_one_poll_is_kept():
+    """A batch replaced by the next was samples gone without a word, and the
+    time of everything after them wrong by as many."""
+    library = FakeLibrary()
+    reading = stream(library)
+    reading.open()
+    reading.start()
+    real = library.ps2000_get_streaming_last_values
+
+    def twice(handle, callback):
+        real(handle, callback)
+        return real(handle, callback)
+
+    library.ps2000_get_streaming_last_values = twice
+    library.waiting += [([1] * 10, [2] * 10), ([3] * 5, [4] * 5)]
+    block = reading.poll()
+    assert len(block) == 15, "both batches, in order"
+    assert block.data["A"].tolist() == pytest.approx([1 * 5 / 32767] * 10 + [3 * 5 / 32767] * 5)
+    library.waiting.append(([5] * 2, [6] * 2))
+    assert reading.poll().first == 15, "and the next starts where they ended"
+
+
+def test_samples_the_driver_lost_are_said_and_not_only_drawn_as_a_gap():
+    library = FakeLibrary()
+    clock = Clock()
+    reading = stream(library, None, clock)
+    reading.open()
+    reading.start()
+    library.waiting.append(([1, pico.LOST_DATA, pico.LOST_DATA, 1], [1, 1, pico.LOST_DATA, 1]))
+    reading.poll()
+    warnings = [text for text, warning in reading.notes if warning]
+    assert warnings == [
+        "The driver lost 2 samples, which are shown as a gap. The computer did not read them "
+        "in time: a lower rate, or fewer programs running, may stop it."
+    ]
+
+
+def test_lost_samples_are_said_once_in_a_while_with_how_many_since():
+    library = FakeLibrary()
+    clock = Clock()
+    reading = stream(library, None, clock)
+    reading.open()
+    reading.start()
+    for _ in range(3):
+        library.waiting.append(([pico.LOST_DATA, 1], [1, 1]))
+        reading.poll()
+        clock.now += 1.0
+
+    def lost():
+        return [text for text, _warning in reading.notes if text.startswith("The driver lost")]
+
+    assert lost() == [lost()[0]] and lost()[0].startswith("The driver lost 1 sample, which is")
+    clock.now += pico.LOST_SAID_S
+    library.waiting.append(([pico.LOST_DATA, 1], [1, 1]))
+    reading.poll()
+    assert len(lost()) == 2 and lost()[1].startswith("The driver lost 3 samples"), "since the last"
+
+
 def test_a_full_driver_buffer_is_a_warning():
     library = FakeLibrary()
     reading = stream(library)

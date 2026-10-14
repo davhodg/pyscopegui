@@ -40,6 +40,7 @@ MANUAL = "manual.md"
 PAGES = (
     MANUAL,
     "files.md",
+    "captures.md",
     "panes.md",
     "plot.md",
     "instruments.md",
@@ -48,6 +49,7 @@ PAGES = (
     "tektronix.md",
     "event-log.md",
     "traffic.md",
+    "console.md",
     "about.md",
     "changelog.md",
 )

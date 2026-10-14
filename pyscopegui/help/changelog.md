@@ -11,6 +11,15 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- *File > Run script...* and *File > Recent scripts*, the last five run in the workspace.
+- **Reference traces**: a capture opened from a file drawn faded, behind the instruments'
+  own, to compare them with.
+- **Save capture** and **Open capture**, under *File*: everything held, kept in a file to
+  open again exactly as it was; and a CSV -- Export CSV's, or another's, with lines to skip
+  and columns to choose -- opened beside the instruments as one of them.
+- **Python Console**, under *View*: a Python prompt with commands to drive the scopes --
+  `add`, `open`, `set`, `run`, `single`, `data`, `export_csv` and the rest -- and *Run
+  script...* for a file of them.
 - **PicoScope 2000 series (ps2000a)**: the newer 2000 Series scopes -- the 2206 to 2208 in
   their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
   their sixteen logic inputs -- streamed at up to 31.25 MS/s, or read in blocks of up to a
@@ -60,6 +69,9 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
+  were partly dropped, without a word, and the time of everything after them was out;
+  and samples the driver lost were drawn as a gap the Event Log said nothing about.
 - *Help > Licences* said the third-party file held the full text of every licence. It is a
   list of the packages a build was made with, and now says so.
 
