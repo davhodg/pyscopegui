@@ -38,6 +38,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -67,7 +68,12 @@ from pyscopegui.ui.spin import SequenceSpin
 # list with no cursor; the plot takes whatever is left.
 LIST_WIDTH = 280
 
+#: For a channel whose instrument says no colour for it: the first channel
+#: of an instrument the first of these, the next the next, whatever else is open.
 COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
+#: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
+CHOSEN_COLOURS = "channel.colours"
+COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
 
 FOLLOW, ALL, MANUAL = "Follow", "All", "Manual"
 TIME_CHOICES = (FOLLOW, ALL, MANUAL)
@@ -121,8 +127,9 @@ HEADINGS = {
     2: ("Cursor 1", "Cursor 2", "2 \u2212 1"),
 }
 CURSOR_CHOICES = ("None", "1", "2")
-#: The cursors' colours: unlike any trace's, and unlike each other's.
-CURSOR_COLOURS = ("#e6b800", "#00b3b3")
+#: The cursors' colours: unlike each other's, and unlike the yellow, cyan,
+#: magenta, blue, red and green the scopes draw their channels in.
+CURSOR_COLOURS = ("#ff8c1a", "#a066ff")
 CURSORS_TIP = (
     "Lines down the plot, dragged to a moment: the channel list then says what\n"
     "each channel read there, to the nearest sample. Two also give the time\n"
@@ -169,6 +176,8 @@ class ChannelList(QTreeWidget):
     shown_changed = Signal(str, bool)
     #: A channel was clicked: its key.
     picked = Signal(str)
+    #: Asked to choose a channel's colour, or (with "") to go back to its own.
+    colour_asked = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -181,6 +190,20 @@ class ChannelList(QTreeWidget):
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
         )
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
+
+    def _menu(self, at) -> None:
+        """Colour..., and back to the instrument's own, for the channel right-clicked."""
+        item = self.itemAt(at)
+        if item is None:
+            return
+        key = item.data(NAME, Qt.UserRole)
+        menu = QMenu(self)
+        menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
+        back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
+        back.setEnabled(bool(item.data(NAME, Qt.UserRole + 1)))
+        menu.exec(self.viewport().mapToGlobal(at))
 
     def set_cursors(self, count: int) -> None:
         """Head the readings for this many cursors, with a column for each."""
@@ -195,8 +218,10 @@ class ChannelList(QTreeWidget):
         colours: dict[str, str],
         hidden: set[str],
         details: dict[str, str] | None = None,
+        chosen: set[str] | None = None,
     ) -> None:
-        """List these channels: id -> what to call it, and how each is set up."""
+        """List these channels: id -> what to call it, and how each is set up.
+        ``chosen`` are those whose colour was chosen here, and not the instrument's."""
         self.blockSignals(True)
         self.clear()
         self._items = {}
@@ -207,6 +232,8 @@ class ChannelList(QTreeWidget):
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(NAME, Qt.Unchecked if key in hidden else Qt.Checked)
             item.setForeground(NAME, QBrush(QColor(colours[key])))
+            item.setToolTip(NAME, COLOUR_TIP)
+            item.setData(NAME, Qt.UserRole + 1, key in (chosen or set()))
             for column in (VALUE, SECOND, DIFFERENCE):
                 item.setFont(column, fonts.mono())
                 item.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
@@ -311,6 +338,7 @@ class ScopeView(QWidget):
         self.channel_list = ChannelList()
         self.channel_list.shown_changed.connect(self._on_shown)
         self.channel_list.picked.connect(self._on_picked)
+        self.channel_list.colour_asked.connect(self._on_colour_asked)
 
         self.time = QComboBox()
         self.time.addItems(TIME_CHOICES)
@@ -466,7 +494,16 @@ class ScopeView(QWidget):
             plot.clear()
         self._curves, self._owners = {}, {}
         entries = self.session.entries()
-        self._colours = {key: COLOURS[i % len(COLOURS)] for i, (key, _u, _r) in enumerate(entries)}
+        chosen = self._chosen_colours()
+        self._colours = {}
+        place: dict[str, int] = {}
+        for key, unit, record in entries:
+            # Which of its instrument's channels it is, not of everything open:
+            # opening another instrument does not change anybody's colour.
+            number = place[unit.name] = place.get(unit.name, -1) + 1
+            self._colours[key] = (
+                chosen.get(key) or record.channel.colour or COLOURS[number % len(COLOURS)]
+            )
         self._names = {key: self.session.name_of(unit, r.channel) for key, unit, r in entries}
         for key, unit, record in entries:
             pen = pg.mkPen(self._colours[key], width=1)
@@ -481,7 +518,7 @@ class ScopeView(QWidget):
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         details = {key: record.channel.detail for key, _unit, record in entries}
-        self.channel_list.fill(self._names, self._colours, self._hidden, details)
+        self.channel_list.fill(self._names, self._colours, self._hidden, details, set(chosen))
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
         while len(self._level_lines) < len(self.session.shown()):
@@ -532,6 +569,41 @@ class ScopeView(QWidget):
             self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
         else:
             self.analog.setYRange(-most, most, padding=RANGE_MARGIN)
+
+    # --- colours ---------------------------------------------------------------------------
+    def _chosen_colours(self) -> dict[str, str]:
+        saved = self._ctx.settings.get(CHOSEN_COLOURS) if self._ctx is not None else None
+        if not isinstance(saved, dict):
+            return {}
+        return {str(k): v for k, v in saved.items() if isinstance(v, str) and QColor(v).isValid()}
+
+    def colour_of(self, key: str) -> str:
+        """The colour a channel is drawn in, by its id."""
+        return self._colours.get(key, "")
+
+    def set_colour(self, key: str, colour: str) -> None:
+        """Draw this channel in this colour, on every plot, from now on; or with
+        "" in the instrument's own colour again."""
+        if self._ctx is None:
+            return
+        chosen = self._chosen_colours()
+        if colour:
+            chosen[key] = QColor(colour).name()
+        else:
+            chosen.pop(key, None)
+        self._ctx.settings.set(CHOSEN_COLOURS, chosen)
+        # Every plot draws its channels again, in the colours there are now.
+        self.session.channels_changed.emit()
+
+    def _on_colour_asked(self, key: str, how: str) -> None:
+        if not how:
+            self.set_colour(key, "")
+            return
+        picked = QColorDialog.getColor(
+            QColor(self.colour_of(key)), self, f"Colour of {self._names.get(key, key)}"
+        )
+        if picked.isValid():
+            self.set_colour(key, picked.name())
 
     def _on_picked(self, key: str) -> None:
         if (owner := self._owners.get(key)) is None:

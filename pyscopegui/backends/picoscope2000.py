@@ -44,6 +44,9 @@ from pyscopegui.core.traffic import traced_library
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
 
+#: Each channel in the colour Pico's own PicoScope software draws it in.
+COLOURS = {"A": "#3d7bff", "B": "#ff3333", "C": "#33cc33", "D": "#f2e600"}
+
 # --- what the driver calls things: Pico's "PicoScope 2000 Series Programmer's Guide" ----
 CHANNEL_A, CHANNEL_B, NO_TRIGGER = 0, 1, 5
 TIME_UNITS_NS = 2
@@ -1180,6 +1183,7 @@ class PicoScope2000(Instrument):
                     f"{'DC' if self.settings.dc[key] else 'AC'}"
                 ),
                 group=f"Channel {key}",
+                colour=COLOURS.get(key, ""),
             )
             for key in self.settings.keys()
         ]

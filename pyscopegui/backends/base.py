@@ -44,6 +44,9 @@ class Channel:
     #: The group its settings are listed under, so that choosing the channel
     #: can show them: "Channel A". Empty where it has none.
     group: str = ""
+    #: The colour the instrument itself draws it in, as "#rrggbb", so that the
+    #: plot and the scope's own screen agree. Empty where it has none.
+    colour: str = ""
 
 
 @dataclass(frozen=True)

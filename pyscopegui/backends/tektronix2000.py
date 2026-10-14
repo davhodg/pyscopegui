@@ -74,6 +74,10 @@ class ScopeError(Exception):
     """The scope could not be reached, or stopped answering. In words for the Event Log."""
 
 
+#: Each channel in the colour the scope's own screen draws it in.
+COLOURS = {"CH1": "#f2e600", "CH2": "#00b3ff", "CH3": "#ff40d0", "CH4": "#33cc33"}
+
+
 # --- the settings ---------------------------------------------------------------------------
 def _engineering(value: float, unit: str) -> str:
     for scale, prefix in ((1.0, ""), (1e-3, "m"), (1e-6, "u"), (1e-9, "n")):
@@ -953,6 +957,7 @@ class Tektronix2000(Instrument):
                 full_scale=0.0 if settings.as_is else settings.scale[key] * UP / 2,
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
+                colour=COLOURS.get(key, ""),
             )
             for key in settings.keys(self._channels)
         ]

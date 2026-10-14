@@ -43,6 +43,28 @@ in the colour its trace is drawn in. With a [cursor](#cursors) on the plot there
 column for what each channel read there; with none there is no such column, and the list is
 narrower so that the plot has the room.
 
+### Colours
+
+Each channel is drawn in **the colour its scope draws it in**, so that the plot and the
+scope's own screen agree:
+
+| Scope | Channels |
+|-------|----------|
+| Rigol DS1000Z | CH1 yellow, CH2 cyan, CH3 magenta, CH4 blue |
+| Tektronix TDS and TPS 2000 | CH1 yellow, CH2 blue, CH3 magenta, CH4 green |
+| PicoScope 2000 series | A blue, B red, C green, D yellow, as Pico's PicoScope software has them |
+
+A channel whose instrument has no colour for it -- the demo's, a logic input -- takes one by
+where it is in its own instrument. Either way a channel keeps its colour whatever else is
+opened beside it.
+
+**Right-click a channel** in the list to choose another colour: for two scopes of the same
+model side by side, say, whose CH1s would otherwise both be yellow. The colour is the same on
+every plot and is kept in the [workspace](files.md); *Its own colour*, on the same menu, goes
+back to the scope's.
+
+The cursors are orange and violet, which none of the scopes uses for a channel.
+
 **Settings** is how the channel is set up, in a line -- *1 V/div, 10x, DC* -- for every
 channel of every instrument at once. Click a channel to bring its settings up in the
 [Instrument pane](instruments.md), where they are changed.

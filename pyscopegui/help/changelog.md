@@ -11,6 +11,8 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Channel colours** as each scope draws its channels, kept by a channel whatever else is
+  open, and chosen by right-clicking it in the channel list.
 - **Instrument traffic**, under *View*: every command sent to an instrument, every answer
   and how long it took, and every call into a maker's library, kept only while the pane is
   open.

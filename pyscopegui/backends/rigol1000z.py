@@ -84,6 +84,10 @@ class GivenUpError(Exception):
     """A read was abandoned part way, because something else was asked for."""
 
 
+#: Each channel in the colour the scope's own screen draws it in.
+COLOURS = {"CH1": "#f2e600", "CH2": "#00e5ff", "CH3": "#ff40d0", "CH4": "#3d7bff"}
+
+
 # --- the settings ---------------------------------------------------------------------------
 def _steps(low_exponent: int, high_exponent: int) -> list[float]:
     """1, 2, 5 in every power of ten from one to the other."""
@@ -862,6 +866,7 @@ class Rigol1000Z(Instrument):
                 full_scale=self.settings.scale[key] * UP / 2,
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
+                colour=COLOURS.get(key, ""),
             )
             for key in self.settings.keys()
         ]
