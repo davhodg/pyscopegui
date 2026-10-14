@@ -902,3 +902,12 @@ def test_the_instrument_offers_an_offset_only_on_a_scope_that_has_one(app, monke
         assert detail.endswith(", offset -1 V") == offered
         instrument.close()
         run_for(app, instrument, lambda opened=opened: opened == [True, False])
+
+
+def test_samples_the_driver_lost_are_said_as_on_the_older_scopes():
+    library = FakeLibrary()
+    reading = started(library, {"enabled_b": False})
+    library.waiting.append({0: [100, pico.LOST_DATA, pico.LOST_DATA, 100]})
+    reading.poll()
+    said = [text for text, warning in reading.notes if warning]
+    assert said and said[0].startswith("The driver lost 2 samples, which are shown as a gap")

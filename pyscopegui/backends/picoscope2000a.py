@@ -1014,6 +1014,17 @@ class Stream(pico.Stream):
         block = Block(self._sent, self._rate, data, after_pause=self._paused)
         self._paused = False
         self._sent += count
+        # Marked as lost by the driver in an analog channel: a logic port has
+        # no such mark, and a gap in one is as wide as in the channels.
+        lost = max(
+            (
+                int(np.count_nonzero(values[:count] == LOST_DATA))
+                for code, values in raw.items()
+                if code < DIGITAL_PORT0
+            ),
+            default=0,
+        )
+        self._check_lost(lost)
         self._check_rate()
         return block
 
