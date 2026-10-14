@@ -48,6 +48,7 @@ PAGES = (
     "tektronix.md",
     "event-log.md",
     "traffic.md",
+    "console.md",
     "about.md",
     "changelog.md",
 )

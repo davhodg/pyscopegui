@@ -34,11 +34,13 @@ from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import event_colours, messages, theme
+from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.scripting import Scripting
 from pyscopegui.ui.traffic_view import TrafficView
 from pyscopegui.ui.trigger_bar import TriggerBar
 from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
@@ -183,6 +185,8 @@ class MainWindow(QMainWindow):
         self.panes.add("log")
         #: Every command and answer, kept only while it is on screen.
         self.traffic = self.panes.view(self.panes.add("traffic"))
+        #: Python, with the window and a few commands to drive the scopes.
+        self.console = self.panes.view(self.panes.add("console"))
         self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
@@ -823,6 +827,14 @@ class MainWindow(QMainWindow):
                 "traffic", "Instrument traffic", Qt.BottomDockWidgetArea, lambda _n: TrafficView()
             )
         )
+        self.panes.register(
+            PaneKind(
+                "console",
+                "Python Console",
+                Qt.BottomDockWidgetArea,
+                lambda _n: ConsoleView(Scripting(self).names(), self.ctx),
+            )
+        )
 
     def _on_pane_shown(self, name: str, on: bool) -> None:
         if name == "traffic":
@@ -949,8 +961,9 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.TopDockWidgetArea, instrument)
         self.splitDockWidget(instrument, log, Qt.Vertical)
         self.splitDockWidget(instrument, scope, Qt.Horizontal)
-        # Behind the Event Log, put away until it is asked for.
+        # Behind the Event Log, put away until they are asked for.
         self.tabifyDockWidget(log, self.panes.docks["traffic"])
+        self.tabifyDockWidget(log, self.panes.docks["console"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)

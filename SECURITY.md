@@ -44,6 +44,9 @@ What **is** worth reporting:
 
 What is **not**, here:
 
+- a script run from the Python Console doing what scripts can. It runs as you,
+  with everything that means, and that is what it is for;
+
 - problems in a maker's driver or library, or in the instrument itself.
   Report those to the maker; do tell us if pyscopegui uses one unsafely;
 - problems in the libraries pyscopegui is built on -- Qt, pyqtgraph, numpy.

@@ -11,6 +11,7 @@
 - [Instrument](instruments.md) --- choosing an instrument, running it, and setting it up
 - [Event Log](event-log.md) --- everything the tool says, and at what level
 - [Instrument traffic](traffic.md) --- every command and answer, while it is open
+- [Python Console](console.md) --- Python, with commands to drive the scopes
 
 ## Instruments
 

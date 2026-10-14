@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Python Console**, under *View*: a Python prompt with commands to drive the scopes --
+  `add`, `open`, `set`, `run`, `single`, `data`, `export_csv` and the rest -- and *Run
+  script...* for a file of them.
 - **Channel colours** as each scope draws its channels, kept by a channel whatever else is
   open, and chosen by right-clicking it in the channel list.
 - **Instrument traffic**, under *View*: every command sent to an instrument, every answer
