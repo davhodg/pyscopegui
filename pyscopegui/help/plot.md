@@ -18,7 +18,8 @@ stretch of time in view. Not only the few points a plot draws of them: a million
 view is a million rows.
 
 - The first column is time in seconds, as the plot's axis has it: from the trigger where
-  there is one.
+  there is one. It is written to a tenth of the time between two samples, so every sample
+  has a time of its own however long the run has been going.
 - Each channel is a column, headed with its name and what it is measured in. A logic
   channel is 0 or 1. A gap is `nan`.
 - With several instruments open there is a file for each, named for it --
