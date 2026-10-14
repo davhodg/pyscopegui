@@ -699,16 +699,29 @@ class MainWindow(QMainWindow):
         instrument = unit.instrument
         if instrument is None:
             return
+        was_as_is = self._as_is(unit)
         if not live and instrument.running:
             self._restart(unit, lambda: instrument.set(key, value))
-            self._show_reading()
-            return
-        instrument.set(key, value)
-        if live:
-            # The same channels, on a new range: named for it, with what is held kept.
-            unit.capture.update_channels(instrument.channels())
+        else:
+            instrument.set(key, value)
+            if live:
+                # The same channels, on a new range: named for it, with what is held kept.
+                unit.capture.update_channels(instrument.channels())
+        if self._as_is(unit) and not was_as_is:
+            self._show_whole_snapshots()
         # How it is read may be what changed, and with it what the toolbar offers.
         self._show_reading()
+
+    def _show_whole_snapshots(self) -> None:
+        """Have every plot show all it holds, for an instrument read as it is.
+
+        Done once, when it is set to be read that way or is opened so: what it
+        sends is a snapshot of its screen, and Follow's stretch of time around
+        the trigger can cut it short. What is chosen after that is left alone.
+        """
+        for name in self.panes.instances("scope"):
+            if (view := self.panes.view(name)) is not None:
+                view.show_all()
 
     def _drop_unit(self, unit: Unit) -> None:
         if unit.instrument is not None:
@@ -723,8 +736,11 @@ class MainWindow(QMainWindow):
         if not is_open:
             unit.acquisition.set_mode(STOP)
             self._settle_mode()
-        elif unit is self.unit:
-            self._show_settings()
+        else:
+            if unit is self.unit:
+                self._show_settings()
+            if self._as_is(unit):
+                self._show_whole_snapshots()
         self._show_open()
         self._update_status()
 

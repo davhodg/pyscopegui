@@ -32,7 +32,7 @@ since the last version, and comes out in the next one.
 - **Tektronix TDS200, TDS1000, TDS2000 and TPS2000** scopes, over a serial port: a sweep at
   a time, or what is on the scope's screen read off with nothing on it changed. A set-up is
   sent a setting at a time, with how far it has got shown, and opening waits for a scope
-  that is still busy with one.
+  that is still busy with one. Read as it is, the plot shows the whole of what is read.
 
 ### Changed
 

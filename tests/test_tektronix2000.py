@@ -850,3 +850,89 @@ def test_read_as_it_is_no_level_is_drawn_for_a_trigger_that_is_not_ours(as_is_wi
     wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
     window.scope.redraw()
     assert not window.scope.level_line.isVisible()
+
+
+# --- a snapshot is shown whole -----------------------------------------------------------------
+def demo_beside(window):
+    """The demo run and stopped, with what it sent still on the plot, as a
+    default workspace would have it beside the scope."""
+    window.choose("demo")
+    window.set_mode("auto")
+    window.instrument._started -= 1.0
+    window.instrument._tick()
+    window.set_mode("stop")
+    window.choose("tektronix2000")
+
+
+def read_once(window, app):
+    window.instrument_bar.read.click()
+    wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
+    window.scope.redraw()
+    return window.scope.analog.getViewBox().viewRange()[0]
+
+
+@pytest.fixture
+def slow_screen(port):
+    """Five seconds of screen, which is far more than Follow's stretch."""
+    port.state.update({"SELECT:CH1": "ON", "SELECT:CH2": "ON", "HORIZONTAL:MAIN:SCALE": "0.5"})
+    return port
+
+
+def test_choosing_to_read_as_it_is_shows_all_of_what_is_read(scope_window, slow_screen, app):
+    window = scope_window
+    demo_beside(window)
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert window.scope.time.currentText() == "Follow"
+    window._on_setting("read", "asis", False)
+    assert window.scope.time.currentText() == "All"
+    low, high = read_once(window, app)
+    assert low <= -2.5 and high >= 2.5, "the whole five seconds, beside the demo"
+
+
+def test_all_beside_another_instrument_is_all_of_both(scope_window, slow_screen, app):
+    """It used to be the same as Follow whenever two instruments shared the plot."""
+    window = scope_window
+    demo_beside(window)
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    window._on_setting("read", "asis", False)
+    window.scope.time.setCurrentText("Follow")
+    low, high = read_once(window, app)
+    assert high - low == pytest.approx(window.scope.window_s.value()), "Follow is its stretch"
+    window.scope.time.setCurrentText("All")
+    window.scope.redraw()
+    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    assert low <= -2.5 and high >= 2.5
+
+
+def test_it_is_done_once_and_a_choice_made_after_is_left_alone(scope_window, slow_screen, app):
+    window = scope_window
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    window._on_setting("read", "asis", False)
+    window.scope.time.setCurrentText("Follow")
+    read_once(window, app)
+    read_once(window, app)
+    assert window.scope.time.currentText() == "Follow"
+    window._on_setting("enabled_2", False, False)  # any other setting
+    assert window.scope.time.currentText() == "Follow"
+
+
+def test_a_scope_opened_already_set_to_be_read_as_it_is_shows_all(window, port, app, monkeypatch):
+    monkeypatch.setattr(tek, "POLL_S", 0.01)
+    window.ctx.settings.set("instrument.tektronix2000", {"port": "COM9", "read": "asis"})
+    window.choose("tektronix2000")
+    assert window.scope.time.currentText() == "Follow"
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert window.scope.time.currentText() == "All"
+    window.close_instrument()
+
+
+def test_a_scope_set_up_from_here_leaves_the_plot_as_it_is(scope_window, port, app):
+    window = scope_window
+    window.instrument_view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    window._on_setting("time_div", 0.001, False)
+    assert window.scope.time.currentText() == "Follow"

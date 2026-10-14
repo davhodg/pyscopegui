@@ -265,6 +265,9 @@ class ScopeView(QWidget):
         #: The ends of the sweeps on the time axis, while every instrument is
         #: sending sweeps: all of them is what there is to show.
         self._sweep_ends: tuple[float, float] | None = None
+        #: Where everything held is on the time axis, of every instrument:
+        #: what All shows.
+        self._everything: tuple[float, float] | None = None
         self._ctx = ctx
         self._key = key
         self._curves: dict[str, pg.PlotDataItem] = {}
@@ -746,6 +749,9 @@ class ScopeView(QWidget):
         several = len(units) > 1
         origins: dict[str, float | None] = {}
         states, ends, relative, streams = [], [], False, False
+        #: Where each instrument's samples are on the axis: all of a sweep,
+        #: and all that is held of a stream. What All shows.
+        spans: list[tuple[float, float]] = []
         for unit in units:
             timing = self._timings.setdefault(unit.name, _Timing())
             origin, state, is_relative, sweep_ends = self._find_origin(unit, timing, several)
@@ -753,8 +759,12 @@ class ScopeView(QWidget):
             relative = relative or is_relative
             if sweep_ends is None:
                 streams = True
+                held = (unit.capture.oldest(), unit.capture.newest())
+                if origin is not None and None not in held:
+                    spans.append((held[0] - origin, held[1] - origin))
             else:
                 ends.append(sweep_ends)
+                spans.append(sweep_ends)
             if origin is not None:
                 timing.origin = origin
             if unit.doing and unit.running:
@@ -768,7 +778,13 @@ class ScopeView(QWidget):
             self._sweep_ends = (min(e[0] for e in ends), max(e[1] for e in ends))
         else:
             self._sweep_ends = None
+        self._everything = (min(s[0] for s in spans), max(s[1] for s in spans)) if spans else None
         return origins, "   ".join(states)
+
+    def show_all(self) -> None:
+        """Show everything held: what a snapshot of a scope's screen wants, where
+        Follow's stretch of time around the trigger would cut it short."""
+        self.time.setCurrentText(ALL)
 
     def _show_relative(self, was_relative: bool) -> None:
         """Take up a change between time from the start and time from a trigger."""
@@ -792,8 +808,12 @@ class ScopeView(QWidget):
             self.analog.setXRange(*self._sweep_ends, padding=0)
             return
         if self._relative:
-            # Around the trigger, which is at nought: All has no meaning of
-            # its own here, and is the same as Follow.
+            # All is everything held, of every instrument: a sweep beside a
+            # stream is all of the sweep, and as much of the stream as there is.
+            if choice == ALL and self._everything is not None:
+                self.analog.setXRange(*self._everything, padding=0)
+                return
+            # Follow is the stretch asked for around the trigger, which is at nought.
             window = self.window_s.value()
             before = self.session.shown()[0].acquisition.position * window
             self.analog.setXRange(-before, window - before, padding=0)

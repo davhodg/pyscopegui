@@ -74,6 +74,11 @@ bench: stop the scope on what you want, press **Read** here, and it is on the pl
 channels read are the ones ticked **Enabled** here that are also on the scope's screen;
 their scale, their timebase and their trigger are the scope's own.
 
+What is read is a snapshot of the screen, so the plot's **Time** is set to **All** when the
+scope is set to be read this way, or is opened already set so: **Follow**, with another
+instrument on the plot beside it, would show only a stretch of the snapshot around its
+trigger. It is done that once, and what you choose after that is left as it is.
+
 **Read** is on the toolbar, beside **Add instrument**, while the scope is read this way. It takes what
 the screen shows once and stops. **Auto** reads the screen over and over, which follows a
 scope that is running without touching it. There is no trigger here to wait for -- the

@@ -90,7 +90,9 @@ computer, so what is drawn does not carry the jitter of the USB or the network.
 
 - **Follow** keeps the newest samples in view, and the box beside it says how many seconds.
   Its arrows go 1, 2, 5, 10, 20, 50, as a scope's timebase does; any number can be typed.
-- **All** shows everything that is held, and keeps it all in view as more arrives.
+- **All** shows everything that is held, and keeps it all in view as more arrives. With
+  several instruments on the plot that is all of each: the whole of a scope's capture, and
+  as much of a stream as is held.
 - **Manual** stays where you put it. Dragging or zooming a plot chooses it for you.
 
 Wheel to zoom, drag to move, and right-click a plot for the rest.
