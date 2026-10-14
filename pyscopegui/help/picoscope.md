@@ -202,6 +202,24 @@ generator, which every one of them has.
 | Blocks | To 100 MS/s, a few thousand samples | To the scope's fastest -- 500 MS/s or 1 GS/s -- and up to a million samples |
 | Trigger for blocks | A or B | Any channel that is on, or any logic input |
 | Signal generator | To 100 kHz | To 1 MHz |
+| Offset | None | On the models that have it |
+
+### Offset
+
+To read a signal that sits away from nought more finely -- one between 3 V and 4 V, say --
+give its channel an **Offset**. It is added to the signal before the scope measures it, in
+volts at the probe's tip, as a bench scope's offset is: -3.5 V puts that signal in the
+middle of the range, and a smaller **Scale** then fits it, measured in finer steps.
+
+Each range takes only so much offset, and the smaller ranges less: the scope says how much,
+and pyscopegui asks it. Ask for more than a range takes and it is given as much as it takes,
+the [Event Log](event-log.md) says so, and what is read is still the signal itself -- only
+less of it may be in the range. So for 3 V to 4 V, the useful setting is the smallest scale
+whose range takes an offset of about 3.5 V.
+
+**Offset** is offered once the scope is open, and only if it has one: not every model does,
+and the older scopes on `ps2000` have none at all. It is taken up as the scope runs, and the
+channel list says it beside the scale.
 
 ### Logic inputs
 

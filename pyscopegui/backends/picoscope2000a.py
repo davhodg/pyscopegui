@@ -28,6 +28,7 @@ import ctypes
 import math
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -165,6 +166,7 @@ PROTOTYPES = {
     "ps2000aCloseUnit": (_STATUS, [_INT16]),
     "ps2000aGetUnitInfo": (_STATUS, [_INT16, ctypes.c_char_p, _INT16, _P(_INT16), _UINT32]),
     "ps2000aMaximumValue": (_STATUS, [_INT16, _P(_INT16)]),
+    "ps2000aGetAnalogueOffset": (_STATUS, [_INT16, _INT32, _INT32, _P(_FLOAT), _P(_FLOAT)]),
     "ps2000aGetChannelInformation": (
         _STATUS,
         [_INT16, _INT32, _INT32, _P(_INT32), _P(_INT32), _INT32],
@@ -241,11 +243,39 @@ def port_label(port: int) -> str:
     return f"D{port * PORT_BITS} to D{port * PORT_BITS + PORT_BITS - 1}"
 
 
+#: The most offset asked for, either way, at the probe's tip: the scope keeps
+#: it to what each range allows, which is far less.
+MOST_OFFSET = 1000.0
+OFFSET_TIP = (
+    "Added to the signal before it is measured, in volts at the probe's tip:\n"
+    "-3.5 V puts a signal at 3.5 V in the middle of the range, so a smaller\n"
+    "scale can be used and it is read more finely. Each range takes only so\n"
+    "much -- the scope says how much -- and the Event Log says when that is\n"
+    "less than was asked for."
+)
+
+
+def offset_setting(key: str) -> Setting:
+    return Setting(
+        f"offset_{key.lower()}",
+        "Offset",
+        0.0,
+        minimum=-MOST_OFFSET,
+        maximum=MOST_OFFSET,
+        decimals=3,
+        unit="V",
+        step=0.1,
+        group=f"Channel {key}",
+        live=True,
+        tip=OFFSET_TIP,
+    )
+
+
 def make_settings(
-    channels: int = 2, digital: bool = False, ranges: tuple[str, ...] = ()
+    channels: int = 2, digital: bool = False, ranges: tuple[str, ...] = (), offset: bool = False
 ) -> tuple[Setting, ...]:
     """The settings to offer for a scope with this many channels, logic inputs or none,
-    and these ranges."""
+    these ranges, and an offset or none."""
     scales = pico.scales_for(ranges or tuple(RANGES))
     choices = tuple((scale, pico.scale_label(scale)) for scale in scales)
     made = [
@@ -309,7 +339,11 @@ def make_settings(
     ]
     for key in ANALOG[:channels]:
         # The first two are on to begin with, as on a two-channel scope.
-        made += pico.channel_settings(key, choices, enabled=key in "AB")
+        channel = pico.channel_settings(key, choices, enabled=key in "AB")
+        if offset:
+            # Beside the scale, which it is chosen with.
+            channel.insert(2, offset_setting(key))
+        made += channel
     if digital:
         for port in PORTS:
             label = port_label(port)
@@ -373,12 +407,17 @@ class Settings(pico.Settings):
         self.interval_ns = max(1, round(1e9 / rate)) if rate > 0 else round(1e9 / DEFAULT_RATE)
         self.rate = 1e9 / self.interval_ns
         self.probe, self.ranges, self.dc, self.enabled = {}, {}, {}, {}
+        #: Volts at the probe's tip added before it is measured, by channel.
+        self.offset: dict[str, float] = {}
         for key in ANALOG:
             low = key.lower()
             self.probe[key] = self._probe(options.get(f"probe_{low}"))
             self.ranges[key] = self._range(options.get(f"scale_{low}"), self.probe[key], None)
             self.dc[key] = options.get(f"coupling_{low}", "DC") != "AC"
             self.enabled[key] = bool(options.get(f"enabled_{low}", key in "AB"))
+            self.offset[key] = min(
+                max(self._number(options.get(f"offset_{low}"), 0.0), -MOST_OFFSET), MOST_OFFSET
+            )
         #: Port -> whether its eight logic inputs are read, and the volts
         #: above which one of them is a 1.
         self.ports = {port: bool(options.get(f"digital_{port}", False)) for port in PORTS}
@@ -414,7 +453,7 @@ class Settings(pico.Settings):
         return kept
 
     def setup(self) -> tuple:
-        return (self.ranges, self.dc, self.threshold)
+        return (self.ranges, self.dc, self.threshold, self.offset)
 
     def keys(self) -> list[str]:
         """The analog channels switched on, in order."""
@@ -446,6 +485,13 @@ class Stream(pico.Stream):
         self.channels = 2
         self.digital = False
         self.ranges: tuple[str, ...] = tuple(RANGES)
+        #: Whether the scope can add an offset at all: not every model can.
+        self.has_offset = False
+        #: (range code, DC) -> the least and most offset it allows, as the scope said.
+        self._offset_limits: dict[tuple[int, bool], tuple[float, float]] = {}
+        #: Channel -> the offset the scope was given, in volts at its input:
+        #: what is taken off again, so what is read is the signal itself.
+        self._applied: dict[str, float] = {}
         self._max = MAX_VALUE
         #: What the driver fills, by what it calls the channel or port. Kept
         #: for as long as it may: a buffer that has been collected is written
@@ -488,12 +534,56 @@ class Stream(pico.Stream):
         if self._library.ps2000aMaximumValue(self._handle, ctypes.byref(most)) == OK:
             self._max = most.value or MAX_VALUE
         self.ranges = self._ranges()
+        self.has_offset = self._limits(RANGES["5V"][0], True) != (0.0, 0.0)
         self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
 
     def _info(self, line: int) -> str:
         text, needed = ctypes.create_string_buffer(64), ctypes.c_int16(0)
         self._library.ps2000aGetUnitInfo(self._handle, text, len(text), ctypes.byref(needed), line)
         return text.value.decode("ascii", "replace") or "?"
+
+    def _limits(self, code: int, dc: bool) -> tuple[float, float]:
+        """The least and most offset this range allows, at the scope's input.
+        Nought and nought for a scope without one, or one that will not say."""
+        if (code, dc) not in self._offset_limits:
+            most, least = ctypes.c_float(0), ctypes.c_float(0)
+            status = self._library.ps2000aGetAnalogueOffset(
+                self._handle,
+                code,
+                COUPLING_DC if dc else COUPLING_AC,
+                ctypes.byref(most),
+                ctypes.byref(least),
+            )
+            found = (least.value, most.value) if status == OK else (0.0, 0.0)
+            self._offset_limits[(code, dc)] = found
+        return self._offset_limits[(code, dc)]
+
+    def _offset_for(self, key: str, code: int) -> float:
+        """The offset to give the scope for this channel, at its input: what
+        was asked for at the probe's tip, kept to what the range allows."""
+        settings = self.settings
+        wanted = settings.offset[key] / settings.probe[key]
+        if not wanted or not settings.enabled[key]:
+            return 0.0
+        least, most = self._limits(code, settings.dc[key])
+        given = min(max(wanted, least), most)
+        if given != wanted:
+            at_tip = given * settings.probe[key]
+            if not self.has_offset:
+                said = f"This scope has no offset, so channel {key} is read with none."
+            else:
+                said = (
+                    f"Channel {key}'s range of ±{settings.ranges[key]} takes an offset of "
+                    f"{least * settings.probe[key]:g} V to {most * settings.probe[key]:g} V, "
+                    f"so it is {at_tip:g} V where {settings.offset[key]:g} V was asked for. "
+                    "A larger scale allows more."
+                )
+            self.notes.append((said, True))
+        return given
+
+    def offset_at_tip(self, key: str) -> float:
+        """The offset a channel is read with, in volts at the probe's tip."""
+        return self._applied.get(key, 0.0) * self.settings.probe[key]
 
     def _ranges(self) -> tuple[str, ...]:
         """The ranges the scope says it has; every one, if it will not say."""
@@ -540,19 +630,21 @@ class Stream(pico.Stream):
         settings = self.settings
         for index, key in enumerate(ANALOG[: self.channels]):
             code, _volts = RANGES[settings.ranges[key]]
+            offset = self._offset_for(key, code)
             status = self._library.ps2000aSetChannel(
                 self._handle,
                 index,
                 int(settings.enabled[key]),
                 COUPLING_DC if settings.dc[key] else COUPLING_AC,
                 code,
-                0.0,
+                offset,
             )
             if status != OK:
                 raise ScopeError(
                     f"The scope would not set channel {key} to ±{settings.ranges[key]}: "
                     f"{why(status)}."
                 )
+            self._applied[key] = offset
         if not self.digital:
             return
         for port in PORTS:
@@ -637,7 +729,9 @@ class Stream(pico.Stream):
         if trigger.source in settings.keys():
             self._no_digital_trigger()
             volts = settings.volts(trigger.source)
-            counts = round(min(max(trigger.level / volts, -1.0), 1.0) * self._max)
+            # The scope triggers on what it measures, which has the offset in it.
+            level = trigger.level + self.offset_at_tip(trigger.source)
+            counts = round(min(max(level / volts, -1.0), 1.0) * self._max)
             status = self._library.ps2000aSetSimpleTrigger(
                 self._handle,
                 1,
@@ -834,6 +928,8 @@ class Stream(pico.Stream):
             if isinstance(what, str):
                 volts = self.settings.volts(what)
                 scaled = counts.astype(np.float32) * np.float32(volts / self._max)
+                if offset := self.offset_at_tip(what):
+                    scaled -= np.float32(offset)  # it was added before it was measured
                 scaled[counts == LOST_DATA] = np.nan
                 data[what] = scaled
                 continue
@@ -935,6 +1031,8 @@ class PicoScope2000A(pico.PicoScope2000):
     SETTINGS = SETTINGS
     #: The ranges the scope said it has, once it has been opened.
     _ranges: tuple[str, ...] = ()
+    #: Whether the scope said it can add an offset, once it has been opened.
+    _has_offset = False
 
     def _load_library(self):
         return load_library()
@@ -956,19 +1054,27 @@ class PicoScope2000A(pico.PicoScope2000):
     def settings_offered(self) -> tuple[Setting, ...]:
         if self._model is None:
             return SETTINGS
-        return make_settings(*self._has(), self._ranges)
+        return make_settings(*self._has(), self._ranges, self._has_offset)
 
     def _on_opened(self, model: str) -> None:
         self._model = model or None
         if self._stream is not None:
             self._ranges = self._stream.ranges
+            self._has_offset = self._stream.has_offset
         # Read again, now that what the scope has is known.
         self.settings = self._make_settings(self._options)
         super()._on_opened(model)
 
     def channels(self) -> list[Channel]:
         settings = self.settings
-        return super().channels() + [
+        analog = [
+            # Said with the rest of how it is set, where it is not nought.
+            replace(channel, detail=f"{channel.detail}, offset {settings.offset[channel.key]:g} V")
+            if settings.offset[channel.key] and self._has_offset
+            else channel
+            for channel in super().channels()
+        ]
+        return analog + [
             Channel(
                 digital_key(port, bit),
                 digital_key(port, bit),

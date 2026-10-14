@@ -14,7 +14,7 @@ since the last version, and comes out in the next one.
 - **PicoScope 2000 series (ps2000a)**: the newer 2000 Series scopes -- the 2206 to 2208 in
   their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
   their sixteen logic inputs -- streamed at up to 31.25 MS/s, or read in blocks of up to a
-  million samples.
+  million samples -- with an **offset** on each channel where the scope has one.
 - **Channel colours** as each scope draws its channels, kept by a channel whatever else is
   open, and chosen by right-clicking it in the channel list.
 - **Instrument traffic**, under *View*: every command sent to an instrument, every answer

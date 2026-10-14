@@ -51,6 +51,9 @@ class FakeLibrary:
         self.port_wave = lambda n: np.where(np.arange(n) < n // 2, 0b0000_0000, 0b0000_0101)
         self.on = {0: True, 1: True}
         self.asked = []
+        #: Whether it can add an offset, and what each channel was last given.
+        self.has_offset = True
+        self.offsets: dict[int, float] = {}
 
     def ps2000aOpenUnit(self, handle, serial):
         self.calls.append(("open",))
@@ -73,8 +76,15 @@ class FakeLibrary:
         length._obj.value = len(self.ranges)
         return pico.OK
 
+    def ps2000aGetAnalogueOffset(self, handle, code, coupling, most, least):
+        """Limits of the kind Pico gives: 0.25 V to ±200 mV, 2.5 V to ±2 V, 20 V above."""
+        reach = 0.0 if not self.has_offset else 0.25 if code <= 4 else 2.5 if code <= 7 else 20.0
+        most._obj.value, least._obj.value = reach, -reach
+        return pico.OK
+
     def ps2000aSetChannel(self, handle, channel, enabled, coupling, code, offset):
         self.calls.append(("channel", channel, bool(enabled), coupling, code))
+        self.offsets[channel] = offset
         if code in self.refused_ranges:
             return 0x0F
         self.on[channel] = bool(enabled)
@@ -242,7 +252,7 @@ def test_the_generator_goes_to_a_megahertz():
 
 def test_every_setting_offered_is_one_the_back_end_reads():
     """A setting that is offered and not read would do nothing when it is changed."""
-    for setting in pico.make_settings(4, True):
+    for setting in pico.make_settings(4, True, offset=True):
         options = {setting.key: _another(setting)}
         assert vars(pico.Settings(options)) != vars(pico.Settings()), setting.key
 
@@ -807,3 +817,88 @@ def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch)
     run_for(app, instrument, lambda: states == [False])
     assert len(errors) == 1 and "No PicoScope was found" in errors[0]
     assert not instrument.running and not instrument.is_open
+
+
+# --- an offset, to read a small signal away from nought more finely ---------------------------
+def test_a_scope_with_an_offset_is_offered_one_on_each_channel_beside_the_scale():
+    offered = [s.key for s in pico.make_settings(2, offset=True) if s.group == "Channel A"]
+    assert offered == ["enabled_a", "scale_a", "offset_a", "coupling_a", "probe_a"]
+    assert "offset_a" not in [s.key for s in pico.make_settings(2)], "and none without"
+
+
+def test_the_offset_is_given_to_the_scope_and_taken_off_what_is_read():
+    """A signal at 3.5 V, on the ±2 V range with -3.5 V... which that range cannot take."""
+    library = FakeLibrary()
+    # 500 mV/div is the ±2 V range, which takes 2.5 V of offset at most.
+    reading = started(library, {"scale_a": 0.5, "offset_a": -2.0, "enabled_b": False})
+    assert library.offsets[0] == pytest.approx(-2.0)
+    library.waiting.append({0: [0, 32512]})
+    # Nought counts is the offset taken off again: 2 V. Full scale is 2 V more.
+    assert reading.poll().data["A"].tolist() == pytest.approx([2.0, 4.0])
+
+
+def test_an_offset_is_at_the_probes_tip():
+    library = FakeLibrary()
+    reading = started(library, {"scale_a": 5.0, "probe_a": 10, "offset_a": -20.0})
+    assert library.offsets[0] == pytest.approx(-2.0), "the scope is given a tenth of it"
+    library.waiting.append({0: [0], 1: [0]})
+    assert reading.poll().data["A"][0] == pytest.approx(20.0)
+
+
+def test_more_offset_than_the_range_takes_is_as_much_as_it_does_and_says_so():
+    library = FakeLibrary()
+    reading = started(library, {"scale_a": 0.5, "offset_a": -3.5, "enabled_b": False})
+    assert library.offsets[0] == pytest.approx(-2.5)
+    said = [text for text, warning in reading.notes if warning]
+    assert said == [
+        "Channel A's range of ±2V takes an offset of -2.5 V to 2.5 V, so it is -2.5 V where "
+        "-3.5 V was asked for. A larger scale allows more."
+    ]
+    library.waiting.append({0: [0]})
+    assert reading.poll().data["A"][0] == pytest.approx(2.5), "read with what it was given"
+
+
+def test_a_scope_without_one_reads_with_none_and_says_so():
+    library = FakeLibrary()
+    library.has_offset = False
+    reading = started(library, {"offset_a": -1.0, "enabled_b": False})
+    assert not reading.has_offset and library.offsets[0] == 0.0
+    assert any("has no offset" in text for text, warning in reading.notes if warning)
+
+
+def test_the_trigger_level_is_where_the_signal_is_with_the_offset_in_it():
+    library = FakeLibrary()
+    trigger = pico.Trigger("A", level=3.0, rising=True, auto=False)
+    reading = blocks(library, {"scale_a": 0.5, "offset_a": -2.0, "enabled_b": False}, trigger)
+    reading.poll()
+    # 3 V at the tip is 1 V on the scope once 2 V is taken off: half its ±2 V range.
+    assert ("trigger", 0, round(0.5 * 32512), pico.RISING, 0) in library.calls
+
+
+def test_an_offset_is_taken_up_as_it_runs():
+    library = FakeLibrary()
+    options = {"scale_a": 0.5, "enabled_b": False}
+    reading = started(library, options)
+    reading.wanted = pico.Settings(options | {"offset_a": -1.5})
+    library.waiting.append({0: [0]})
+    block = reading.poll()
+    assert library.offsets[0] == pytest.approx(-1.5)
+    assert block.data["A"][0] == pytest.approx(1.5)
+
+
+def test_the_instrument_offers_an_offset_only_on_a_scope_that_has_one(app, monkeypatch):
+    for has, offered in ((True, True), (False, False)):
+        library = FakeLibrary()
+        library.has_offset = has
+        monkeypatch.setattr(pico, "load_library", lambda library=library: library)
+        instrument = backends.create("picoscope2000a", None, {"offset_a": -1.0})
+        opened = []
+        instrument.opened_changed.connect(opened.append)
+        instrument.open()
+        run_for(app, instrument, lambda opened=opened: opened == [True])
+        keys = [setting.key for setting in instrument.settings_offered()]
+        assert ("offset_a" in keys) == offered
+        detail = instrument.channels()[0].detail
+        assert detail.endswith(", offset -1 V") == offered
+        instrument.close()
+        run_for(app, instrument, lambda opened=opened: opened == [True, False])
