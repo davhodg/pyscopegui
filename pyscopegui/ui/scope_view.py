@@ -18,6 +18,13 @@ follows the newest samples.
 
 With more than one instrument, each keeps time for itself, and nought on the
 axis is each one's own trigger: see pyscopegui.core.session.
+
+There can be one cursor or two: lines down both plots, dragged to a moment,
+at which the channel list says what every channel read. With none the list
+has no readings at all, and is narrower, so that the plot has the room. A
+cursor is a time on the axis and stays at it, so it is left behind when the
+plot moves on; two give the time between them, and how far each channel
+moved in it.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QToolButton,
     QTreeWidget,
@@ -55,9 +63,9 @@ from pyscopegui.ui import fonts
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
 
-# Enough for a channel's name, how it is set and its value; the plot takes
-# whatever is left.
-LIST_WIDTH = 360
+# Enough for a channel's name and how it is set, which is all there is to
+# list with no cursor; the plot takes whatever is left.
+LIST_WIDTH = 280
 
 COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
 
@@ -102,7 +110,45 @@ REDRAW_MS = 33
 VALUES_MS = 250
 #: How much of a lane a digital channel's high level fills.
 LANE_HEIGHT = 0.7
-NAME, VALUE, DETAIL = 0, 1, 2
+#: The channel list's columns. The two in the middle are for a second cursor
+#: and the difference between the two, and are put away without one.
+NAME, VALUE, SECOND, DIFFERENCE, DETAIL = 0, 1, 2, 3, 4
+#: How many cursors -> what each column of readings is headed. With none
+#: there is nothing to read, and no column: the room is the plot's.
+HEADINGS = {
+    0: ("", "", ""),
+    1: ("At cursor", "", ""),
+    2: ("Cursor 1", "Cursor 2", "2 \u2212 1"),
+}
+CURSOR_CHOICES = ("None", "1", "2")
+#: The cursors' colours: unlike any trace's, and unlike each other's.
+CURSOR_COLOURS = ("#e6b800", "#00b3b3")
+CURSORS_TIP = (
+    "Lines down the plot, dragged to a moment: the channel list then says what\n"
+    "each channel read there, to the nearest sample. Two also give the time\n"
+    "between them and how far each channel moved in it.\n"
+    "A cursor stays at its time when the plot moves on. Choosing here again\n"
+    "brings any that are out of sight back into view."
+)
+#: Said in place of a reading where nothing is held: before the oldest
+#: sample, after the newest, or in a gap.
+NOTHING_HELD = "\u2014"
+
+
+def time_text(seconds: float) -> str:
+    """A time for reading: 0.0123 -> "12.3 ms"."""
+    size = abs(seconds)
+    for scale, unit in ((1.0, "s"), (1e-3, "ms"), (1e-6, "\u00b5s"), (1e-9, "ns")):
+        if size >= scale or unit == "ns":
+            return f"{seconds / scale:.4g} {unit}"
+    return "0 s"
+
+
+def frequency_text(hertz: float) -> str:
+    for scale, unit in ((1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz")):
+        if hertz >= scale or unit == "Hz":
+            return f"{hertz / scale:.4g} {unit}"
+    return ""
 
 
 @dataclass
@@ -126,7 +172,8 @@ class ChannelList(QTreeWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setHeaderLabels(["Channel", "Value", "Settings"])
+        self.setColumnCount(DETAIL + 1)
+        self.set_cursors(0)
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self._items: dict[str, QTreeWidgetItem] = {}
@@ -134,6 +181,13 @@ class ChannelList(QTreeWidget):
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
         )
+
+    def set_cursors(self, count: int) -> None:
+        """Head the readings for this many cursors, with a column for each."""
+        self.setHeaderLabels(["Channel", *HEADINGS[count], "Settings"])
+        self.setColumnHidden(VALUE, count < 1)
+        for column in (SECOND, DIFFERENCE):
+            self.setColumnHidden(column, count < 2)
 
     def fill(
         self,
@@ -147,21 +201,24 @@ class ChannelList(QTreeWidget):
         self.clear()
         self._items = {}
         for key, name in names.items():
-            item = QTreeWidgetItem([name, "", (details or {}).get(key, "")])
+            item = QTreeWidgetItem([name, "", "", "", (details or {}).get(key, "")])
             item.setToolTip(DETAIL, PICK_TIP)
             item.setData(NAME, Qt.UserRole, key)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(NAME, Qt.Unchecked if key in hidden else Qt.Checked)
             item.setForeground(NAME, QBrush(QColor(colours[key])))
-            item.setFont(VALUE, fonts.mono())
-            item.setTextAlignment(VALUE, Qt.AlignRight | Qt.AlignVCenter)
+            for column in (VALUE, SECOND, DIFFERENCE):
+                item.setFont(column, fonts.mono())
+                item.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
             self.addTopLevelItem(item)
             self._items[key] = item
         self.blockSignals(False)
         self.resizeColumnToContents(NAME)
         # Room for the longest a value gets, so the column does not jump about
         # as the reading changes, and the settings have what is left.
-        self.setColumnWidth(VALUE, QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V "))
+        width = QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V ")
+        for column in (VALUE, SECOND, DIFFERENCE):
+            self.setColumnWidth(column, width)
 
     def _on_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column == NAME:
@@ -169,9 +226,14 @@ class ChannelList(QTreeWidget):
                 item.data(NAME, Qt.UserRole), item.checkState(NAME) == Qt.Checked
             )
 
-    def set_value(self, key: str, text: str) -> None:
-        if (item := self._items.get(key)) is not None and item.text(VALUE) != text:
-            item.setText(VALUE, text)
+    def set_values(self, key: str, texts: tuple[str, str, str]) -> None:
+        """What a channel reads: now or at the cursor, at the second cursor, and
+        the difference between the two."""
+        if (item := self._items.get(key)) is None:
+            return
+        for column, text in zip((VALUE, SECOND, DIFFERENCE), texts, strict=True):
+            if item.text(column) != text:
+                item.setText(column, text)
 
 
 class ScopeView(QWidget):
@@ -197,6 +259,9 @@ class ScopeView(QWidget):
         self._origin = 0.0
         #: Whether the axis is measured from a trigger at the moment.
         self._relative = False
+        #: The axis changed what it is measured from, or has not been placed
+        #: yet, so the cursors' times are not where anything is.
+        self._cursors_adrift = True
         #: The ends of the sweeps on the time axis, while every instrument is
         #: sending sweeps: all of them is what there is to show.
         self._sweep_ends: tuple[float, float] | None = None
@@ -271,6 +336,33 @@ class ScopeView(QWidget):
         bar.addWidget(self.auto_y)
         self.state = QLabel()
         bar.addWidget(self.state)
+        self.cursors = QComboBox()
+        self.cursors.addItems(CURSOR_CHOICES)
+        self.cursors.setToolTip(CURSORS_TIP)
+        #: Where the cursors are and how far apart: on a line of its own under
+        #: the controls, which have no room for it, and only while there are any.
+        self.cursor_times = QLabel()
+        self.cursor_times.hide()
+        #: Each cursor's time on the axis, and its line on each plot. A line
+        #: has its number at its top on the analog plot.
+        self._cursor_at = [0.0, 0.0]
+        self._cursor_lines = [
+            [
+                pg.InfiniteLine(
+                    angle=90,
+                    movable=True,
+                    pen=pg.mkPen(colour, width=1),
+                    hoverPen=pg.mkPen(colour, width=3),
+                    label=str(number + 1) if plot == 0 else None,
+                    labelOpts={"position": 0.96, "color": colour},
+                )
+                for plot in range(2)
+            ]
+            for number, colour in enumerate(CURSOR_COLOURS)
+        ]
+        for number, lines in enumerate(self._cursor_lines):
+            for line in lines:
+                line.sigPositionChanged.connect(lambda moved, n=number: self._on_cursor(n, moved))
         # Pressing it writes CSV, which is what it is mostly for; its arrow
         # has the other thing a plot can be saved as.
         self.export_button = QToolButton()
@@ -284,6 +376,8 @@ class ScopeView(QWidget):
         self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
         self.export_button.setMenu(self.export_menu)
         bar.addStretch()
+        bar.addWidget(QLabel("Cursors:"))
+        bar.addWidget(self.cursors)
         bar.addWidget(self.export_button)
         bar.addWidget(clear)
 
@@ -296,7 +390,8 @@ class ScopeView(QWidget):
         column = QVBoxLayout(right)
         column.setContentsMargins(2, 2, 2, 2)
         column.addLayout(bar)
-        column.addWidget(self.plots)
+        column.addWidget(self.cursor_times)
+        column.addWidget(self.plots, 1)
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.channel_list)
@@ -308,6 +403,10 @@ class ScopeView(QWidget):
         for i, widget in enumerate((self.channel_list, right)):
             widget.setMinimumWidth(0)
             self.splitter.setStretchFactor(i, i)  # the plot takes the extra room
+        # The row of controls above the plot has a least width of its own,
+        # which would otherwise be the least the plot's side can be, and so
+        # the most the list can: it is cut short before the list is.
+        right.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.splitter.setSizes([LIST_WIDTH, 4 * LIST_WIDTH])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -316,6 +415,12 @@ class ScopeView(QWidget):
         if ctx is not None:
             remember(ctx, f"{key}.window_s", self.window_s)
             remember(ctx, f"{key}.auto_y", self.auto_y)
+            remember(ctx, f"{key}.cursors", self.cursors)
+        # After what was chosen last time is put back, which is not a choice.
+        self.cursors.currentIndexChanged.connect(self._on_cursor_count)
+        # activated as well: choosing what is chosen already brings them back.
+        self.cursors.activated.connect(lambda _index: self.bring_cursors())
+        self.channel_list.set_cursors(self.cursor_count())
         self.session.channels_changed.connect(self._rebuild)
         self.session.trigger_changed.connect(self._show_trigger)
         self._rebuild()
@@ -382,6 +487,10 @@ class ScopeView(QWidget):
             self.analog.addItem(line, ignoreBounds=True)
         for plot, line in zip((self.analog, self.digital), self.trigger_lines, strict=True):
             plot.addItem(line, ignoreBounds=True)
+        for lines in self._cursor_lines:
+            for plot, line in zip((self.analog, self.digital), lines, strict=True):
+                plot.addItem(line, ignoreBounds=True)
+        self._show_cursors()
         self._arrange_lanes()
         self._show_trigger()
 
@@ -449,6 +558,104 @@ class ScopeView(QWidget):
         wanted = self._sweep_ends is None and (self.time.currentText() == FOLLOW or self._relative)
         if self.window_s.isEnabled() != wanted:
             self.window_s.setEnabled(wanted)
+
+    # --- cursors --------------------------------------------------------------------------
+    def cursor_count(self) -> int:
+        return self.cursors.currentIndex()
+
+    def cursor_time(self, number: int) -> float:
+        """Where a cursor is, in seconds on the time axis: 0 is the first of them."""
+        return self._cursor_at[number]
+
+    def set_cursor(self, number: int, seconds: float) -> None:
+        """Put a cursor at this time on the axis, as dragging it there does."""
+        self._cursor_at[number] = float(seconds)
+        for line in self._cursor_lines[number]:
+            if line.value() != seconds:
+                line.blockSignals(True)
+                line.setValue(seconds)
+                line.blockSignals(False)
+        self._show_values()
+
+    def _on_cursor(self, number: int, moved) -> None:
+        self.set_cursor(number, moved.value())
+
+    def _on_cursor_count(self, *_args) -> None:
+        self.channel_list.set_cursors(self.cursor_count())
+        self._show_cursors()
+        self.bring_cursors()
+        self._fit_list()
+
+    def _fit_list(self) -> None:
+        """Make the channel list as wide as the columns it has now: wider for a
+        reading at each of two cursors, and narrower with none, so that the
+        plot has the room. A list dragged shut is left shut."""
+        tree = self.channel_list
+        have, plot = self.splitter.sizes()
+        if not tree.isVisible() or have == 0:
+            return
+        readings = (NAME, VALUE, SECOND, DIFFERENCE)
+        needed = sum(tree.columnWidth(c) for c in readings if not tree.isColumnHidden(c))
+        settings = max(tree.sizeHintForColumn(DETAIL), tree.header().sectionSizeHint(DETAIL))
+        needed += settings + 24
+        if needed != have:
+            self.splitter.setSizes([needed, max(plot + have - needed, 0)])
+
+    def _show_cursors(self) -> None:
+        for number, lines in enumerate(self._cursor_lines):
+            for line in lines:
+                line.setVisible(number < self.cursor_count())
+
+    def bring_cursors(self, every: bool = False) -> None:
+        """Put the cursors that are out of sight -- or every one -- back in view:
+        a third of the way across, and two thirds."""
+        (x_from, x_to), _y = self.analog.getViewBox().viewRange()
+        for number in range(self.cursor_count()):
+            if every or not x_from <= self._cursor_at[number] <= x_to:
+                self.set_cursor(number, x_from + (x_to - x_from) * (number + 1) / 3)
+        self._show_values()
+
+    def _reading(self, key: str, seconds: float) -> float | None:
+        """What a channel read at this time on the axis: the sample nearest to
+        it. None where nothing is held there."""
+        unit, channel = self._owners[key]
+        record = unit.capture.records.get(channel)
+        timing = self._timings.get(unit.name)
+        if record is None or not record.count:
+            return None
+        origin = timing.origin if timing is not None else 0.0
+        at = round((seconds + origin) * record.rate)
+        if not record.first <= at < record.total:
+            return None
+        value = float(record.view()[at - record.first])
+        return None if np.isnan(value) else value
+
+    @staticmethod
+    def _value_text(record, value: float | None, difference: bool = False) -> str:
+        if value is None:
+            return NOTHING_HELD
+        if record.channel.kind == DIGITAL:
+            # How far a logic level moved is not a number worth a column.
+            return "" if difference else str(int(value))
+        sign = "+" if difference and value > 0 else ""
+        return f"{sign}{value:.3f} {record.channel.unit}".rstrip()
+
+    def _show_cursor_times(self) -> None:
+        count = self.cursor_count()
+        first, second = (time_text(at) for at in self._cursor_at)
+        if count == 0:
+            text = ""
+        elif count == 1:
+            text = f"Cursor at {first}"
+        else:
+            between = self._cursor_at[1] - self._cursor_at[0]
+            text = f"Cursor 1 at {first}, cursor 2 at {second}: \u0394 {time_text(between)}"
+            if between:
+                text += f", {frequency_text(1 / abs(between))}"
+        if self.cursor_times.text() != text:
+            self.cursor_times.setText(text)
+        if self.cursor_times.isHidden() == bool(count):
+            self.cursor_times.setVisible(bool(count))
 
     # --- the trigger ----------------------------------------------------------------------
     def _show_trigger(self) -> None:
@@ -570,6 +777,8 @@ class ScopeView(QWidget):
         # A stretch chosen by hand on one axis means nothing on the other.
         self.time.setCurrentText(FOLLOW)
         self._show_time()
+        # Nor does a cursor's time: they are put back in view once it is placed.
+        self._cursors_adrift = True
         self.digital.setLabel(
             "bottom", "time from trigger" if self._relative else "time", units="s"
         )
@@ -616,6 +825,9 @@ class ScopeView(QWidget):
             return  # waiting for a trigger: what was drawn last stays
         self._origin = known[0]
         self._place()
+        if self._cursors_adrift:
+            self._cursors_adrift = False
+            self.bring_cursors(every=True)
         (x_from, x_to), _y = self.analog.getViewBox().viewRange()
         columns = max(int(self.analog.getViewBox().width()), 1)
         for key, curve in self._curves.items():
@@ -716,16 +928,29 @@ class ScopeView(QWidget):
             self._ctx.log(message)
 
     def _show_values(self) -> None:
+        """What each channel reads: now, with no cursor; at the cursor, with one;
+        at each and the difference between them, with two."""
         if not self.isVisible():
             return
+        count = self.cursor_count()
+        self._show_cursor_times()
         for key, record in self._records():
             if not record.count:
-                text = ""
-            elif record.channel.kind == DIGITAL:
-                text = str(int(record.view()[-1]))
+                texts = ("", "", "")
+            elif count == 0:
+                texts = ("", "", "")  # nothing to read, and no column to read it in
             else:
-                text = f"{record.view()[-1]:.3f} {record.channel.unit}".rstrip()
-            self.channel_list.set_value(key, text)
+                first = self._reading(key, self._cursor_at[0])
+                texts = (self._value_text(record, first), "", "")
+                if count == 2:
+                    second = self._reading(key, self._cursor_at[1])
+                    apart = None if first is None or second is None else second - first
+                    texts = (
+                        texts[0],
+                        self._value_text(record, second),
+                        self._value_text(record, apart, difference=True),
+                    )
+            self.channel_list.set_values(key, texts)
 
     # --- layout, saved with the rest of the window state ---------------------
     def save_state(self):

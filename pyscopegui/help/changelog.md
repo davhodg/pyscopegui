@@ -13,6 +13,9 @@ since the last version, and comes out in the next one.
 
 - **Export CSV**: every sample of what a plot shows, with time as the plot's axis has it,
   and a file for each instrument.
+- **Cursors** on the plot, one or two: the channel list reads every channel at each, to the
+  nearest sample, and two give the time and the change between them.
+
 - **Export PNG**, under the arrow on the plot's Export button and under *File*: a picture
   of the plot and its channel list.
 - **Read**, for a Tektronix read as it is: one reading of what its screen shows. The
@@ -31,6 +34,8 @@ since the last version, and comes out in the next one.
   instrument added has a tab in the Instrument pane, where **Open** now is, under
   **Connection**; the cross on a tab removes it.
 - **Two instruments of the same kind** can be in use at once, each with its own settings.
+- The channel list's **Value** column, which said what each channel read now, is gone: with
+  no cursor the list has names and settings only, and the plot has the room.
 - The launchers no longer ask about a Start menu entry: the first start says in the Event
   Log where a shortcut is made.
 - The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not

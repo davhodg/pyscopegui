@@ -38,12 +38,46 @@ itself still writes CSV.
 ## The channel list
 
 A tick shows a channel and unticking hides it; which are hidden is remembered. The name is
-in the colour its trace is drawn in, and **Value** is what the channel reads now, a few times
-a second.
+in the colour its trace is drawn in. With a [cursor](#cursors) on the plot there is a
+column for what each channel read there; with none there is no such column, and the list is
+narrower so that the plot has the room.
 
 **Settings** is how the channel is set up, in a line -- *1 V/div, 10x, DC* -- for every
 channel of every instrument at once. Click a channel to bring its settings up in the
 [Instrument pane](instruments.md), where they are changed.
+
+## Cursors
+
+**Cursors**, above the plot, puts one or two lines down both plots. Drag a line to a moment,
+on either plot, and the channel list says what every channel read there.
+
+| Cursors | What the channel list shows |
+|---------|-----------------------------|
+| None | No readings: the names and settings only, and the most room for the plot |
+| 1 | **At cursor**: what each channel read at the cursor |
+| 2 | **Cursor 1**, **Cursor 2**, and **2 − 1**: how far the channel moved between them |
+
+Under the box, above the plot, is where each cursor is on the time axis, and with two, the
+time between them and the frequency that is one cycle of: two cursors a cycle apart on a
+1 kHz signal read *Δ 1 ms, 1 kHz*.
+
+The channel list is fitted to its columns when the number of cursors changes: wider for the
+three columns two cursors need, narrower with none. Drag the bar between the list and the
+plot to set it as you like after that; a list dragged shut is left shut.
+
+- A reading is **the nearest sample**, as it was measured, and not a value worked out
+  between two samples.
+- A dash is where nothing is held: before the oldest sample, after the newest, or in a gap.
+- A logic channel reads 0 or 1, and has no difference.
+- **A cursor stays at its time.** When the plot moves on -- following new samples, or
+  dragged somewhere else -- the cursor is left where it was put, and may be out of sight.
+  Choosing in the **Cursors** box again brings any that are out of sight back into view.
+- With several instruments open, each channel is read at the same place on the plot's time
+  axis, which is measured from each instrument's own trigger.
+
+Cursors are most use on a plot that is holding still: stopped, or drawn around a trigger.
+How many there are is remembered; where they are is not. **Export PNG** saves them and
+their readings, since the picture is of the plot and its channel list together.
 
 ## Time
 
