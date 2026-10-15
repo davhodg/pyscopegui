@@ -255,8 +255,9 @@ when it is not kept:
 - If the driver's buffer fills because it was not read in time, the run stops and says so.
 
 What is kept to go back over is held in memory, four bytes a sample: at 20 MS/s that is
-80 MB for every second of one channel. Choose a shorter history under *Tools > Settings >
-History* before streaming fast, or pyscopegui says that there is not the memory for it.
+80 MB for every second of one channel. A run keeps no more than half the memory that is
+free, so streaming fast keeps a shorter stretch than *Tools > Settings > History* says, and
+the Event Log says how long: see [How much is kept](plot.md).
 
 For a short stretch of something fast, a block is the better tool: it is taken at the
 scope's full rate, and nothing has to keep up.

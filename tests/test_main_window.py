@@ -249,12 +249,12 @@ def test_a_saved_history_that_is_not_one_of_the_choices_is_the_default(window):
 
 
 def test_a_history_there_is_no_room_for_is_said_and_nothing_is_started(window, monkeypatch):
-    def no_room(channels, rate, capacity=None):
+    def no_room(channels, rate, capacity=None, room=None):
         raise MemoryError
 
     monkeypatch.setattr(window.capture, "set_channels", no_room)
     window.set_mode("auto")
-    assert "not enough memory to keep 10 s" in window.log.toPlainText()
+    assert "not enough memory to keep every channel" in window.log.toPlainText()
     assert not window.instrument.running
     assert window.instrument_bar.mode() == "stop"
 

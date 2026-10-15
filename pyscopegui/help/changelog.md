@@ -61,6 +61,8 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- A run keeps no more history than half the memory that is free when it starts: where the
+  history chosen would take more, it keeps what fits and the Event Log says how much.
 - The last instrument can be taken out of the Instrument pane too: the pane then says there
   is none, and stays empty the next time until one is added.
 - **Add instrument** takes the place of the list of instruments on the toolbar. Each

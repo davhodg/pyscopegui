@@ -204,7 +204,14 @@ It is all held in memory, so a long history at a high rate is a great deal of it
 a sample for an analog channel and one for a digital one, and half as much again. Ten seconds
 of two channels at 1 MS/s is about 120 MB; ten minutes of them is about 7 GB. The
 [Event Log](event-log.md) says how much the history chosen comes to each time the instrument
-is run, and if there is not room for it the instrument is not started.
+is run.
+
+A run takes no more than half the memory that is free when it starts, leaving the rest for
+drawing, measuring and everything else on the computer. Where the history chosen would take
+more, the run keeps as much as fits and the Event Log says how much that is: "Keeping the last
+2.5 s of each channel, not 10 s". History itself is left as it was, for the next run. Only
+where not even a tenth of a second fits is the instrument not started. On macOS, which does
+not say how much is free, the history is always what was chosen.
 
 **Clear history** throws away what is held and counts time from zero again. The status bar
 says how many seconds are held.

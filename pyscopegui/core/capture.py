@@ -9,6 +9,7 @@ Python loop.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -26,6 +27,14 @@ HISTORIES = (1.0, 10.0, 30.0, 60.0, 300.0, 600.0)
 #: are copied back to the start each time this much has been written past
 #: them, so less of it means more copying and more of it means more memory.
 SLACK = 0.5
+#: The least history a run is started with when memory is short, in seconds:
+#: less than this, and it is not started at all.
+LEAST_S = 0.1
+
+
+def _dtype(channel: Channel) -> type:
+    """What a channel's samples are held as: a number, or a logic level."""
+    return np.float32 if channel.kind == ANALOG else np.uint8
 
 
 class Record:
@@ -42,8 +51,9 @@ class Record:
         self.channel = channel
         self.rate = rate
         self.capacity = max(1, int(capacity))
-        dtype = np.float32 if channel.kind == ANALOG else np.uint8
-        self._buffer = np.zeros(self.capacity + max(1, int(self.capacity * SLACK)), dtype=dtype)
+        self._buffer = np.zeros(
+            self.capacity + max(1, int(self.capacity * SLACK)), dtype=_dtype(channel)
+        )
         self._end = 0
         #: Samples ever written, which is the number of the next one.
         self.total = 0
@@ -114,24 +124,51 @@ class Capture(QObject):
         self.maths: list[Maths] = []
 
     def set_channels(
-        self, channels: list[Channel], rate: float, capacity: int | None = None
+        self,
+        channels: list[Channel],
+        rate: float,
+        capacity: int | None = None,
+        room: Callable[[], int | None] | None = None,
     ) -> None:
         """Start again, empty, for these channels at this rate.
 
         Room for the history's worth of samples, unless a capacity is given:
         an instrument that sends sweeps holds one sweep, whatever its length.
-        MemoryError if that is more than there is room for; what was held
-        before is gone either way.
+        ``room``, asked once what was held before has been let go, is how many
+        bytes the history may take, or None for no limit: a history that
+        would take more is cut down to what fits, and held_s says how long it
+        is. MemoryError if that is less than LEAST_S, or if the memory is not
+        there; what was held before is gone either way.
         """
         self.records = {}
         if capacity is None:
             capacity = int(rate * self.history_s)
+            most = room() if room is not None else None
+            if most is not None and capacity > (fits := int(most // self._each(channels))):
+                if fits < rate * LEAST_S:
+                    self.channels_changed.emit()
+                    raise MemoryError(f"room for {fits} samples a channel")
+                capacity = fits
         try:
             self.records = {c.key: Record(c, rate, capacity) for c in channels}
             for maths, channel in self._maths_channels():
                 self.records[maths.key] = Record(channel, rate, capacity)
         finally:
             self.channels_changed.emit()
+
+    def _each(self, channels: list[Channel]) -> float:
+        """Bytes a sample of every one of these channels takes, held: with its
+        maths channels, and the slack a record has on top."""
+        analog = {c.key for c in channels if c.kind == ANALOG}
+        maths = sum(1 for m in self.maths if m.a in analog and m.b in analog)
+        each = sum(np.dtype(_dtype(c)).itemsize for c in channels)
+        each += maths * np.dtype(np.float32).itemsize
+        return max(each, 1) * (1 + SLACK)
+
+    def held_s(self) -> float:
+        """How long a stretch of each channel is held, in seconds: the history,
+        or less, where there was not the memory for all of it."""
+        return min((r.capacity / r.rate for r in self.records.values()), default=0.0)
 
     def _maths_channels(self) -> list[tuple[Maths, Channel]]:
         """Each maths channel there are both channels for, and what it is."""

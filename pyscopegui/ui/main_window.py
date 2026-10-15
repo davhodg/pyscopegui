@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import capture_file, shortcut, workspaces
+from pyscopegui.core import capture_file, memory, shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -685,12 +685,14 @@ class MainWindow(QMainWindow):
                 instrument.rate,
                 # One sweep at a time, whatever its length turns out to be.
                 capacity=1 if instrument.sweeps else None,
+                # No more of the history than there is memory for.
+                room=memory.room,
             )
         except MemoryError:
             self.events.error(
-                f"There is not enough memory to keep {short_time(unit.capture.history_s)} of "
-                f"every channel at {short_rate(instrument.rate)}. Choose a shorter "
-                "history under Tools > Settings > History, or a lower sample rate."
+                f"There is not enough memory to keep every channel at "
+                f"{short_rate(instrument.rate)}, even for a moment. Choose a lower sample "
+                "rate, or fewer channels, or close other programs."
             )
             return False
         return True
@@ -700,10 +702,20 @@ class MainWindow(QMainWindow):
         if not self._make_records(unit):
             return False
         if not unit.instrument.sweeps:
-            self.events.information(
-                f"Keeping the last {short_time(unit.capture.history_s)} of each channel: up to "
-                f"{short_bytes(unit.capture.memory_bytes())} of memory at this rate."
-            )
+            capture = unit.capture
+            held, wanted = capture.held_s(), capture.history_s
+            if held < wanted * 0.999:
+                self.events.warning(
+                    f"Keeping the last {short_time(held)} of each channel, not "
+                    f"{short_time(wanted)}: at {short_rate(unit.instrument.rate)} that is all "
+                    f"there is memory for ({short_bytes(capture.memory_bytes())}, half of "
+                    "what was free). A lower sample rate, or fewer channels, keeps more."
+                )
+            else:
+                self.events.information(
+                    f"Keeping the last {short_time(held)} of each channel: up to "
+                    f"{short_bytes(capture.memory_bytes())} of memory at this rate."
+                )
         unit.acquisition.reset()
         self._tell_trigger(unit)
         unit.instrument.start()
