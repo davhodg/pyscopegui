@@ -2,7 +2,6 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """Probes: a voltage probe's ratio, and a current probe's volts an amp, on every scope."""
 
-import numpy as np
 import pytest
 
 from pyscopegui.backends import picoscope2000 as pico
@@ -123,11 +122,17 @@ def test_a_picoscope_reads_amps_through_a_current_probe():
     assert reading.poll().data["A"].tolist() == pytest.approx([50.0, -25.0])
 
 
-def test_a_picoscope_offset_through_a_current_probe_is_amps(app):
-    settings = pico_a.Settings({"probe_a": CURRENT, "sensitivity_a": 0.1, "offset_a": 2.0})
-    assert settings.offset["A"] == 2.0
-    channel = pico_a.PicoScope2000A(options={"probe_a": CURRENT}).channels()[0]
-    assert channel.unit == "A" and np.isfinite(channel.full_scale)
+def test_a_picoscope_offset_through_a_current_probe_is_amps():
+    from tests.test_picoscope2000a import FakeLibrary, started
+
+    library = FakeLibrary()
+    options = {"scale_a": 10.0, "probe_a": CURRENT, "sensitivity_a": 0.1, "offset_a": -2.0}
+    reading = started(library, options)
+    # Two amps through 100 mV/A is a fifth of a volt at the scope's input.
+    assert library.offsets[0] == pytest.approx(-0.2)
+    library.waiting.append({0: [0], 1: [0]})
+    assert reading.poll().data["A"][0] == pytest.approx(2.0)
+    assert reading.offset_at_tip("A") == pytest.approx(-2.0)
 
 
 def test_the_rigol_reads_amps_through_a_current_probe(monkeypatch):
