@@ -36,6 +36,7 @@ from dataclasses import dataclass
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
+from pyscopegui.backends import probes
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import traced
 
@@ -105,7 +106,7 @@ def _engineering(value: float, unit: str) -> str:
 TIMES = tuple(round(t, 10) for t in _steps(-9, 1) if 5e-9 <= t <= 50)
 #: Volts a division as the screen shows them, probe and all, from 1 mV to 100 V.
 SCALES = tuple(round(v, 4) for v in _steps(-3, 2) if v <= 100)
-PROBES = (1, 10, 100)
+PROBES = probes.RATIOS
 COUPLINGS = (("DC", "DC"), ("AC", "AC"), ("GND", "Ground"))
 #: How the scope makes each point from the samples it takes. Not averaging:
 #: that is over several triggers, and each sweep here is one.
@@ -266,15 +267,7 @@ def make_settings() -> tuple[Setting, ...]:
                     "noise. Off, the channel has the scope's full bandwidth."
                 ),
             ),
-            Setting(
-                f"probe_{number}",
-                "Probe",
-                10,
-                choices=tuple((p, f"{p}x") for p in PROBES),
-                group=group,
-                live=True,
-                tip="What the probe divides by, as its switch says.",
-            ),
+            *probes.settings(str(number), group),
         ]
     return tuple(made)
 
@@ -312,7 +305,7 @@ class Settings:
         self.scale: dict[str, float] = {}
         self.offset: dict[str, float] = {}
         self.coupling: dict[str, str] = {}
-        self.probe: dict[str, int] = {}
+        self.probe: dict[str, probes.Probe] = {}
         for number, key in enumerate(CHANNELS, start=1):
             enabled = options.get(f"enabled_{number}")
             self.enabled[key] = enabled if isinstance(enabled, bool) else number == 1
@@ -323,7 +316,7 @@ class Settings:
                 self.offset[key] = 0.0
             coupling = options.get(f"coupling_{number}")
             self.coupling[key] = coupling if coupling in ("DC", "AC", "GND") else "DC"
-            self.probe[key] = int(_nearest(options.get(f"probe_{number}"), PROBES, 10))
+            self.probe[key] = probes.read(options, str(number))
             self.limit[key] = options.get(f"limit_{number}") is True
 
     def keys(self) -> list[str]:
@@ -357,10 +350,12 @@ def setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
         if not settings.enabled[key]:
             continue
         # The probe first: the scope scales what it has by it when it changes.
-        wanted[name + ":PROB"] = str(settings.probe[key])
+        # A current probe is 1x to the scope, which is told its volts.
+        probe = settings.probe[key]
+        wanted[name + ":PROB"] = str(probe.told)
         wanted[name + ":COUP"] = settings.coupling[key]
-        wanted[name + ":SCAL"] = f"{settings.scale[key]:g}"
-        wanted[name + ":OFFS"] = f"{settings.offset[key]:g}"
+        wanted[name + ":SCAL"] = f"{probe.at_scope(settings.scale[key]):g}"
+        wanted[name + ":OFFS"] = f"{probe.at_scope(settings.offset[key]):g}"
         wanted[name + ":BWL"] = "20M" if settings.limit[key] else "OFF"
     wanted[":ACQ:TYPE"] = settings.acquire
     wanted[":TIM:MAIN:SCAL"] = f"{settings.time_div:g}"
@@ -372,7 +367,8 @@ def setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
         wanted[":TRIG:MODE"] = "EDGE"
         wanted[":TRIG:EDG:SOUR"] = "CHAN" + trigger.source[2:]
         wanted[":TRIG:EDG:SLOP"] = "POS" if trigger.rising else "NEG"
-        wanted[":TRIG:EDG:LEV"] = f"{trigger.level:g}"
+        level = settings.probe[trigger.source].at_scope(trigger.level)
+        wanted[":TRIG:EDG:LEV"] = f"{level:g}"
     return wanted
 
 
@@ -691,6 +687,8 @@ class Scope:
                 link.write(f":WAV:STOP {points}")
                 raw = link.ask_bytes(":WAV:DATA?")
             counts = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+            # Volts at the probe's tip; amps, through a current probe.
+            y_step *= settings.probe[key].from_scope
             data[key] = (counts - (y_origin + y_reference)) * np.float32(y_step)
             rate = 1.0 / x_step
             # Nought on the scope's time axis is its trigger.
@@ -863,6 +861,7 @@ class Rigol1000Z(Instrument):
             Channel(
                 key,
                 key,
+                unit=self.settings.probe[key].unit,
                 full_scale=self.settings.scale[key] * UP / 2,
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
@@ -873,14 +872,15 @@ class Rigol1000Z(Instrument):
 
     def _detail(self, key: str) -> str:
         settings = self.settings
+        probe = settings.probe[key]
         said = (
-            f"{_engineering(settings.scale[key], 'V/div')}, {settings.probe[key]}x, "
+            f"{probes.per_division(settings.scale[key], probe.unit)}, {probe.label()}, "
             f"{settings.coupling[key]}"
         )
         if settings.limit[key]:
             said += ", 20 MHz"
         if settings.offset[key]:
-            said += f", offset {settings.offset[key]:g} V"
+            said += f", offset {settings.offset[key]:g} {probe.unit}"
         return said
 
     @property

@@ -135,7 +135,34 @@ under a row of tabs: **1 2 3 4**. How every channel is set can be read at once i
 whichever instrument it belongs to.
 
 Every scope is set the same way, whoever made it: **Scale** in volts a division, **Probe**
-for what the probe divides by, and **Coupling**.
+for what is on the end of the channel, and **Coupling**.
+
+### Probes
+
+**Probe** is the same list on every scope:
+
+| Probe | What it is |
+|-------|------------|
+| 1x, 10x, 20x, 50x, 100x, 500x, 1000x | A voltage probe, as its switch or label says. A differential probe is one of these too: 20x, 50x, 500x |
+| Current probe | A clamp or other current probe, which gives so many volts an amp |
+
+A voltage probe divides: through 10x, a tenth of what is at its tip reaches the scope, and
+what is read is multiplied back. The scale has the probe counted -- 10 V/div through a 10x
+probe -- so the channel says what is at the probe's tip. A Rigol is told the probe, and does
+that itself. A Tektronix is told it too, where it has that ratio; the older ones have only
+1x, 10x, 100x and 1000x, so for 20x, 50x or 500x it is told 1x and pyscopegui does the
+multiplying. A PicoScope has no probe setting, and pyscopegui always does it.
+
+A **Current probe** brings a second setting, **Sensitivity**: how many volts the probe gives
+for an amp, as its switch or label says. A clamp's 100 mV/A is 0.1 V/A. The channel is
+then in amps, on every scope the same way: its **Scale** is in A/div, its **Offset** and the
+trigger level are in amps, and every sample read is too -- so the plot, the
+cursors, the [measurements](plot.md) and a maths channel all say amps. A current probe's
+volts times another channel's are watts: see *Maths channels* in [the plot](plot.md). The
+scope itself is told the probe is 1x and set in the volts the probe gives, so its own screen
+shows volts.
+
+A scale saved through one probe and shown through another is the nearest there is.
 
 There are two kinds of setting, and a setting's tip says which it is:
 

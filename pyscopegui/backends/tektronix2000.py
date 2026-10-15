@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
+from pyscopegui.backends import probes
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import traced
 
@@ -90,7 +91,10 @@ def _engineering(value: float, unit: str) -> str:
 TIMES = tuple(
     round(m * 10.0**e, 10) for e in range(-9, 2) for m in (1, 2.5, 5) if 5e-9 <= m * 10.0**e <= 50
 )
-PROBES = (1, 10, 100, 1000)
+PROBES = probes.RATIOS
+#: The ratios every model's own probe setting has: the older ones have no
+#: more. Any other is counted here, with the scope told 1x.
+TOLD = (1, 10, 100, 1000)
 #: Volts a division as the screen shows them, probe and all: 2 mV to 5 V
 #: through a 1x probe, and so on up through the others.
 SCALES = tuple(
@@ -306,16 +310,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
                 needs=("read", SET_UP),
                 tip="Leave out what is above 20 MHz, which for a slow signal is noise.",
             ),
-            Setting(
-                f"probe_{number}",
-                "Probe",
-                10,
-                choices=tuple((p, f"{p}x") for p in PROBES),
-                group=group,
-                live=True,
-                needs=("read", SET_UP),
-                tip="What the probe divides by, as its switch says." + _ONLY_SET_UP,
-            ),
+            *probes.settings(str(number), group, needs=("read", SET_UP), tip=_ONLY_SET_UP),
         ]
     return tuple(made)
 
@@ -362,7 +357,7 @@ class Settings:
         self.scale: dict[str, float] = {}
         self.offset: dict[str, float] = {}
         self.coupling: dict[str, str] = {}
-        self.probe: dict[str, int] = {}
+        self.probe: dict[str, probes.Probe] = {}
         self.limit: dict[str, bool] = {}
         for number, key in enumerate(CHANNELS, start=1):
             enabled = options.get(f"enabled_{number}")
@@ -374,7 +369,7 @@ class Settings:
                 self.offset[key] = 0.0
             coupling = options.get(f"coupling_{number}")
             self.coupling[key] = coupling if coupling in ("DC", "AC", "GND") else "DC"
-            self.probe[key] = int(_nearest(options.get(f"probe_{number}"), PROBES, 10))
+            self.probe[key] = probes.read(options, str(number), told=TOLD)
             self.limit[key] = options.get(f"limit_{number}") is True
 
     def keys(self, channels: int = 4) -> list[str]:
@@ -407,9 +402,11 @@ def setup(settings: Settings, trigger: Trigger, channels: int = 4) -> dict[str, 
         if not settings.enabled[key]:
             continue
         # The probe first: the scope scales what it has by it when it changes.
-        wanted[f"{key}:PROBE"] = str(settings.probe[key])
+        # A current probe is 1x to the scope, which is told its volts.
+        probe = settings.probe[key]
+        wanted[f"{key}:PROBE"] = str(probe.told)
         wanted[f"{key}:COUPLING"] = settings.coupling[key]
-        wanted[f"{key}:SCALE"] = f"{settings.scale[key]:g}"
+        wanted[f"{key}:SCALE"] = f"{probe.at_scope(settings.scale[key]):g}"
         # The scope places a trace in divisions up the screen, not in volts.
         wanted[f"{key}:POSITION"] = f"{settings.offset[key] / settings.scale[key]:g}"
         wanted[f"{key}:BANDWIDTH"] = "ON" if settings.limit[key] else "OFF"
@@ -426,7 +423,8 @@ def setup(settings: Settings, trigger: Trigger, channels: int = 4) -> dict[str, 
         wanted["TRIGGER:MAIN:TYPE"] = "EDGE"
         wanted["TRIGGER:MAIN:EDGE:SOURCE"] = trigger.source
         wanted["TRIGGER:MAIN:EDGE:SLOPE"] = "RISE" if trigger.rising else "FALL"
-        wanted["TRIGGER:MAIN:LEVEL"] = f"{trigger.level:g}"
+        level = settings.probe[trigger.source].at_scope(trigger.level)
+        wanted["TRIGGER:MAIN:LEVEL"] = f"{level:g}"
     # The scope gives up waiting by itself when it is told it may.
     wanted["TRIGGER:MAIN:MODE"] = "AUTO" if trigger.auto or not triggered else "NORMAL"
     return wanted
@@ -787,6 +785,10 @@ class Scope:
                 raise ScopeError(f"The scope described {key}'s waveform oddly: {exc}.") from exc
             if x_step <= 0:
                 raise ScopeError(f"The scope described {key}'s waveform oddly: a step of {x_step}.")
+            if not settings.as_is:
+                # Volts at the probe's tip; amps, through a current probe.
+                # Read as it is, what the scope has is all there is to go on.
+                y_step *= settings.probe[key].from_scope
             raw = np.frombuffer(link.ask_bytes("CURVE?"), dtype=np.int8).astype(np.float32)
             data[key] = (raw - np.float32(y_offset)) * np.float32(y_step)
             rate = 1.0 / x_step
@@ -953,6 +955,7 @@ class Tektronix2000(Instrument):
             Channel(
                 key,
                 key,
+                unit="V" if settings.as_is else settings.probe[key].unit,
                 # Read as it is, the scope's scale is its own and not known here.
                 full_scale=0.0 if settings.as_is else settings.scale[key] * UP / 2,
                 detail=self._detail(key),
@@ -966,14 +969,15 @@ class Tektronix2000(Instrument):
         settings = self.settings
         if settings.as_is:
             return "as the scope has it"
+        probe = settings.probe[key]
         said = (
-            f"{_engineering(settings.scale[key], 'V/div')}, {settings.probe[key]}x, "
+            f"{probes.per_division(settings.scale[key], probe.unit)}, {probe.label()}, "
             f"{settings.coupling[key]}"
         )
         if settings.limit[key]:
             said += ", 20 MHz"
         if settings.offset[key]:
-            said += f", offset {settings.offset[key]:g} V"
+            said += f", offset {settings.offset[key]:g} {probe.unit}"
         return said
 
     @property

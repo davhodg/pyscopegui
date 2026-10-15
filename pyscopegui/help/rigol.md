@@ -92,7 +92,8 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 | Offset | Moves nought volts up or down the screen |
 | Coupling | DC, AC or ground |
 | 20 MHz limit | Leaves out what is above 20 MHz, which for a slow signal is noise |
-| Probe | What the probe divides by: 1x, 10x or 100x |
+| Probe | What is on the end of the channel: a voltage probe, 1x to 1000x, or a current probe. See [Probes](instruments.md) |
+| Sensitivity | For a current probe: volts it gives an amp. The channel is then in amps |
 
 **Reading** and **Enabled** start the run again. The rest are taken up between two sweeps.
 

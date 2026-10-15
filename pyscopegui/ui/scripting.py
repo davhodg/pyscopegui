@@ -138,9 +138,7 @@ class Scripting:
     def _setting(self, key: str):
         window = self._window
         unit = window.unit
-        offered = (
-            unit.instrument.settings_offered() if unit.is_open else backends.settings(unit.name)
-        )
+        offered = window.offered(unit.name)
         for setting in offered:
             if setting.key == key:
                 return setting

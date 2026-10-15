@@ -64,6 +64,20 @@ OPEN_SAID, CLOSED_SAID = "Open.", "Not open."
 REMOVE_TIP = "The cross closes this instrument and takes it out of the pane."
 
 
+def _nearest_index(choices: tuple, value: object) -> int:
+    """Where the nearest number on the list is, for a number not on it: a
+    scale saved through one probe, with another on the channel now. -1 for
+    anything else."""
+    numbers = [
+        (i, choice)
+        for i, (choice, _label) in enumerate(choices)
+        if isinstance(choice, int | float) and not isinstance(choice, bool)
+    ]
+    if isinstance(value, bool) or not isinstance(value, int | float) or not numbers:
+        return -1
+    return min(numbers, key=lambda pair: abs(pair[1] - value))[0]
+
+
 class Picker(QComboBox):
     """A box to type in, with a list of what was found when the list is opened.
 
@@ -322,7 +336,9 @@ class InstrumentView(QWidget):
 
     def _show_needed(self, *_changed) -> None:
         """Grey out what has no say: while another setting is as it is, or
-        while the instrument is open and this is how it was reached."""
+        while the instrument is open and this is how it was reached. One that
+        needs a setting that is greyed out is greyed out too."""
+        greyed: set[str] = set()
         for setting in self._settings:
             needed = setting.needs is not None and setting.needs[0] in self.controls
             if not needed and not setting.closed:
@@ -331,7 +347,9 @@ class InstrumentView(QWidget):
             on = not (setting.closed and self._open)
             if needed:
                 key, value = setting.needs
-                on = on and self.value(key) == value
+                on = on and self.value(key) == value and key not in greyed
+            if not on:
+                greyed.add(setting.key)
             control.setEnabled(on)
             if (label := self._forms[setting.group].labelForField(control)) is not None:
                 label.setEnabled(on)
@@ -355,6 +373,8 @@ class InstrumentView(QWidget):
             # settings.json -- is shown as the default, which is also what
             # the back end falls back to.
             index = box.findData(value)
+            if index < 0:
+                index = _nearest_index(setting.choices, value)
             box.setCurrentIndex(index if index >= 0 else max(box.findData(setting.default), 0))
             # activated, not currentIndexChanged: only a choice somebody made.
             box.activated.connect(

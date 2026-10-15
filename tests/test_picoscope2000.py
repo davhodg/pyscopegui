@@ -641,7 +641,10 @@ def test_every_setting_offered_is_one_the_back_end_reads():
                 (value for value, _label in setting.choices if value != setting.default),
                 setting.maximum,
             )
-        changed = pico.Settings(defaults | {setting.key: other})
+        # With what it needs to have a say: a sensitivity, a current probe.
+        needed = dict([setting.needs]) if setting.needs else {}
+        changed = pico.Settings(defaults | needed | {setting.key: other})
+        plain = pico.Settings(defaults | needed)
         # The generator's numbers only show once it is on.
         if setting.key.startswith("gen_") and setting.key != "gen_wave":
             assert changed.generator != plain.generator
@@ -897,8 +900,12 @@ def test_a_probe_multiplies_what_is_read_and_divides_the_trigger_level():
 # --- which model it is -------------------------------------------------------------------------
 def test_before_a_scope_is_open_the_ranges_offered_are_a_2204as():
     scales = [value for value, _label in setting("scale_a", pico.settings_for(None)).choices]
-    # From its ±50 mV range through a 1x probe to its ±20 V range through a 100x one.
-    assert scales[0] == 0.01 and scales[-1] == 500 and 0.005 not in scales
+    # From its ±50 mV range to its ±20 V range, at its input.
+    assert scales[0] == 0.01 and scales[-1] == 5 and 0.005 not in scales
+    # Offered through whichever probe is on the channel.
+    through = pico.PicoScope2000.fitted(pico.settings_for(None), {"probe_a": 100})
+    scales = [value for value, _label in setting("scale_a", through).choices]
+    assert scales[0] == 1 and scales[-1] == 500
 
 
 def setting(key, settings):
@@ -951,9 +958,11 @@ def test_what_is_taken_up_as_it_runs_and_what_starts_the_run_again():
         "scale_a",
         "coupling_a",
         "probe_a",
+        "sensitivity_a",
         "scale_b",
         "coupling_b",
         "probe_b",
+        "sensitivity_b",
         "gen_wave",
         "gen_frequency",
         "gen_amplitude",

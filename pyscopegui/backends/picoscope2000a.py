@@ -411,8 +411,8 @@ class Settings(pico.Settings):
         self.offset: dict[str, float] = {}
         for key in ANALOG:
             low = key.lower()
-            self.probe[key] = self._probe(options.get(f"probe_{low}"))
-            self.ranges[key] = self._range(options.get(f"scale_{low}"), self.probe[key], None)
+            self.probe[key] = self._probe(options, low)
+            self.ranges[key] = self._range(options.get(f"scale_{low}"), self.probe[key].gain, None)
             self.dc[key] = options.get(f"coupling_{low}", "DC") != "AC"
             self.enabled[key] = bool(options.get(f"enabled_{low}", key in "AB"))
             self.offset[key] = min(
@@ -562,28 +562,30 @@ class Stream(pico.Stream):
         """The offset to give the scope for this channel, at its input: what
         was asked for at the probe's tip, kept to what the range allows."""
         settings = self.settings
-        wanted = settings.offset[key] / settings.probe[key]
+        probe = settings.probe[key]
+        wanted = settings.offset[key] / probe.gain
         if not wanted or not settings.enabled[key]:
             return 0.0
         least, most = self._limits(code, settings.dc[key])
         given = min(max(wanted, least), most)
         if given != wanted:
-            at_tip = given * settings.probe[key]
+            at_tip, unit = given * probe.gain, probe.unit
             if not self.has_offset:
                 said = f"This scope has no offset, so channel {key} is read with none."
             else:
                 said = (
                     f"Channel {key}'s range of ±{settings.ranges[key]} takes an offset of "
-                    f"{least * settings.probe[key]:g} V to {most * settings.probe[key]:g} V, "
-                    f"so it is {at_tip:g} V where {settings.offset[key]:g} V was asked for. "
+                    f"{least * probe.gain:g} {unit} to {most * probe.gain:g} {unit}, so it is "
+                    f"{at_tip:g} {unit} where {settings.offset[key]:g} {unit} was asked for. "
                     "A larger scale allows more."
                 )
             self.notes.append((said, True))
         return given
 
     def offset_at_tip(self, key: str) -> float:
-        """The offset a channel is read with, in volts at the probe's tip."""
-        return self._applied.get(key, 0.0) * self.settings.probe[key]
+        """The offset a channel is read with, at the probe's tip: in volts, or
+        amps through a current probe."""
+        return self._applied.get(key, 0.0) * self.settings.probe[key].gain
 
     def _ranges(self) -> tuple[str, ...]:
         """The ranges the scope says it has; every one, if it will not say."""
@@ -1080,7 +1082,10 @@ class PicoScope2000A(pico.PicoScope2000):
         settings = self.settings
         analog = [
             # Said with the rest of how it is set, where it is not nought.
-            replace(channel, detail=f"{channel.detail}, offset {settings.offset[channel.key]:g} V")
+            replace(
+                channel,
+                detail=f"{channel.detail}, offset {settings.offset[channel.key]:g} {channel.unit}",
+            )
             if settings.offset[channel.key] and self._has_offset
             else channel
             for channel in super().channels()

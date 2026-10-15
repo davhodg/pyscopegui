@@ -38,6 +38,7 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
+from pyscopegui.backends import probes
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import RECEIVED, traced_library, traffic
 
@@ -85,7 +86,7 @@ SCALES: dict[str, float] = {
     "10V": 2.0,
     "20V": 5.0,
 }
-PROBES = (1, 10, 100)
+PROBES = probes.RATIOS
 ERRORS = {
     1: "too many scopes are open",
     2: "the computer is out of memory",
@@ -228,23 +229,23 @@ def scale_label(volts: float) -> str:
 
 
 def scales_for(ranges: tuple[str, ...]) -> tuple[float, ...]:
-    """Every scale these ranges give with one probe or another, smallest first."""
-    return tuple(sorted({round(SCALES[name] * probe, 6) for name in ranges for probe in PROBES}))
+    """The scales these ranges are at the scope's input, smallest first. They
+    are offered through whichever probe is on a channel: see probes.fitted."""
+    return tuple(sorted({round(SCALES[name], 6) for name in ranges}))
 
 
-def range_for(scale: float, probe: int) -> str:
-    """The range that this scale is, through this probe: the nearest there is."""
-    return min(SCALES, key=lambda name: abs(math.log(SCALES[name] * probe / scale)))
+def range_for(scale: float, gain: float) -> str:
+    """The range that this scale is, through a probe of this gain: the nearest there is."""
+    return min(SCALES, key=lambda name: abs(math.log(SCALES[name] * gain / scale)))
 
 
 _SCALE_TIP = (
-    "Volts a division, of eight up a scope's screen, with the probe counted.\n"
-    "The scope is set to the range that holds that: 1 V/div is its ±5 V range.\n"
-    "A scale the scope cannot reach through this probe is the nearest it can."
+    "Volts a division, of eight up a scope's screen, with the probe counted --\n"
+    "amps, with a current probe. The scope is set to the range that holds\n"
+    "that: 1 V/div through a 1x probe is its ±5 V range."
 )
 _PROBE_TIP = (
-    "What the probe divides by, as its switch says. The scope cannot tell:\n"
-    "voltages are multiplied by this to be what is at the probe's tip."
+    "\nThe scope cannot tell: what it reads is multiplied here to be what\nis at the probe's tip."
 )
 
 
@@ -264,15 +265,7 @@ def channel_settings(key: str, choices: tuple, enabled: bool = True) -> list[Set
             f"scale_{low}", "Scale", 1.0, choices=choices, group=group, live=True, tip=_SCALE_TIP
         ),
         Setting(f"coupling_{low}", "Coupling", "DC", choices=_COUPLING, group=group, live=True),
-        Setting(
-            f"probe_{low}",
-            "Probe",
-            1,
-            choices=tuple((probe, f"{probe}x") for probe in PROBES),
-            group=group,
-            live=True,
-            tip=_PROBE_TIP,
-        ),
+        *probes.settings(low, group, default=1, tip=_PROBE_TIP),
     ]
 
 
@@ -502,16 +495,17 @@ class Settings:
         #: used everywhere else is the one that interval really gives.
         self.interval_ns = max(1, round(1e9 / rate)) if rate > 0 else round(1e9 / DEFAULT_RATE)
         self.rate = 1e9 / self.interval_ns
-        #: What each probe divides by.
-        self.probe = {
-            "A": self._probe(options.get("probe_a")),
-            "B": self._probe(options.get("probe_b")),
-        }
+        #: The probe on each channel.
+        self.probe = {"A": self._probe(options, "a"), "B": self._probe(options, "b")}
         #: The scope's own range for each channel, which is what its scale
         #: comes to through its probe.
         self.ranges = {
-            "A": self._range(options.get("scale_a"), self.probe["A"], options.get("range_a")),
-            "B": self._range(options.get("scale_b"), self.probe["B"], options.get("range_b")),
+            key: self._range(
+                options.get(f"scale_{key.lower()}"),
+                self.probe[key].gain,
+                options.get(f"range_{key.lower()}"),
+            )
+            for key in ("A", "B")
         }
         self.dc = {
             "A": options.get("coupling_a", "DC") != "AC",
@@ -545,26 +539,29 @@ class Settings:
             return default
 
     @staticmethod
-    def _probe(value) -> int:
-        return value if value in PROBES and not isinstance(value, bool) else 1
+    def _probe(options: dict, low: str) -> probes.Probe:
+        """The probe on a channel: the scope has no probe setting of its own."""
+        return probes.read(options, low, default=1, told=())
 
     @staticmethod
-    def _range(scale, probe: int, name) -> str:
+    def _range(scale, gain: float, name) -> str:
         """The range for this scale. A range saved by name, from before
         there were scales, is used where no scale is."""
         try:
             scale = float(scale)
         except (TypeError, ValueError):
             return name if name in RANGES else DEFAULT_RANGE
-        return range_for(scale, probe) if scale > 0 else DEFAULT_RANGE
+        return range_for(scale, gain) if scale > 0 else DEFAULT_RANGE
 
     def volts(self, key: str) -> float:
-        """Full scale at the probe's tip, in volts: the range, through the probe."""
-        return RANGES[self.ranges[key]][1] * self.probe[key]
+        """Full scale at the probe's tip: the range, through the probe. In
+        volts, or amps through a current probe."""
+        return RANGES[self.ranges[key]][1] * self.probe[key].gain
 
     def scale(self, key: str) -> float:
-        """Volts a division at the probe's tip, as the scope is really set."""
-        return SCALES[self.ranges[key]] * self.probe[key]
+        """Volts a division at the probe's tip, as the scope is really set;
+        amps through a current probe."""
+        return SCALES[self.ranges[key]] * self.probe[key].gain
 
     def setup(self) -> tuple:
         """What the scope's inputs are set to: what a change to has to be sent to it."""
@@ -1192,6 +1189,9 @@ class PicoScope2000(Instrument):
     def _load_library(self):
         return load_library()
 
+    #: The scope has no probe setting: its scales are offered through each probe here.
+    PROBES_COUNTED_HERE = True
+
     def _make_settings(self, options):
         return Settings(options)
 
@@ -1227,14 +1227,16 @@ class PicoScope2000(Instrument):
             self._stream.wanted = self.settings
 
     def channels(self) -> list[Channel]:
+        settings = self.settings
         return [
             Channel(
                 key,
                 key,
-                full_scale=self.settings.volts(key),
+                unit=settings.probe[key].unit,
+                full_scale=settings.volts(key),
                 detail=(
-                    f"{scale_label(self.settings.scale(key))}, {self.settings.probe[key]}x, "
-                    f"{'DC' if self.settings.dc[key] else 'AC'}"
+                    f"{probes.per_division(settings.scale(key), settings.probe[key].unit)}, "
+                    f"{settings.probe[key].label()}, {'DC' if settings.dc[key] else 'AC'}"
                 ),
                 group=f"Channel {key}",
                 colour=COLOURS.get(key, ""),

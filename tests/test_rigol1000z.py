@@ -150,7 +150,7 @@ def test_settings_from_nothing_are_the_defaults():
     for odd in (None, "x", {"time_div": "fast", "scale_1": None, "coupling_2": 3, "probe_1": "x"}):
         settings = rigol.Settings(odd)
         assert settings.keys() == ["CH1"] and settings.time_div == 1e-3
-        assert settings.scale["CH1"] == 1.0 and settings.probe["CH1"] == 10
+        assert settings.scale["CH1"] == 1.0 and settings.probe["CH1"].ratio == 10
         assert settings.coupling["CH2"] == "DC" and not settings.memory
 
 

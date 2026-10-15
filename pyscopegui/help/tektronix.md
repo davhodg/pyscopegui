@@ -107,7 +107,8 @@ trigger.
 | Offset | Moves nought volts up or down the screen |
 | Coupling | DC, AC or ground |
 | 20 MHz limit | Leaves out what is above 20 MHz, which for a slow signal is noise |
-| Probe | What the probe divides by: 1x, 10x, 100x or 1000x |
+| Probe | What is on the end of the channel: a voltage probe, 1x to 1000x, or a current probe. See [Probes](instruments.md) |
+| Sensitivity | For a current probe: volts it gives an amp. The channel is then in amps |
 
 Everything from **Time** down is used when the scope is set up from here, and greyed out
 when it is read as it is. **Reading** and **Enabled** start the run again; the rest are

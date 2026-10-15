@@ -766,16 +766,19 @@ class MainWindow(QMainWindow):
         if hasattr(self, "status"):
             self._update_status()
 
+    def offered(self, name: str) -> tuple:
+        """What can be set on this instrument, as it is with what is chosen:
+        the ranges its model has, in amps on a channel with a current probe."""
+        unit = self._unit(name)
+        # Once open, it knows which model it is: the ranges that one has.
+        settings = unit.instrument.settings_offered() if unit.is_open else backends.settings(name)
+        return backends.fitted(name, settings, self._options(name))
+
     def _show_settings(self) -> None:
         """Fill the Instrument pane for whichever instrument is chosen."""
         name = self._chosen
-        unit = self._unit(name)
         try:
-            if unit.is_open:
-                # It knows which model it is: the ranges that one has.
-                settings = unit.instrument.settings_offered()
-            else:
-                settings = backends.settings(name)
+            settings = self.offered(name)
         except Exception as exc:
             self.events.error(
                 f"{backends.title(name)}: its settings could not be read: "
@@ -796,8 +799,13 @@ class MainWindow(QMainWindow):
         """
         name = self._chosen
         options = self._options(name)
+        before = self._offered_quietly(name)
         options[key] = value
         self.ctx.settings.set(f"instrument.{name}", options)
+        if self._offered_quietly(name) != before:
+            # A probe changed what a channel is measured in, or what its
+            # scales are: the pane says so. Its controls go once this is done.
+            self._show_settings()
         unit = self._unit(name)
         instrument = unit.instrument
         if instrument is None:
@@ -814,6 +822,13 @@ class MainWindow(QMainWindow):
             self._show_whole_snapshots()
         # How it is read may be what changed, and with it what the toolbar offers.
         self._show_reading()
+
+    def _offered_quietly(self, name: str) -> tuple:
+        """What offered says, or nothing where that fails: _show_settings says why."""
+        try:
+            return self.offered(name)
+        except Exception:
+            return ()
 
     def _show_whole_snapshots(self) -> None:
         """Have every plot show all it holds, for an instrument read as it is.

@@ -160,6 +160,18 @@ class Instrument(QObject):
         back end may know more: which ranges this model has."""
         return self.SETTINGS
 
+    #: Whether its scales are as they are at its inputs, and the probe on each
+    #: channel is counted here rather than by the instrument. See fitted.
+    PROBES_COUNTED_HERE = False
+
+    @classmethod
+    def fitted(cls, offered: tuple[Setting, ...], options: dict) -> tuple[Setting, ...]:
+        """What can be set, as it is with these chosen: a channel with a
+        current probe has its scale and offset in amps."""
+        from pyscopegui.backends import probes
+
+        return probes.fitted(offered, options, cls.PROBES_COUNTED_HERE)
+
     @property
     def sweeps(self) -> bool:
         """Whether it sends sweeps, each complete in itself, rather than a stream."""

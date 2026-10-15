@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Current probes** on every scope: a **Sensitivity** in volts an amp, and the channel in
+  amps -- its scale, offset, trigger level and samples. And more voltage probes: 1x, 10x,
+  20x, 50x, 100x, 500x and 1000x, for differential probes among others.
 - **Maths channels**: two channels of one instrument added, taken away, multiplied or
   divided, sample by sample, and kept as a channel like any other.
 - **Measurements** pane: each channel's min, max, peak to peak, mean, RMS, frequency, period

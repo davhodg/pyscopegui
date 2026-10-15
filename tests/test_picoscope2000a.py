@@ -241,7 +241,10 @@ def test_a_mixed_signal_scope_is_offered_its_two_ports_and_a_threshold_for_each(
 def test_the_scales_offered_are_those_of_the_ranges_the_scope_has():
     offered = {setting.key: setting for setting in pico.make_settings(2, False, ("1V", "2V"))}
     scales = [value for value, _label in offered["scale_a"].choices]
-    assert scales == [0.2, 0.5, 2.0, 5.0, 20.0, 50.0]
+    assert scales == [0.2, 0.5]
+    through = pico.PicoScope2000A.fitted(tuple(offered.values()), {"probe_a": 10})
+    scales = [value for value, _label in next(s for s in through if s.key == "scale_a").choices]
+    assert scales == [2.0, 5.0]
 
 
 def test_the_generator_goes_to_a_megahertz():
@@ -253,8 +256,10 @@ def test_the_generator_goes_to_a_megahertz():
 def test_every_setting_offered_is_one_the_back_end_reads():
     """A setting that is offered and not read would do nothing when it is changed."""
     for setting in pico.make_settings(4, True, offset=True):
-        options = {setting.key: _another(setting)}
-        assert vars(pico.Settings(options)) != vars(pico.Settings()), setting.key
+        # With what it needs to have a say: a sensitivity, a current probe.
+        needed = dict([setting.needs]) if setting.needs else {}
+        options = needed | {setting.key: _another(setting)}
+        assert vars(pico.Settings(options)) != vars(pico.Settings(needed)), setting.key
 
 
 def _another(setting):
@@ -822,7 +827,7 @@ def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch)
 # --- an offset, to read a small signal away from nought more finely ---------------------------
 def test_a_scope_with_an_offset_is_offered_one_on_each_channel_beside_the_scale():
     offered = [s.key for s in pico.make_settings(2, offset=True) if s.group == "Channel A"]
-    assert offered == ["enabled_a", "scale_a", "offset_a", "coupling_a", "probe_a"]
+    assert offered == ["enabled_a", "scale_a", "offset_a", "coupling_a", "probe_a", "sensitivity_a"]
     assert "offset_a" not in [s.key for s in pico.make_settings(2)], "and none without"
 
 

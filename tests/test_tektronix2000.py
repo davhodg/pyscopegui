@@ -157,7 +157,7 @@ def test_settings_from_nothing_are_the_defaults():
         settings = tek.Settings(odd)
         assert settings.keys() == ["CH1"] and settings.time_div == 1e-3
         assert (settings.baud, settings.hard_flow, settings.as_is) == (9600, True, False)
-        assert settings.scale["CH1"] == 1.0 and settings.probe["CH1"] == 10
+        assert settings.scale["CH1"] == 1.0 and settings.probe["CH1"].ratio == 10
         assert settings.acquire == tek.SAMPLE and settings.averages == 16
 
 

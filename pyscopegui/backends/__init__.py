@@ -120,6 +120,12 @@ def settings(name: str) -> tuple[Setting, ...]:
     return getattr(importlib.import_module(backend.module), backend.cls).SETTINGS
 
 
+def fitted(name: str, offered: tuple[Setting, ...], options: dict) -> tuple[Setting, ...]:
+    """These settings of this instrument's, as they are with these chosen."""
+    backend = BACKENDS[kind(name)]
+    return getattr(importlib.import_module(backend.module), backend.cls).fitted(offered, options)
+
+
 def create(name: str, parent: QObject | None = None, options: dict | None = None) -> Instrument:
     """Make the instrument called this. ImportError if its library is missing."""
     backend = BACKENDS[kind(name)]

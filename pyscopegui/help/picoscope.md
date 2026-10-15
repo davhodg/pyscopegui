@@ -52,11 +52,12 @@ the PicoScope on the range that holds eight divisions of the scale chosen:
 | 2 V/div | ±10 V |
 | 5 V/div | ±20 V |
 
-**Probe** is what the probe divides by, as the switch on it says: 1x, 10x or 100x. The scope
-cannot tell, so say it here, and voltages are multiplied by it to be what is at the probe's
-tip. The scale has the probe counted: 10 V/div through a 10x probe is the ±5 V range. A
-scale the scope cannot reach through the probe chosen is the nearest it can, and the
-channel list on the plot says what that came to.
+**Probe** is what is on the end of the channel: a voltage probe, as the switch on it says --
+1x to 1000x -- or a current probe. The scope cannot tell, so say it here, and what it reads
+is multiplied to be what is at the probe's tip. The scales offered have the probe counted:
+10 V/div through a 10x probe is the ±5 V range. Through a current probe whose
+**Sensitivity** is 100 mV/A, the ±5 V range is 10 A/div, and the channel is in amps: see
+[Probes](instruments.md). The channel list on the plot says what the scale came to.
 
 ## Before you start
 
@@ -132,7 +133,8 @@ In the [Instrument](instruments.md) pane.
 | Block length | When reading blocks: how long each is, from 1 us to 1 s |
 | Scale | Volts a division, with the probe counted: see above |
 | Coupling | DC, or AC to remove a steady voltage and look at what is on top of it |
-| Probe | What the probe divides by: 1x, 10x or 100x |
+| Probe | What is on the end of the channel: a voltage probe, 1x to 1000x, or a current probe |
+| Sensitivity | For a current probe: volts it gives an amp |
 | Enabled | Whether the channel is read at all. Something has to be |
 
 Choose the smallest scale the signal fits in. The scope's converter has 8 bits, so a ±1 V
@@ -210,7 +212,7 @@ generator, which every one of them has.
 
 To read a signal that sits away from nought more finely -- one between 3 V and 4 V, say --
 give its channel an **Offset**. It is added to the signal before the scope measures it, in
-volts at the probe's tip, as a bench scope's offset is: -3.5 V puts that signal in the
+volts at the probe's tip -- amps, through a current probe -- as a bench scope's offset is: -3.5 V puts that signal in the
 middle of the range, and a smaller **Scale** then fits it, measured in finer steps.
 
 Each range takes only so much offset, and the smaller ranges less: the scope says how much,
