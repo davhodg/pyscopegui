@@ -50,6 +50,8 @@ BANNER = """pyscopegui console -- Python {ver}
   read()                     Read, for a scope read as it is
   trigger("CH1", level=0.5, rising=True, position=0.5)
   channels()                 every channel's name   data("Rigol CH1")  (times, samples)
+  measure("Rigol CH1")       its levels and frequency, between the cursors
+  maths("CH1", "-", "CH2")   a maths channel of the chosen instrument
   export_csv(path) / export_png(path)               wait(seconds)  a script's sleep
   window, ctx, session       the window, settings, every instrument's samples
 Type help(single), or dir(), to explore."""

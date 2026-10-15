@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Maths channels**: two channels of one instrument added, taken away, multiplied or
+  divided, sample by sample, and kept as a channel like any other.
+- **Measurements** pane: each channel's min, max, peak to peak, mean, RMS, frequency, period
+  and duty cycle, between the cursors or over what is in view.
 - *File > Run script...* and *File > Recent scripts*, the last five run in the workspace.
 - **Reference traces**: a capture opened from a file drawn faded, behind the instruments'
   own, to compare them with.

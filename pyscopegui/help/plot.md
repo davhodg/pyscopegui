@@ -102,6 +102,50 @@ Cursors are most use on a plot that is holding still: stopped, or drawn around a
 How many there are is remembered; where they are is not. **Export PNG** saves them and
 their readings, since the picture is of the plot and its channel list together.
 
+## Maths channels
+
+**Right-click a channel** in the list and choose **Maths channel...** for a channel worked out
+from two of one instrument's, sample by sample: one added to the other, taken from it,
+multiplied by it or divided by it. CH1 − CH2 is the voltage across something neither end of
+which is at ground; CH1 × CH2, with a current probe on one, is power.
+
+A maths channel is a channel of its instrument like any other: drawn, read by the cursors,
+measured, exported, saved in a capture, and given to the [Python Console](console.md) --
+where `maths("CH1", "-", "CH2")` makes one. It is worked out as samples arrive, and from
+what is already held as soon as it is made. *Remove this maths channel*, on the same menu,
+takes it away. The maths channels of each instrument are kept with the
+[workspace](files.md).
+
+Both channels have to be one instrument's and analog: two instruments' samples are not taken
+at the same moments, and a logic level is not a number to add. Dividing by nought is a gap.
+What it is measured in follows from the two: volts plus volts is volts, volts times volts is
+V², and volts over volts is a plain number.
+
+## Measurements
+
+The **Measurements** pane, from the **View** menu, measures every channel shown on the first
+plot: between its two [cursors](#cursors) when there are two, and over what is in view when
+there are fewer. The line above the table says which, and how long a stretch that is. The
+numbers are measured again a few times a second, and as soon as a cursor is dragged.
+
+| Column | What it is |
+|--------|------------|
+| Min, Max | The lowest and the highest sample |
+| Peak to peak | Max less min |
+| Mean | The average: the steady level the signal sits on |
+| RMS | The root mean square: for a sine, its peak over the square root of two |
+| Frequency, Period | How often it repeats, and how long a repeat is |
+| Duty | How much of each repeat it is high |
+
+Frequency is found where the signal rises through the middle of its range. It has to get
+clear of a band either side of the middle first, so that noise on a slow edge is not counted
+as many edges, and it needs two rising edges at least: with fewer, a dash. For a frequency
+that reads right, have several repeats between the cursors, or in view.
+
+A logic channel is 0 or 1, so only its frequency, period and duty cycle are said. Gaps --
+samples that were lost -- are left out. In the [Python Console](console.md), `measure()`
+gives the same numbers to a script.
+
 ## Time
 
 Time is counted from when the instrument was started, in seconds. It comes from the number

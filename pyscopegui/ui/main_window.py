@@ -36,6 +36,7 @@ from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
+from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
@@ -43,6 +44,7 @@ from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
+from pyscopegui.ui.measurements_view import MeasurementsView
 from pyscopegui.ui.panes import PaneKind, Panes
 from pyscopegui.ui.scope_view import ScopeView
 from pyscopegui.ui.scripting import Scripting
@@ -195,6 +197,8 @@ class MainWindow(QMainWindow):
         self.traffic = self.panes.view(self.panes.add("traffic"))
         #: Python, with the window and a few commands to drive the scopes.
         self.console = self.panes.view(self.panes.add("console"))
+        #: Each channel's levels and frequency, between the cursors.
+        self.measurements = self.panes.view(self.panes.add("measurements"))
         self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
@@ -299,6 +303,10 @@ class MainWindow(QMainWindow):
             unit.acquisition.changed.connect(lambda u=unit: self._tell_trigger(u))
             unit.acquisition.longest_window = self._longest_window
             self.trigger_bar.prime(unit)
+            # Its maths channels, as they were: made once its channels are there.
+            saved = self.ctx.settings.get(f"maths.{name}")
+            found = [Maths.from_saved(s) for s in saved] if isinstance(saved, list) else []
+            unit.capture.set_maths([m for m in found if m is not None])
         return unit
 
     def _saved_instruments(self) -> tuple[list[str], str]:
@@ -921,6 +929,14 @@ class MainWindow(QMainWindow):
         )
         self.panes.register(
             PaneKind(
+                "measurements",
+                "Measurements",
+                Qt.BottomDockWidgetArea,
+                lambda _n: MeasurementsView(self.scope),
+            )
+        )
+        self.panes.register(
+            PaneKind(
                 "console",
                 "Python Console",
                 Qt.BottomDockWidgetArea,
@@ -1056,6 +1072,7 @@ class MainWindow(QMainWindow):
         # Behind the Event Log, put away until they are asked for.
         self.tabifyDockWidget(log, self.panes.docks["traffic"])
         self.tabifyDockWidget(log, self.panes.docks["console"])
+        self.tabifyDockWidget(log, self.panes.docks["measurements"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)

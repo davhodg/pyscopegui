@@ -59,8 +59,11 @@ from pyscopegui.core import capture_file, export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import Capture, min_max
 from pyscopegui.core.context import Context
+from pyscopegui.core.maths import Maths
+from pyscopegui.core.measure import Measured, measure
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import fonts
+from pyscopegui.ui.maths_dialog import MathsDialog
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
 
@@ -76,6 +79,8 @@ COLOURS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e
 REFERENCE_ALPHA = 100
 #: Below every live trace, which are at nought.
 REFERENCE_Z = -10
+#: Under this and an instrument's name, its maths channels, kept in the workspace.
+MATHS_KEY = "maths"
 #: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
 CHOSEN_COLOURS = "channel.colours"
 COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
@@ -183,6 +188,10 @@ class ChannelList(QTreeWidget):
     picked = Signal(str)
     #: Asked to choose a channel's colour, or (with "") to go back to its own.
     colour_asked = Signal(str, str)
+    #: Asked to make a maths channel starting from this channel, or to remove
+    #: this maths channel: its id.
+    maths_asked = Signal(str)
+    maths_removed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -208,6 +217,10 @@ class ChannelList(QTreeWidget):
         menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
         back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
         back.setEnabled(bool(item.data(NAME, Qt.UserRole + 1)))
+        menu.addSeparator()
+        menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key))
+        if ":maths:" in key or key.startswith("maths:"):
+            menu.addAction("Remove this maths channel", lambda: self.maths_removed.emit(key))
         menu.exec(self.viewport().mapToGlobal(at))
 
     def set_cursors(self, count: int) -> None:
@@ -272,6 +285,8 @@ class ScopeView(QWidget):
     #: A channel was clicked in the list: whose it is, by the instrument's
     #: name, and the group its settings are under.
     channel_picked = Signal(str, str)
+    #: A cursor was put somewhere else, or there are more or fewer of them.
+    cursors_moved = Signal()
 
     def __init__(
         self,
@@ -344,6 +359,8 @@ class ScopeView(QWidget):
         self.channel_list.shown_changed.connect(self._on_shown)
         self.channel_list.picked.connect(self._on_picked)
         self.channel_list.colour_asked.connect(self._on_colour_asked)
+        self.channel_list.maths_asked.connect(self._on_maths_asked)
+        self.channel_list.maths_removed.connect(self._on_maths_removed)
 
         self.time = QComboBox()
         self.time.addItems(TIME_CHOICES)
@@ -609,6 +626,39 @@ class ScopeView(QWidget):
         # Every plot draws its channels again, in the colours there are now.
         self.session.channels_changed.emit()
 
+    # --- maths channels -----------------------------------------------------------------------
+    def add_maths(self, unit: Unit, maths: Maths) -> None:
+        """Give an instrument this maths channel, and keep it in the workspace."""
+        unit.capture.set_maths([*unit.capture.maths, maths])
+        self._save_maths(unit)
+
+    def remove_maths(self, unit: Unit, key: str) -> None:
+        unit.capture.set_maths([m for m in unit.capture.maths if m.key != key])
+        self._save_maths(unit)
+
+    def _save_maths(self, unit: Unit) -> None:
+        if self._ctx is not None and unit.name:
+            saved = [m.as_saved() for m in unit.capture.maths]
+            self._ctx.settings.set(f"{MATHS_KEY}.{unit.name}", saved)
+
+    def _on_maths_asked(self, key: str) -> None:
+        unit, own = self._owners[key]
+        channels = [
+            (record.channel.key, record.channel.name)
+            for record in unit.capture.records.values()
+            if record.channel.kind == ANALOG and not record.channel.key.startswith("maths:")
+        ]
+        if len(channels) < 2:
+            self._say("A maths channel needs two analog channels of one instrument.", problem=True)
+            return
+        dialog = MathsDialog(channels, own, self)
+        if dialog.exec() == MathsDialog.Accepted:
+            self.add_maths(unit, dialog.maths())
+
+    def _on_maths_removed(self, key: str) -> None:
+        unit, own = self._owners[key]
+        self.remove_maths(unit, own)
+
     def _on_colour_asked(self, key: str, how: str) -> None:
         if not how:
             self.set_colour(key, "")
@@ -665,11 +715,13 @@ class ScopeView(QWidget):
                 line.setValue(seconds)
                 line.blockSignals(False)
         self._show_values()
+        self.cursors_moved.emit()
 
     def _on_cursor(self, number: int, moved) -> None:
         self.set_cursor(number, moved.value())
 
     def _on_cursor_count(self, *_args) -> None:
+        self.cursors_moved.emit()
         self.channel_list.set_cursors(self.cursor_count())
         self._show_cursors()
         self.bring_cursors()
@@ -703,6 +755,41 @@ class ScopeView(QWidget):
             if every or not x_from <= self._cursor_at[number] <= x_to:
                 self.set_cursor(number, x_from + (x_to - x_from) * (number + 1) / 3)
         self._show_values()
+
+    # --- what is measured -------------------------------------------------------------------
+    def span(self) -> tuple[float, float, bool]:
+        """The stretch of time measurements are over: between the two cursors when
+        there are two, or what is in view. And whether it is the cursors'."""
+        if self.cursor_count() == 2:
+            first, second = sorted(self._cursor_at)
+            return first, second, True
+        (low, high), _y = self.analog.getViewBox().viewRange()
+        return low, high, False
+
+    def shown_channels(self) -> list[tuple[str, str]]:
+        """Every channel ticked to be shown, as (its id, what it is called)."""
+        return [(key, self._names[key]) for key in self._curves if key not in self._hidden]
+
+    def samples_between(self, key: str, t_from: float, t_to: float):
+        """A channel's samples in this stretch of the time axis, the record they are
+        of, and the rate. None for a channel with nothing there."""
+        unit, channel = self._owners[key]
+        record = unit.capture.records.get(channel)
+        if record is None or not record.count:
+            return None
+        timing = self._timings.get(unit.name)
+        origin = timing.origin if timing is not None else 0.0
+        _first, samples = record.between(t_from + origin, t_to + origin)
+        return samples, record
+
+    def measure(self, key: str) -> Measured | None:
+        """What a channel measures over the span: see ``span``."""
+        t_from, t_to, _cursors = self.span()
+        found = self.samples_between(key, t_from, t_to)
+        if found is None:
+            return None
+        samples, record = found
+        return measure(samples, record.rate)
 
     def _reading(self, key: str, seconds: float) -> float | None:
         """What a channel read at this time on the axis: the sample nearest to

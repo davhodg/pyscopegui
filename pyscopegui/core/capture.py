@@ -9,10 +9,13 @@ Python loop.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block, Channel
+from pyscopegui.core.maths import Maths
 
 #: How much of each channel is kept, in seconds, before the oldest is dropped,
 #: unless Tools > Settings > History says otherwise.
@@ -106,6 +109,9 @@ class Capture(QObject):
         super().__init__(parent)
         self.history_s = history_s
         self.records: dict[str, Record] = {}
+        #: Maths channels of this instrument's: worked out as blocks arrive,
+        #: and held as channels of their own. See pyscopegui.core.maths.
+        self.maths: list[Maths] = []
 
     def set_channels(
         self, channels: list[Channel], rate: float, capacity: int | None = None
@@ -122,14 +128,63 @@ class Capture(QObject):
             capacity = int(rate * self.history_s)
         try:
             self.records = {c.key: Record(c, rate, capacity) for c in channels}
+            for maths, channel in self._maths_channels():
+                self.records[maths.key] = Record(channel, rate, capacity)
         finally:
             self.channels_changed.emit()
+
+    def _maths_channels(self) -> list[tuple[Maths, Channel]]:
+        """Each maths channel there are both channels for, and what it is."""
+        found = []
+        for maths in self.maths:
+            a, b = self.records.get(maths.a), self.records.get(maths.b)
+            if a is not None and b is not None and ANALOG == a.channel.kind == b.channel.kind:
+                found.append((maths, maths.channel(a.channel, b.channel)))
+        return found
+
+    def set_maths(self, maths: list[Maths]) -> None:
+        """These maths channels and no others, worked out at once from what is held."""
+        self.maths = list(dict.fromkeys(maths))
+        wanted = {m.key for m in self.maths}
+        for key in [key for key in self.records if key.startswith("maths:")]:
+            if key not in wanted:
+                del self.records[key]
+        for maths, channel in self._maths_channels():
+            if maths.key in self.records:
+                continue
+            a, b = self.records[maths.a], self.records[maths.b]
+            record = Record(channel, a.rate, a.capacity)
+            first, last = max(a.first, b.first), min(a.total, b.total)
+            record.total = first  # numbered as the samples it is worked out from
+            if last > first:
+                record.append(
+                    maths.work_out(
+                        a.view()[first - a.first : last - a.first],
+                        b.view()[first - b.first : last - b.first],
+                    )
+                )
+            self.records[maths.key] = record
+        self.channels_changed.emit()
+
+    def _with_maths(self, block: Block) -> Block:
+        """The block, with each maths channel worked out from it."""
+        if not self.maths:
+            return block
+        data = dict(block.data)
+        for maths in self.maths:
+            if maths.key in self.records and maths.a in data and maths.b in data:
+                data[maths.key] = maths.work_out(data[maths.a], data[maths.b])
+        return replace(block, data=data)
 
     def update_channels(self, channels: list[Channel]) -> None:
         """Take up what has changed about channels that are still the same
         channels -- a range, and so a name -- and keep what is held of them."""
         for channel in channels:
             if (record := self.records.get(channel.key)) is not None:
+                record.channel = channel
+        # Named for the channels they are worked out from, which may have changed.
+        for maths, channel in self._maths_channels():
+            if (record := self.records.get(maths.key)) is not None:
                 record.channel = channel
         self.channels_changed.emit()
 
@@ -143,6 +198,7 @@ class Capture(QObject):
             self.records[key] = Record(record.channel, record.rate, record.capacity)
 
     def add(self, block: Block) -> None:
+        block = self._with_maths(block)
         if block.sweep:
             self._take_sweep(block)
             return

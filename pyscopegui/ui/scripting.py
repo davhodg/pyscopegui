@@ -66,6 +66,8 @@ class Scripting:
                     "trigger",
                     "channels",
                     "data",
+                    "measure",
+                    "maths",
                     "export_csv",
                     "export_png",
                 )
@@ -260,6 +262,48 @@ class Scripting:
         origin = timing.origin if timing is not None else 0.0
         times = (record.first + np.arange(record.count)) / record.rate - origin
         return times, record.view().copy()
+
+    def measure(self, channel: str) -> dict:
+        """What a channel measures, as the Measurements pane has it: between the two
+        cursors, or over what is in view. Levels in the channel's unit, frequency in
+        hertz, period in seconds, duty from 0 to 1; None for what it does not have."""
+        scope = self._window.scope
+        scope.redraw()
+        measured = scope.measure(self._key(channel))
+        if measured is None:
+            raise ScriptError(f"{channel!r} has nothing to measure there.")
+        return {
+            "min": measured.minimum,
+            "max": measured.maximum,
+            "peak_to_peak": measured.peak_to_peak,
+            "mean": measured.mean,
+            "rms": measured.rms,
+            "frequency": measured.frequency,
+            "period": measured.period,
+            "duty": measured.duty,
+            "samples": measured.samples,
+        }
+
+    def maths(self, a: str, op: str, b: str) -> str:
+        """Make a maths channel of the chosen instrument: maths("CH1", "-", "CH2").
+        ``op`` is "+", "-", "*" or "/". The name the plot gives it."""
+        from pyscopegui.core.maths import OPERATIONS, Maths
+
+        if op not in OPERATIONS:
+            raise ScriptError(f"No such operation {op!r}: one of {', '.join(OPERATIONS)}.")
+        window = self._window
+        unit = window.unit
+        if unit.instrument is None and not window._have(window.chosen):
+            raise ScriptError(f"{backends.title(window.chosen)} could not be started.")
+        for key in (a, b):
+            record = unit.capture.records.get(key)
+            if record is None or record.channel.kind != "analog":
+                found = [k for k, r in unit.capture.records.items() if r.channel.kind == "analog"]
+                raise ScriptError(f"No analog channel {key!r} of this instrument: {found}.")
+        made = Maths(a, op, b)
+        window.scope.add_maths(unit, made)
+        window.scope.redraw()
+        return window.scope._names[unit.id(made.key)]
 
     def _key(self, channel: str) -> str:
         scope = self._window.scope
