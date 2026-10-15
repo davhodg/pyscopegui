@@ -43,6 +43,7 @@ from pyscopegui.backends.base import Setting
 from pyscopegui.ui.spin import SequenceSpin
 
 NOTHING = "This instrument has nothing to set."
+NONE_ADDED = "No instrument. Add instrument, on the toolbar, puts one here."
 #: Behind what has been typed and not yet taken up: Enter, or leaving the
 #: box, takes it up. The amber pycangui uses for the same thing.
 PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
@@ -168,19 +169,18 @@ class InstrumentView(QWidget):
 
     def set_instruments(self, listed: list[tuple[str, str, str, bool]], chosen: str) -> None:
         """Show these instruments as tabs -- (name, what to call it, what it is
-        in full, whether it is open) -- with this one chosen. The last one
-        there is cannot be removed: there is always one to be about."""
+        in full, whether it is open) -- with this one chosen. Any of them can
+        be taken out, the last one too."""
         bar = self.instruments
         bar.blockSignals(True)
         while bar.count():
             bar.removeTab(0)
-        removable = len(listed) > 1
-        bar.setTabsClosable(removable)
+        bar.setTabsClosable(True)
         for name, short, title, is_open in listed:
             index = bar.addTab(short + (OPEN_MARK if is_open else ""))
             bar.setTabData(index, name)
             tip = f"{title}\n{OPEN_SAID if is_open else CLOSED_SAID}"
-            bar.setTabToolTip(index, f"{tip}\n{REMOVE_TIP}" if removable else tip)
+            bar.setTabToolTip(index, f"{tip}\n{REMOVE_TIP}")
             if name == chosen:
                 bar.setCurrentIndex(index)
         bar.blockSignals(False)
@@ -206,17 +206,7 @@ class InstrumentView(QWidget):
 
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
         """Show these settings, at the values saved for them or their defaults."""
-        # Out of what is about to be thrown away: it is put back below.
-        self.open.setParent(self)
-        self.open.hide()
-        while (item := self._layout.takeAt(0)) is not None:
-            if (widget := item.widget()) is not None:
-                # Out of sight now: it is not deleted until the event loop gets to it.
-                widget.setParent(None)
-                widget.deleteLater()
-        self.controls = {}
-        self._settings, self._forms = settings, {}
-        self.tabs, self._pages, self._tab_of = None, None, {}
+        self._clear(settings)
         forms = self._forms
         # First, whatever the instrument: it is connected to before it is set up.
         forms[CONNECTION] = self._form(CONNECTION)
@@ -242,6 +232,26 @@ class InstrumentView(QWidget):
         self._layout.addStretch()
         self.select_group(self._group)
         self._show_needed()
+
+    def show_none(self) -> None:
+        """Say there is no instrument, with nothing to set and nothing to open."""
+        self._clear(())
+        self._layout.addWidget(QLabel(NONE_ADDED))
+        self._layout.addStretch()
+
+    def _clear(self, settings: tuple[Setting, ...]) -> None:
+        """Throw away what is shown, ready for these settings."""
+        # Out of what is about to be thrown away: it is put back after.
+        self.open.setParent(self)
+        self.open.hide()
+        while (item := self._layout.takeAt(0)) is not None:
+            if (widget := item.widget()) is not None:
+                # Out of sight now: it is not deleted until the event loop gets to it.
+                widget.setParent(None)
+                widget.deleteLater()
+        self.controls = {}
+        self._settings, self._forms = settings, {}
+        self.tabs, self._pages, self._tab_of = None, None, {}
 
     def _put_open(self) -> None:
         """Open, under whatever says how the instrument is reached."""

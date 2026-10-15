@@ -23,9 +23,10 @@ stopped: for a scope this is the slow part, done once. While the instrument is o
 button reads **Close**, and a dot on the tab says it is open. Pressing one of the run
 buttons opens the instrument chosen for you if it is not open.
 
-There is always at least one instrument in the pane, so the last one has no cross. An
-instrument's settings are kept when it is removed, and are there again when one of its kind
-is added.
+Every tab has a cross, the last one's too: with every instrument taken out the pane is
+empty, says so, and stays empty the next time pyscopegui starts, until **Add instrument**
+puts one back. An instrument's settings are kept when it is removed, and are there again
+when one of its kind is added.
 
 Whichever of the four is pressed in is what the instrument is doing:
 

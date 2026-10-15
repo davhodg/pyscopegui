@@ -61,6 +61,8 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- The last instrument can be taken out of the Instrument pane too: the pane then says there
+  is none, and stays empty the next time until one is added.
 - **Add instrument** takes the place of the list of instruments on the toolbar. Each
   instrument added has a tab in the Instrument pane, where **Open** now is, under
   **Connection**; the cross on a tab removes it.

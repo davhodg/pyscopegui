@@ -385,7 +385,7 @@ def diagnostics(window) -> str:
     lines.append("")
     chosen = window.chosen
     # The one chosen, and any other that is in use beside it.
-    units = [window.unit] + [
+    units = ([window.unit] if window.unit is not None else []) + [
         unit
         for unit in window.session.units.values()
         if unit is not window.unit and unit.instrument is not None

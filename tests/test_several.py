@@ -5,6 +5,7 @@
 import time
 
 import pytest
+from PySide6.QtWidgets import QLabel
 
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000 as pico
@@ -348,13 +349,72 @@ def tab_names(window):
     return [bar.tabText(i).removesuffix(OPEN_MARK) for i in range(bar.count())]
 
 
-def test_one_instrument_has_a_tab_that_says_which_it_is_and_cannot_be_removed(window):
+def test_one_instrument_has_a_tab_that_says_which_it_is_and_can_be_removed(window):
     bar = window.instrument_view.instruments
     assert not bar.isHidden() and tab_names(window) == ["Demo"]
-    assert not bar.tabsClosable(), "there is always one for the pane to be about"
-    assert bar.tabToolTip(0) == "Demo signals\nNot open."
+    assert bar.tabsClosable(), "the last one too"
+    assert bar.tabToolTip(0).startswith("Demo signals\nNot open.")
+
+
+@pytest.fixture
+def none_left(window):
+    window.set_mode("auto")
     window.remove_instrument()
-    assert window.added == ["demo"]
+    return window
+
+
+def test_with_the_last_taken_out_the_pane_is_empty_and_says_so(none_left):
+    from pyscopegui.ui.instrument_view import NONE_ADDED
+
+    window = none_left
+    assert window.added == [] and window.chosen == "" and window.unit is None
+    assert window.instrument is None and tab_names(window) == []
+    labels = [label.text() for label in window.instrument_view.findChildren(QLabel)]
+    assert NONE_ADDED in labels and window.instrument_view.open.isHidden()
+    assert "No instrument" in window.status.text()
+    assert [
+        window.trigger_bar.source.itemText(i) for i in range(window.trigger_bar.source.count())
+    ] == ["None"]
+    assert window.session.units == {} or all(
+        unit.instrument is None for unit in window.session.units.values()
+    )
+
+
+def test_with_none_the_buttons_do_nothing_and_say_nothing_wrong(none_left):
+    window = none_left
+    for mode in ("auto", "single", "normal", "stop"):
+        window.set_mode(mode)
+    window.read_once()
+    window.open_instrument()
+    window.close_instrument()
+    window.remove_instrument()
+    assert window.instrument_bar.mode() == "stop"
+    assert "Traceback" not in window.log.toPlainText()
+
+
+def test_with_none_a_script_is_told_to_add_one(none_left):
+    from pyscopegui.ui.scripting import ScriptError
+
+    names = none_left.console.namespace
+    with pytest.raises(ScriptError, match="add"):
+        names["set"]("scale_1", 1.0)
+    with pytest.raises(ScriptError, match="add"):
+        names["trigger"]("CH1")
+
+
+def test_an_empty_pane_stays_empty_the_next_time_until_one_is_added(none_left):
+    again = MainWindow()
+    try:
+        assert again.added == [] and again.unit is None
+        again.add_instrument("demo")
+        assert again.added == ["demo"] and again.chosen == "demo"
+        assert "address" not in again.instrument_view.controls
+        again.set_mode("auto")
+        assert again.instrument.running
+        again.set_mode("stop")
+    finally:
+        again.close()
+        again.deleteLater()
 
 
 def test_the_pane_has_a_tab_for_each_instrument_in_use(both):

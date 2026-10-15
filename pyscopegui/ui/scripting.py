@@ -112,6 +112,13 @@ class Scripting:
     def _added(self) -> str:
         return ", ".join(self._window.added)
 
+    def _unit(self):
+        """The instrument chosen: a ScriptError where the Instrument pane has none."""
+        unit = self._window.unit
+        if unit is None:
+            raise ScriptError("No instrument in the Instrument pane: add() puts one there.")
+        return unit
+
     def _about(self, name: str | None) -> None:
         if name is not None:
             self.choose(name)
@@ -121,7 +128,7 @@ class Scripting:
         self._about(name)
         window = self._window
         window.open_instrument()
-        unit = window.unit
+        unit = self._unit()
         if not self._until(lambda: unit.is_open or not unit.wanted_open, timeout):
             raise ScriptError(f"{backends.title(unit.name)} did not open in {timeout:g} s.")
         if not unit.is_open:
@@ -137,7 +144,7 @@ class Scripting:
     # --- its settings -----------------------------------------------------------------------
     def _setting(self, key: str):
         window = self._window
-        unit = window.unit
+        unit = self._unit()
         offered = window.offered(unit.name)
         for setting in offered:
             if setting.key == key:
@@ -161,7 +168,7 @@ class Scripting:
         """What one of the instrument's settings is: as saved, or its default."""
         self._about(name)
         setting = self._setting(key)
-        saved = self._window.ctx.settings.get(f"instrument.{self._window.chosen}")
+        saved = self._window.ctx.settings.get(f"instrument.{self._unit().name}")
         return saved.get(key, setting.default) if isinstance(saved, dict) else setting.default
 
     # --- running ----------------------------------------------------------------------------
@@ -191,7 +198,7 @@ class Scripting:
     def read(self, timeout: float = 120.0) -> bool:
         """Read what an instrument read as it is shows, once, and wait for it: Read."""
         window = self._window
-        unit = window.unit
+        unit = self._unit()
         if not window._as_is(unit):
             raise ScriptError(
                 f"{backends.title(unit.name)} is not read as it is: run or single it instead."
@@ -215,7 +222,7 @@ class Scripting:
         window = self._window
         # Its channels are there to choose from once it has been made, as a
         # run button makes it: a script need not have run it first.
-        if window.unit.instrument is None and not window._have(window.chosen):
+        if self._unit().instrument is None and not window._have(window.chosen):
             raise ScriptError(
                 f"{backends.title(window.chosen)} could not be started: see the Event Log."
             )
@@ -290,7 +297,7 @@ class Scripting:
         if op not in OPERATIONS:
             raise ScriptError(f"No such operation {op!r}: one of {', '.join(OPERATIONS)}.")
         window = self._window
-        unit = window.unit
+        unit = self._unit()
         if unit.instrument is None and not window._have(window.chosen):
             raise ScriptError(f"{backends.title(window.chosen)} could not be started.")
         for key in (a, b):
@@ -308,7 +315,8 @@ class Scripting:
         for key, name in scope._names.items():
             if name == channel or key == channel:
                 return key
-        chosen = self._window.unit.id(channel)
+        unit = self._window.unit
+        chosen = unit.id(channel) if unit is not None else None
         if chosen in scope._names:
             return chosen
         raise ScriptError(f"No channel {channel!r}. There are: {list(scope._names.values())}.")

@@ -193,9 +193,19 @@ class TriggerBar(QToolBar):
             position=self.position.value() / 100,
         )
 
-    def bind(self, unit: Unit) -> None:
-        """Be about this instrument from now on, and show its trigger."""
+    def bind(self, unit: Unit | None) -> None:
+        """Be about this instrument from now on, and show its trigger: or about
+        none, with nothing to choose, when the Instrument pane has none."""
         self.unit = unit
+        if unit is None:
+            self._channels = {}
+            self.source.blockSignals(True)
+            self.source.clear()
+            self.source.addItem(NONE, None)
+            self.source.blockSignals(False)
+            self.label.setText(" Trigger: ")
+            self.show_usable()
+            return
         acquisition = unit.acquisition
         for widget in (self.edge, self.level):
             widget.blockSignals(True)
