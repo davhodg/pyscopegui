@@ -55,6 +55,22 @@ Closing one puts it away and *View* brings it back. *View > Remove pane* is the 
 it closes one for good and forgets it. The first pane of each sort cannot be removed -- that
 one is the pane.
 
+## Column widths
+
+*Tools > Settings > Column widths* decides how wide the columns of the lists are -- the
+plot's channel list, the Measurements pane, and the tables in *Open capture* for a CSV file.
+
+- **Automatic**, to begin with: every column is as wide as what is in it. There is nothing
+  to set and nothing can be dragged, and one long name takes the room it needs.
+- **Manual**: a column fits what is in it up to a limit, and can be dragged to any width. A
+  dragged width stays -- new rows do not undo it -- and is kept with the
+  [workspace](files.md). Double-click a column's edge to have that column fit its contents
+  again.
+
+The last column runs to the edge of the pane either way. The readings -- at the cursors in
+the channel list, and every number in Measurements -- are as wide as the longest they get,
+so that they do not jump about as they change, until they are dragged.
+
 ## Light or dark
 
 pyscopegui follows the operating system's light or dark setting. *Tools > Settings > Theme*

@@ -38,7 +38,7 @@ from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
-from pyscopegui.ui import event_colours, messages, theme
+from pyscopegui.ui import column_widths, event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.import_dialog import ImportDialog
@@ -82,6 +82,16 @@ CAPTURE_FOLDER = "capture.folder"
 #: The instruments in the Instrument pane, by name, and the one chosen.
 ADDED_KEY = "instruments.added"
 CHOSEN_KEY = "instrument.name"
+WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dragged."
+WIDTHS_AUTO_TIP = (
+    "Every column is as wide as what is in it. Nothing to set, and nothing\n"
+    "can be dragged: a long name takes the room it needs."
+)
+WIDTHS_MANUAL_TIP = (
+    "A column fits what is in it up to a limit, and can be dragged to any\n"
+    "width, which is remembered. Double-click a column's edge to have it\n"
+    "fit its contents again."
+)
 HISTORY_TIP = (
     "How much of each channel is kept, for the plot to go back over. Past it the\n"
     "oldest samples are dropped. It is all held in memory: four bytes a sample\n"
@@ -265,6 +275,8 @@ class MainWindow(QMainWindow):
         settings_menu.addMenu(self.theme_menu)
         self.history_menu = self._history_menu()
         settings_menu.addMenu(self.history_menu)
+        self.widths_menu = self._widths_menu()
+        settings_menu.addMenu(self.widths_menu)
         # For a source folder and for pip: the installer makes its own entries.
         self.shortcut_action = self.desktop_action = None
         if shortcut.start() is not None:
@@ -1191,6 +1203,29 @@ class MainWindow(QMainWindow):
         """The history chosen, or the default for anything that is not one of the choices."""
         saved = self.ctx.settings.get(HISTORY_KEY, HISTORY_S)
         return float(saved) if saved in HISTORIES else HISTORY_S
+
+    def _widths_menu(self) -> QMenu:
+        """*Tools > Settings > Column widths*: fitted, or fitted until dragged."""
+        menu = QMenu("Column widths", self)
+        menu.setToolTipsVisible(True)
+        menu.menuAction().setToolTip(WIDTHS_TIP)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        current = column_widths.mode(self.ctx.settings)
+        for wanted, label, tip in (
+            (column_widths.AUTO, "Automatic", WIDTHS_AUTO_TIP),
+            (column_widths.MANUAL, "Manual", WIDTHS_MANUAL_TIP),
+        ):
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(wanted == current)
+            action.setData(wanted)
+            action.setToolTip(tip)
+            action.triggered.connect(
+                lambda _=False, w=wanted: column_widths.set_mode(self.ctx.settings, w)
+            )
+            group.addAction(action)
+        return menu
 
     def _history_menu(self) -> QMenu:
         """*Tools > Settings > History*: how long a stretch of each channel is kept."""

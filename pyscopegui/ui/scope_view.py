@@ -62,6 +62,7 @@ from pyscopegui.core.maths import Maths
 from pyscopegui.core.measure import Measured, measure
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import fonts
+from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.maths_dialog import MathsDialog
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
@@ -269,12 +270,6 @@ class ChannelList(QTreeWidget):
             self.addTopLevelItem(item)
             self._items[key] = item
         self.blockSignals(False)
-        self.resizeColumnToContents(NAME)
-        # Room for the longest a value gets, so the column does not jump about
-        # as the reading changes, and the settings have what is left.
-        width = QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 V ")
-        for column in (VALUE, SECOND, DIFFERENCE):
-            self.setColumnWidth(column, width)
 
     def _on_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column == NAME:
@@ -290,6 +285,12 @@ class ChannelList(QTreeWidget):
         for column, text in zip((VALUE, SECOND, DIFFERENCE), texts, strict=True):
             if item.text(column) != text:
                 item.setText(column, text)
+
+
+def reading_width() -> int:
+    """Room for the longest a reading gets, so that its column does not jump
+    about as the reading changes."""
+    return QFontMetrics(fonts.mono()).horizontalAdvance(" -000.000 mV ")
 
 
 class ScopeView(QWidget):
@@ -367,6 +368,14 @@ class ScopeView(QWidget):
         self._follow_theme()
 
         self.channel_list = ChannelList()
+        #: Fitted, or fitted until dragged: Tools > Settings > Column widths.
+        #: The readings are as wide as the longest they get either way.
+        self.channel_widths = ColumnWidths(
+            self.channel_list,
+            ctx.settings if ctx is not None else None,
+            "channels",
+            fixed=dict.fromkeys((VALUE, SECOND, DIFFERENCE), reading_width()),
+        )
         self.channel_list.shown_changed.connect(self._on_shown)
         self.channel_list.picked.connect(self._on_picked)
         self.channel_list.colour_asked.connect(self._on_colour_asked)

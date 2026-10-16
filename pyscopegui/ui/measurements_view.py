@@ -19,7 +19,8 @@ from PySide6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 from pyscopegui.backends.base import ANALOG
 from pyscopegui.core.measure import Measured
 from pyscopegui.ui import fonts
-from pyscopegui.ui.scope_view import ScopeView, frequency_text, time_text
+from pyscopegui.ui.column_widths import ColumnWidths
+from pyscopegui.ui.scope_view import ScopeView, frequency_text, reading_width, time_text
 
 #: How often the numbers are measured again while nothing is moved.
 MEASURE_MS = 250
@@ -69,6 +70,15 @@ class MeasurementsView(QWidget):
         self.table.setRootIsDecorated(False)
         self.table.setUniformRowHeights(True)
         self.table.setToolTip(MEASURES_TIP)
+        ctx = scope._ctx
+        #: The numbers are as wide as the longest they get, so that they do
+        #: not jump about four times a second as they change.
+        self.widths = ColumnWidths(
+            self.table,
+            ctx.settings if ctx is not None else None,
+            "measurements",
+            fixed=dict.fromkeys(range(1, len(HEADINGS)), reading_width()),
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.over)

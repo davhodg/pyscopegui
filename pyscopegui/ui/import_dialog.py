@@ -42,6 +42,7 @@ from pyscopegui.core.capture_file import (
     guess_layout,
     rows,
 )
+from pyscopegui.ui.column_widths import ColumnWidths
 
 ROLES = {TIME: "Time", ANALOG_ROLE: "Analog", LOGIC: "Logic"}
 #: The columns of the table of columns.
@@ -85,6 +86,15 @@ class ImportDialog(QDialog):
         self.columns.setToolTip(
             "Untick a column to leave it out. One column can be time; the others\n"
             "are channels, analog or logic (0 and 1)."
+        )
+        ctx = getattr(parent, "ctx", None)
+        settings = ctx.settings if ctx is not None else None
+        self.preview_widths = ColumnWidths(self.preview, settings, "import.preview")
+        # What each column is, chosen from a list: as wide as the list's widest.
+        role = QComboBox()
+        role.addItems(list(ROLES.values()))
+        self.columns_widths = ColumnWidths(
+            self.columns, settings, "import.columns", fixed={ROLE: role.sizeHint().width()}
         )
         self.problem = QLabel()
         self.problem.setStyleSheet("color: #d08000;")

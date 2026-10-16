@@ -11,6 +11,8 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- *Tools > Settings > Column widths*, as in pycangui: **Automatic**, every column as wide
+  as what is in it, or **Manual**, fitted until dragged and the dragged width remembered.
 - **Current probes** on every scope: a **Sensitivity** in volts an amp, and the channel in
   amps -- its scale, offset, trigger level and samples. And more voltage probes: 1x, 10x,
   20x, 50x, 100x, 500x and 1000x, for differential probes among others.
