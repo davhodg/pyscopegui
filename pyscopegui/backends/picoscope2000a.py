@@ -37,11 +37,27 @@ from pyscopegui.backends import picoscope2000 as pico
 from pyscopegui.backends.base import DIGITAL, Block, Channel, Setting
 from pyscopegui.backends.picoscope2000 import (
     BLOCKS,
+    NEAR_TRIGGER,
     RANGES,
     STREAM,
     ScopeError,
     Trigger,
     crossed,
+)
+from pyscopegui.core.acquire import HYSTERESIS
+from pyscopegui.core.triggers import (
+    BETWEEN,
+    EDGE,
+    EITHER,
+    ENTER,
+    LOW,
+    PATTERN,
+    PULSE,
+    RUNT,
+    SHORTER,
+    WINDOW,
+    Condition,
+    Finder,
 )
 
 #: Set to the library's full path to use that one and look nowhere else.
@@ -70,11 +86,26 @@ DEFAULT_THRESHOLD = 1.5
 INFO_VARIANT, INFO_SERIAL = 3, 4
 #: Asked of ps2000aGetChannelInformation: the ranges the scope has.
 INFO_RANGES = 0
-#: Trigger directions for an analog channel, and for a logic input.
-RISING, FALLING = 2, 3
-DIGITAL_RISING, DIGITAL_FALLING = 3, 4
+#: Trigger directions for an analog channel, PS2000A_THRESHOLD_DIRECTION:
+#: above or below the upper threshold, for a pattern; through it, for an edge;
+#: into or out of a window; through the lower threshold, for a pulse's width
+#: to be timed from, since the driver will not have one threshold do both; and
+#: a runt. A channel left out is given NONE, which is RISING.
+ABOVE, BELOW = 0, 1
+RISING, FALLING, RISING_OR_FALLING = 2, 3, 4
+ENTER_WINDOW, EXIT_WINDOW = RISING, FALLING
+RISING_LOWER, FALLING_LOWER = 7, 8
+POSITIVE_RUNT, NEGATIVE_RUNT = 9, 10
+NO_DIRECTION = RISING
+#: And for a logic input, PS2000A_DIGITAL_DIRECTION.
+DIGITAL_LOW, DIGITAL_HIGH = 1, 2
+DIGITAL_RISING, DIGITAL_FALLING, DIGITAL_EITHER = 3, 4, 5
 #: In a trigger condition: this has to be so.
 CONDITION_TRUE = 1
+#: A channel's trigger has one threshold, or two that make a window.
+LEVEL_MODE, WINDOW_MODE = 0, 1
+#: PS2000A_PULSE_WIDTH_TYPE: none, shorter, longer, or between.
+PW_NONE, PW_LESS_THAN, PW_GREATER_THAN, PW_IN_RANGE = 0, 1, 2, 3
 #: A steady voltage: at nought volts, the nearest the driver has to off.
 WAVES = {"off": 8, "sine": 0, "square": 1, "triangle": 2}
 GENERATOR_VOLTS = 2.0
@@ -160,6 +191,28 @@ class DigitalDirection(ctypes.Structure):
     _fields_ = [("channel", _INT32), ("direction", _INT32)]
 
 
+class Properties(ctypes.Structure):
+    """PS2000A_TRIGGER_CHANNEL_PROPERTIES: a channel's thresholds, in counts,
+    each with the hysteresis it has to be passed by."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("upper", _INT16),
+        ("upper_hysteresis", ctypes.c_uint16),
+        ("lower", _INT16),
+        ("lower_hysteresis", ctypes.c_uint16),
+        ("channel", _INT32),
+        ("mode", _INT32),
+    ]
+
+
+class PwqConditions(ctypes.Structure):
+    """PS2000A_PWQ_CONDITIONS: which source's pulses the pulse-width qualifier times."""
+
+    _pack_ = 1
+    _fields_ = [(name, _INT32) for name in ("a", "b", "c", "d", "external", "aux", "digital")]
+
+
 #: Name -> (return type, argument types), for the functions used here.
 PROTOTYPES = {
     "ps2000aOpenUnit": (_STATUS, [_P(_INT16), ctypes.c_char_p]),
@@ -178,7 +231,15 @@ PROTOTYPES = {
         [_INT16, _INT16, _INT32, _INT16, _INT32, _UINT32, _INT16],
     ),
     "ps2000aSetTriggerChannelConditions": (_STATUS, [_INT16, _P(Conditions), _INT16]),
-    "ps2000aSetTriggerChannelProperties": (_STATUS, [_INT16, _VOID, _INT16, _INT16, _INT32]),
+    "ps2000aSetTriggerChannelDirections": (_STATUS, [_INT16, *[_INT32] * 6]),
+    "ps2000aSetTriggerChannelProperties": (
+        _STATUS,
+        [_INT16, _P(Properties), _INT16, _INT16, _INT32],
+    ),
+    "ps2000aSetPulseWidthQualifier": (
+        _STATUS,
+        [_INT16, _P(PwqConditions), _INT16, _INT32, _UINT32, _UINT32, _INT32],
+    ),
     "ps2000aSetTriggerDigitalPortProperties": (_STATUS, [_INT16, _P(DigitalDirection), _INT16]),
     "ps2000aGetTimebase2": (
         _STATUS,
@@ -218,6 +279,36 @@ PROTOTYPES = {
     ),
     "ps2000aStop": (_STATUS, [_INT16]),
 }
+
+
+def triggers_itself(
+    condition: Condition, source: str | None, analog: list[str], digital: list[str]
+) -> bool:
+    """Whether the scope can wait for this itself, reading blocks, given the
+    channels and logic inputs that are on.
+
+    An edge either way, on a channel or a logic input; a window, a pulse's
+    width or a runt, on a channel; or a pattern of the two together, at once.
+    Not a timeout -- the driver has nothing that fires while a level lasts --
+    and no holdoff, nor a pattern that has to be held: those are found in
+    what is streamed. A pulse on a logic input wants the MSO's own structures,
+    which nobody here has a scope to check against yet.
+    """
+    if condition.holdoff:
+        return False
+    if condition.kind == PATTERN:
+        keys = [key for key, _level in condition.pattern]
+        return bool(keys) and not condition.held and all(k in analog or k in digital for k in keys)
+    if condition.kind == EDGE:
+        return source in analog or source in digital
+    if condition.kind in (WINDOW, PULSE, RUNT):
+        return source in analog
+    return False
+
+
+def plain_edge(condition: Condition) -> bool:
+    """A rising or a falling edge, which the simple trigger does."""
+    return condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff
 
 
 def why(status: int) -> str:
@@ -506,6 +597,9 @@ class Stream(pico.Stream):
         self._before_trigger = 0
         #: Whether the trigger last set was on a logic input, to be cleared.
         self._digital_trigger = False
+        #: Whether it was more than an edge, and timed pulses: to be cleared.
+        self._advanced = False
+        self._pulse_width = False
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -717,9 +811,25 @@ class Stream(pico.Stream):
             self._library.ps2000aSetTriggerDigitalPortProperties(self._handle, None, 0)
             self._digital_trigger = False
 
+    def _no_pulse_width(self) -> None:
+        if self._pulse_width:
+            self._library.ps2000aSetPulseWidthQualifier(
+                self._handle, None, 0, NO_DIRECTION, 0, 0, PW_NONE
+            )
+            self._pulse_width = False
+
     def _no_trigger(self) -> None:
         self._no_digital_trigger()
+        self._no_pulse_width()
+        self._advanced = False
         self._library.ps2000aSetSimpleTrigger(self._handle, 0, 0, 0, RISING, 0, 0)
+
+    def _counts(self, key: str, value: float) -> int:
+        """A level on a channel, in the counts it is read in: as the scope
+        measures it, which is with the offset in it."""
+        volts = self.settings.volts(key)
+        level = value + self.offset_at_tip(key)
+        return round(min(max(level / volts, -1.0), 1.0) * self._max)
 
     def _set_trigger(self) -> None:
         """Tell the scope what a block is to be taken around."""
@@ -728,17 +838,26 @@ class Stream(pico.Stream):
         # nought is for ever, which is what Normal and Single mean.
         wait_ms = max(AUTO_TRIGGER_MS, round(2e3 * settings.block_s)) if trigger.auto else 0
         wait_ms = min(wait_ms, 32767)
+        condition = trigger.condition
+        if not plain_edge(condition) and triggers_itself(
+            condition, trigger.source, settings.keys(), settings.digital_keys()
+        ):
+            status = self._set_advanced(wait_ms)
+            if status != OK:
+                raise ScopeError(
+                    f"The scope would not trigger on {condition.summary() or 'that'}: "
+                    f"{why(status)}."
+                )
+            return
+        self._no_pulse_width()
+        self._advanced = False
         if trigger.source in settings.keys():
             self._no_digital_trigger()
-            volts = settings.volts(trigger.source)
-            # The scope triggers on what it measures, which has the offset in it.
-            level = trigger.level + self.offset_at_tip(trigger.source)
-            counts = round(min(max(level / volts, -1.0), 1.0) * self._max)
             status = self._library.ps2000aSetSimpleTrigger(
                 self._handle,
                 1,
                 ANALOG.index(trigger.source),
-                counts,
+                self._counts(trigger.source, trigger.level),
                 RISING if trigger.rising else FALLING,
                 0,
                 wait_ms,
@@ -763,6 +882,95 @@ class Stream(pico.Stream):
             or library.ps2000aSetTriggerDigitalPortProperties(self._handle, ctypes.byref(edge), 1)
             or library.ps2000aSetTriggerChannelProperties(self._handle, None, 0, 0, wait_ms)
         )
+
+    def _set_advanced(self, wait_ms: int) -> int:
+        """Trigger on more than an edge: each source's thresholds, which have
+        to be so together, the way through each, the pulse-width qualifier,
+        and the logic inputs -- in the order Pico's own examples set them."""
+        trigger = self.trigger
+        condition, source = trigger.condition, trigger.source
+        hysteresis = round(HYSTERESIS * self._max)
+        properties: list[Properties] = []
+        wanted = Conditions()
+        directions = [NO_DIRECTION] * 6
+        digital: list[DigitalDirection] = []
+        pulse = None
+
+        def threshold(key: str, upper: float, lower: float, mode: int) -> int:
+            index = ANALOG.index(key)
+            properties.append(
+                Properties(
+                    self._counts(key, upper),
+                    hysteresis,
+                    self._counts(key, lower),
+                    hysteresis,
+                    index,
+                    mode,
+                )
+            )
+            setattr(wanted, "abcd"[index], CONDITION_TRUE)
+            return index
+
+        if condition.kind == PATTERN:
+            for key, level in condition.pattern:
+                if key in ANALOG:
+                    index = threshold(key, trigger.level, trigger.level, LEVEL_MODE)
+                    directions[index] = ABOVE if level else BELOW
+                else:
+                    digital.append(
+                        DigitalDirection(int(key[1:]), DIGITAL_HIGH if level else DIGITAL_LOW)
+                    )
+        elif source not in ANALOG:
+            # A logic input: an edge, either way being all there is beyond the simple trigger.
+            digital.append(DigitalDirection(int(source[1:]), DIGITAL_EITHER))
+        elif condition.kind == EDGE:
+            index = threshold(source, trigger.level, trigger.level, LEVEL_MODE)
+            directions[index] = RISING_OR_FALLING
+        elif condition.kind in (WINDOW, RUNT):
+            low, high = sorted((trigger.level, condition.upper))
+            index = threshold(source, high, low, WINDOW_MODE)
+            if condition.kind == WINDOW:
+                directions[index] = ENTER_WINDOW if condition.direction == ENTER else EXIT_WINDOW
+            else:
+                directions[index] = NEGATIVE_RUNT if condition.polarity == LOW else POSITIVE_RUNT
+        else:
+            # A pulse's width is timed from its start, through the lower
+            # threshold, and the trigger is at its end, through the upper:
+            # both at the level.
+            index = threshold(source, trigger.level, trigger.level, LEVEL_MODE)
+            high = condition.polarity != LOW
+            directions[index] = FALLING if high else RISING
+            wanted.pulse_width = CONDITION_TRUE
+            timed = PwqConditions(**{"abcd"[index]: CONDITION_TRUE})
+            shortest = max(1, round(condition.shortest * self._block_rate))
+            longest = max(shortest + 1, round(condition.longest * self._block_rate))
+            kind = {SHORTER: PW_LESS_THAN, BETWEEN: PW_IN_RANGE}.get(
+                condition.compare, PW_GREATER_THAN
+            )
+            pulse = (timed, RISING_LOWER if high else FALLING_LOWER, shortest, longest, kind)
+        if digital:
+            wanted.digital = CONDITION_TRUE
+        library, handle = self._library, self._handle
+        listed = (Properties * len(properties))(*properties) if properties else None
+        status = (
+            library.ps2000aSetTriggerChannelProperties(handle, listed, len(properties), 0, wait_ms)
+            or library.ps2000aSetTriggerChannelConditions(handle, ctypes.byref(wanted), 1)
+            or library.ps2000aSetTriggerChannelDirections(handle, *directions)
+        )
+        if status == OK and pulse is not None:
+            timed, way, shortest, longest, kind = pulse
+            status = library.ps2000aSetPulseWidthQualifier(
+                handle, ctypes.byref(timed), 1, way, shortest, longest, kind
+            )
+            self._pulse_width = True
+        elif status == OK:
+            self._no_pulse_width()
+        if status == OK and (digital or self._digital_trigger):
+            edges = (DigitalDirection * len(digital))(*digital) if digital else None
+            status = library.ps2000aSetTriggerDigitalPortProperties(handle, edges, len(digital))
+            self._digital_trigger = bool(digital)
+        self._advanced = True
+        return status
 
     # --- blocks ----------------------------------------------------------------------------
     def _ask_timebase(self, timebase: int) -> tuple[float, int] | None:
@@ -905,19 +1113,30 @@ class Stream(pico.Stream):
             {code: np.ctypeslib.as_array(buffer)[: count.value] for code, buffer in buffers.items()}
         )
         trigger = self.trigger
-        if trigger.source not in data:
+        pattern = self._advanced and trigger.condition.kind == PATTERN
+        keys = [key for key, _level in trigger.condition.pattern] if pattern else [trigger.source]
+        if any(key not in data for key in keys):
             return Block(0, self._block_rate, data, sweep=True)
         at = min(self._before_trigger, count.value - 1)
-        # A logic input is 0 or 1, and an edge goes through the half between.
-        level = trigger.level if trigger.source in self.settings.keys() else 0.5
-        return Block(
-            0,
-            self._block_rate,
-            data,
-            sweep=True,
-            trigger=at,
-            triggered=crossed(data[trigger.source], at, level, trigger.rising),
-        )
+        if self._advanced:
+            # Waited for in Normal; in Auto, there if it is found where it should be.
+            triggered = not trigger.auto or self._met_near(keys, data, at)
+        else:
+            # A logic input is 0 or 1, and an edge goes through the half between.
+            level = trigger.level if trigger.source in self.settings.keys() else 0.5
+            triggered = crossed(data[trigger.source], at, level, trigger.rising)
+        return Block(0, self._block_rate, data, sweep=True, trigger=at, triggered=triggered)
+
+    def _met_near(self, keys: list[str], data: dict[str, np.ndarray], at: int) -> bool:
+        """Whether what was waited for is in the block where the trigger is:
+        the driver does not say whether it triggered or gave up waiting."""
+        trigger = self.trigger
+        first = keys[0]
+        margin = HYSTERESIS * self.settings.volts(first) if first in ANALOG else 0.0
+        level = trigger.level if first in ANALOG or trigger.condition.kind == PATTERN else 0.5
+        finder = Finder(trigger.condition, level, margin, self._block_rate)
+        found = finder.find({key: data[key] for key in keys}, 0)
+        return bool(np.any(np.abs(found - at) <= NEAR_TRIGGER))
 
     def _in_units(self, raw: dict[int, np.ndarray]) -> dict[str, np.ndarray]:
         """What the driver filled, as volts for a channel and as 0 or 1 for each
@@ -1063,6 +1282,13 @@ class PicoScope2000A(pico.PicoScope2000):
 
     def _make_stream(self):
         return Stream(self._library, self.settings)
+
+    def triggers_itself(self, condition: Condition, source: str | None) -> bool:
+        settings = self.settings
+        if condition.kind == PATTERN and not condition.pattern:
+            # Its channels are still to be chosen, and it can do some.
+            return not condition.held and not condition.holdoff
+        return triggers_itself(condition, source, settings.keys(), settings.digital_keys())
 
     def settings_offered(self) -> tuple[Setting, ...]:
         if self._model is None:

@@ -122,6 +122,26 @@ Two things are different from streaming. The plot shows the whole block, so the 
 **Time** has no say in how much is drawn. And only a channel of this scope can be the
 trigger, since it is the scope that is triggering.
 
+**What the scope waits for itself.** An older scope, on `ps2000`, triggers on a rising or a
+falling edge. A newer one, on `ps2000a`, does more of the trigger's
+[types](instruments.md) in its own hardware, at its full rate:
+
+| Type | On `ps2000a` |
+|------|--------------|
+| Edge | Rising, falling or **Either**, on a channel or a logic input |
+| Window | Entering or leaving, on a channel |
+| Pulse width | Shorter, longer or between, high or low, on a channel |
+| Runt | High or low, on a channel |
+| Logic pattern | Channels and logic inputs together, as soon as they are so |
+| Timeout, Protocol | Not in the scope: greyed out with blocks |
+
+A **holdoff**, and a pattern that has to be **held** for a time, are not offered with blocks
+either. What the scope cannot do itself is greyed out on the toolbar and in the details, and
+is there again when streaming, where pyscopegui finds it. A pulse's width is timed in the
+block's samples, so it is as fine as the block's rate. In **Auto**, a block is called
+triggered only when what was waited for is where the trigger is in it: the driver does not
+say whether it triggered or gave up waiting.
+
 ## Settings
 
 In the [Instrument](instruments.md) pane.
@@ -204,7 +224,7 @@ generator, which every one of them has.
 | Logic inputs | None | D0 to D15 on an MSO |
 | Streaming | To 1 MS/s on each channel | To 31.25 MS/s: see below |
 | Blocks | To 100 MS/s, a few thousand samples | To the scope's fastest -- 500 MS/s or 1 GS/s -- and up to a million samples |
-| Trigger for blocks | A or B | Any channel that is on, or any logic input |
+| Trigger for blocks | A or B, a rising or falling edge | Any channel that is on, or any logic input; window, pulse width, runt and pattern too |
 | Signal generator | To 100 kHz | To 1 MHz |
 | Offset | None | On the models that have it |
 

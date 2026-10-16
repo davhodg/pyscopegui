@@ -126,14 +126,49 @@ def test_kept_with_the_workspace_and_the_trigger_the_next_time(sourced, monkeypa
         again.deleteLater()
 
 
+def offered(bar):
+    return [
+        bar.kind.itemData(row)
+        for row in range(bar.kind.count())
+        if bar.kind.model().item(row).isEnabled()
+    ]
+
+
 def test_an_instrument_that_triggers_itself_does_an_edge_up_or_down(sourced, monkeypatch):
     window = sourced
     monkeypatch.setattr(type(window.instrument), "sweeps", property(lambda _self: True))
     bar = window.trigger_bar
     bar.show_usable()
-    assert not bar.kind.isEnabled() and not bar.details.isEnabled()
+    assert offered(bar) == [EDGE] and not bar.details.isEnabled()
     either = bar.edge.model().item(bar.edge.findData(EITHER))
     assert not either.isEnabled() and "triggers itself" in bar.kind.toolTip()
+
+
+def test_one_that_can_do_more_itself_offers_it(sourced, monkeypatch):
+    window = sourced
+    kind = type(window.instrument)
+    monkeypatch.setattr(kind, "sweeps", property(lambda _self: True))
+
+    def triggers_itself(_self, condition, _source):
+        return condition.kind in (EDGE, WINDOW) and not condition.holdoff
+
+    monkeypatch.setattr(kind, "triggers_itself", triggers_itself)
+    bar = window.trigger_bar
+    bar.show_usable()
+    assert offered(bar) == [EDGE, WINDOW]
+    assert bar.edge.model().item(bar.edge.findData(EITHER)).isEnabled()
+    assert not bar.details.isEnabled(), "an edge has only a holdoff, which it has not"
+    window.acquisition.set_trigger(condition=Condition(WINDOW, upper=1.0))
+    bar.show_usable()
+    assert bar.details.isEnabled()
+    dialog = TriggerDialog(
+        Condition(WINDOW), [], "V", doable=lambda c: window.instrument.triggers_itself(c, "A")
+    )
+    assert not dialog.holdoff.isEnabled() and dialog.holdoff.text() == "0"
+    dialog.holdoff.setText("1 ms")
+    assert dialog.condition().holdoff == 0.001
+    dialog.accept()
+    assert "cannot wait for that itself" in dialog.problem.text()
 
 
 def test_a_window_s_upper_level_is_drawn_too(window, monkeypatch):

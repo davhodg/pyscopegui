@@ -18,9 +18,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtCore import QObject, Signal
+
+if TYPE_CHECKING:
+    from pyscopegui.core.triggers import Condition
 
 ANALOG = "analog"
 DIGITAL = "digital"
@@ -196,12 +200,25 @@ class Instrument(QObject):
         return False
 
     def set_trigger(
-        self, source: str | None, level: float, rising: bool, position: float, auto: bool
+        self,
+        source: str | None,
+        level: float,
+        rising: bool,
+        position: float,
+        auto: bool,
+        condition: Condition | None = None,
     ) -> None:
         """What to trigger on, for an instrument that sends sweeps and so
         triggers itself. ``auto`` is to take a sweep anyway when no trigger
-        comes. An instrument that streams is triggered by pyscopegui, and
-        need do nothing here."""
+        comes; ``condition`` is what is waited for beyond an edge, which it
+        does if ``triggers_itself`` says it can, and a rising or falling
+        edge otherwise. An instrument that streams is triggered by
+        pyscopegui, and need do nothing here."""
+
+    def triggers_itself(self, condition: Condition, source: str | None) -> bool:
+        """Whether, sending sweeps, it can wait for this itself, on this
+        channel: a rising or a falling edge, unless it says it can do more."""
+        return condition.kind == "edge" and condition.edge != "either" and not condition.holdoff
 
     def set(self, key: str, value: object) -> None:
         """Take up a setting. A ``live`` one may arrive while running; any

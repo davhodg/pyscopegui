@@ -738,8 +738,15 @@ class Rigol1000Z(Instrument):
         return True
 
     def set_trigger(
-        self, source: str | None, level: float, rising: bool, position: float, auto: bool
+        self,
+        source: str | None,
+        level: float,
+        rising: bool,
+        position: float,
+        auto: bool,
+        condition=None,
     ) -> None:
+        # A rising or a falling edge, for now: the scope's own kinds are still to come.
         wanted = Trigger(source, level, rising, position, auto)
         if wanted == self._trigger:
             return

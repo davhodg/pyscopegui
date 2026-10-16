@@ -11,6 +11,7 @@ trigger's times run from nanoseconds to seconds.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import replace
 
 from PySide6.QtWidgets import (
@@ -57,6 +58,8 @@ from pyscopegui.core.triggers import (
 )
 
 #: A time as it is said, to seconds.
+#: Said of what an instrument that triggers itself cannot do itself.
+CANNOT_TIP = "The instrument triggers itself, and cannot do this itself."
 UNITS = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "µs": 1e-6, "ns": 1e-9}
 #: A pattern channel's choices: either level, low, or high.
 EITHER_LEVEL, WANTS_LOW, WANTS_HIGH = "X", "0", "1"
@@ -101,11 +104,15 @@ class TriggerDialog(QDialog):
         unit: str = "V",
         parent=None,
         buses: list[tuple[str, str, str]] = (),
+        doable: Callable[[Condition], bool] | None = None,
     ) -> None:
         """``channels`` are the instrument's, as (key, what it is called), for a
         pattern; ``unit`` is the trigger channel's, for its levels; ``buses``
-        its decoded buses, as (key, what to call it, protocol), for a protocol."""
+        its decoded buses, as (key, what to call it, protocol), for a protocol;
+        and ``doable``, for an instrument that triggers itself, says whether
+        it can wait for a condition."""
         super().__init__(parent)
+        self._doable = doable
         self.setWindowTitle(f"Trigger: {KINDS[condition.kind]}")
         self._condition = condition
         self.form = QFormLayout()
@@ -172,6 +179,13 @@ class TriggerDialog(QDialog):
         self.holdoff = QLineEdit(time_text(condition.holdoff) if condition.holdoff else "0")
         self.holdoff.setToolTip("After a trigger, none for this long: 0 for none.")
         self.form.addRow("Holdoff:", self.holdoff)
+        if doable is not None:
+            # What the instrument cannot do itself, it is not offered.
+            for name, field in (("held", self.held), ("holdoff", self.holdoff)):
+                if field is not None and not doable(replace(condition, **{name: 1e-3})):
+                    field.setText("0")
+                    field.setEnabled(False)
+                    field.setToolTip(CANNOT_TIP)
         self.problem = QLabel()
         self.problem.setStyleSheet("color: #d08000;")
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -264,6 +278,9 @@ class TriggerDialog(QDialog):
             return
         if self.pattern and all(box.currentData() == EITHER_LEVEL for box in self.pattern.values()):
             self.problem.setText("Choose the level of one channel at least.")
+            return
+        if self._doable is not None and not self._doable(self.condition()):
+            self.problem.setText("The instrument cannot wait for that itself.")
             return
         if self._condition.kind == PROTOCOL:
             if self.bus is None:

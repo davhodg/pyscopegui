@@ -58,8 +58,8 @@ KIND_TIP = (
     "under the button beside it."
 )
 SELF_TRIGGERED_TIP = (
-    "This instrument triggers itself, on a rising or a falling edge: the\n"
-    "other kinds are found in what is streamed, and it sends sweeps."
+    "This instrument sends sweeps and triggers itself: what it cannot wait\n"
+    "for itself is greyed out, and is found in what is streamed instead."
 )
 DETAILS_TIP = "The details of what is waited for: levels, times, a pattern, a holdoff."
 #: The lead list's first choice: no lead.
@@ -328,15 +328,30 @@ class TriggerBar(QToolBar):
         pattern = condition.kind in (PATTERN, PROTOCOL)
         self.source.setEnabled(not as_is and not pattern)
         self.source.setToolTip(AS_IS_TIP if as_is else SOURCE_TIP)
-        # An instrument that triggers itself does a rising or a falling edge.
-        self.kind.setEnabled((channel is not None or pattern) and not as_is and not sweeps)
+        # An instrument that triggers itself does what it says it can.
+        source = self.source.currentData()
+        for row in range(self.kind.count()):
+            kind = self.kind.itemData(row)
+            item = self.kind.model().item(row)
+            item.setEnabled(
+                not sweeps or self._doable(replace(condition, kind=kind, holdoff=0.0), source)
+            )
+        self.kind.setEnabled((channel is not None or pattern) and not as_is)
         self.kind.setToolTip(SELF_TRIGGERED_TIP if sweeps else KIND_TIP)
         either = self.edge.model().item(self.edge.findData(EITHER))
         if either is not None:
-            either.setEnabled(not sweeps)
+            either.setEnabled(
+                not sweeps or self._doable(replace(condition, edge=EITHER, holdoff=0.0), source)
+            )
         self.edge.setEnabled(channel is not None and not as_is and condition.kind == EDGE)
         on = channel is not None or pattern
-        self.details.setEnabled(on and not as_is and not sweeps)
+        # A plain edge's only detail is a holdoff, which not every instrument does itself.
+        details = (
+            condition.kind != EDGE
+            or not sweeps
+            or self._doable(replace(condition, holdoff=1e-3), source)
+        )
+        self.details.setEnabled(on and not as_is and details)
         self.said.setVisible(on and not as_is)
         self.position.setEnabled(on)
         analog = channel is not None and channel.kind == ANALOG
@@ -345,6 +360,13 @@ class TriggerBar(QToolBar):
             for key, _level in condition.pattern
         )
         self.level.setEnabled((analog or pattern_analog) and not as_is)
+
+    def _doable(self, condition: Condition, source: str | None) -> bool:
+        """Whether the instrument chosen can wait for this itself, as it sends sweeps."""
+        instrument = self.unit.instrument if self.unit is not None else None
+        if instrument is None or not instrument.sweeps:
+            return True
+        return instrument.triggers_itself(condition, source)
 
     # --- one instrument leading the others --------------------------------------------------
     def show_leads(self) -> None:
@@ -434,8 +456,16 @@ class TriggerBar(QToolBar):
             buses.append(
                 (decoding.key, f"{PROTOCOLS[setup.protocol]} on {', '.join(names)}", setup.protocol)
             )
+        instrument = self.unit.instrument
+        sweeps = instrument is not None and instrument.sweeps
+        source = self.source.currentData()
         dialog = TriggerDialog(
-            condition, channels, channel.unit if channel else "V", self, buses=buses
+            condition,
+            channels,
+            channel.unit if channel else "V",
+            self,
+            buses=buses,
+            doable=(lambda wanted: self._doable(wanted, source)) if sweeps else None,
         )
         if dialog.exec() == TriggerDialog.Accepted:
             self._set_condition(dialog.condition())

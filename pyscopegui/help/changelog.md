@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **A newer PicoScope triggers on more than an edge itself**, reading blocks: **Either**
+  edge, **Window**, **Pulse width**, **Runt** and **Logic pattern**, in its own hardware at
+  its full rate. What a scope that sends sweeps cannot wait for itself is greyed out.
 - **One instrument leading the others**: **Lead** on the trigger toolbar, with two or more
   open. Its trigger holds the plot, and the others are shown at the same moment by the
   computer's clock, to a millisecond or a few; **Single** stops them all once it has its

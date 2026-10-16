@@ -9,6 +9,7 @@ is everything on pyscopegui's side of that boundary.
 """
 
 import ctypes
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,20 @@ import pytest
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000a as pico
 from pyscopegui.backends.base import DIGITAL
+from pyscopegui.core.triggers import (
+    BETWEEN,
+    EDGE,
+    EITHER,
+    LEAVE,
+    LOW,
+    PATTERN,
+    PULSE,
+    RUNT,
+    SHORTER,
+    TIMEOUT,
+    WINDOW,
+    Condition,
+)
 from tests.test_picoscope2000 import Clock, run_for
 
 ALL_RANGES = tuple(code for code, _volts in pico.RANGES.values())
@@ -104,19 +119,38 @@ class FakeLibrary:
 
     def ps2000aSetTriggerChannelConditions(self, handle, conditions, count):
         wanted = conditions._obj
+        self.conditions = wanted
         self.calls.append(("conditions", wanted.a, wanted.b, wanted.digital))
+        return pico.OK
+
+    def ps2000aSetTriggerChannelDirections(self, handle, *directions):
+        self.calls.append(("directions", *directions))
+        return pico.OK
+
+    def ps2000aSetPulseWidthQualifier(self, handle, conditions, count, way, lower, upper, kind):
+        if not count:
+            self.calls.append(("pulse width", None))
+        else:
+            timed = conditions._obj
+            self.calls.append(("pulse width", timed.a, timed.b, way, lower, upper, kind))
         return pico.OK
 
     def ps2000aSetTriggerDigitalPortProperties(self, handle, directions, count):
         if directions is None:
             self.calls.append(("digital trigger", None))
         else:
-            edge = directions._obj
-            self.calls.append(("digital trigger", edge.channel, edge.direction))
+            # One handed over by reference, or several in an array.
+            edges = directions if isinstance(directions, ctypes.Array) else [directions._obj]
+            said = [n for edge in edges for n in (edge.channel, edge.direction)]
+            self.calls.append(("digital trigger", *said))
         return pico.OK
 
     def ps2000aSetTriggerChannelProperties(self, handle, properties, count, aux, auto):
-        self.calls.append(("auto", auto))
+        if properties is None:
+            self.calls.append(("auto", auto))
+        else:
+            each = tuple((p.upper, p.lower, p.channel, p.mode) for p in properties)
+            self.calls.append(("properties", each, auto))
         return pico.OK
 
     def ps2000aGetTimebase2(self, handle, timebase, samples, interval, oversample, most, segment):
@@ -742,6 +776,7 @@ def test_every_function_used_has_its_arguments_declared():
 
 def test_the_structures_are_the_size_the_driver_packs_them_to():
     assert ctypes.sizeof(pico.Conditions) == 32 and ctypes.sizeof(pico.DigitalDirection) == 8
+    assert ctypes.sizeof(pico.Properties) == 16 and ctypes.sizeof(pico.PwqConditions) == 28
 
 
 # --- the instrument, on its thread -----------------------------------------------------------
@@ -918,3 +953,138 @@ def test_samples_the_driver_lost_are_said_as_on_the_older_scopes():
     reading.poll()
     said = [text for text, warning in reading.notes if warning]
     assert said and said[0].startswith("The driver lost 2 samples, which are shown as a gap")
+
+
+# --- what the scope waits for itself, beyond an edge -----------------------------------------
+def counts(volts, full=5.0):
+    return round(volts / full * 32512)
+
+
+HYSTERESIS = round(0.02 * 32512)
+NOWHERE = [pico.NO_DIRECTION] * 6
+
+
+def test_an_edge_either_way_is_the_scopes_own_advanced_trigger():
+    library = FakeLibrary()
+    trigger = pico.Trigger("A", level=1.0, auto=False, condition=Condition(EDGE, edge=EITHER))
+    reading = blocks(library, None, trigger)
+    reading.poll()
+    level = counts(1.0)
+    assert ("properties", ((level, level, 0, pico.LEVEL_MODE),), 0) in library.calls
+    assert ("conditions", pico.CONDITION_TRUE, 0, 0) in library.calls
+    assert ("directions", pico.RISING_OR_FALLING, *NOWHERE[1:]) in library.calls
+    assert not any(call[0] == "trigger" for call in library.calls), "not the simple trigger"
+    assert reading.poll().triggered, "waited for, in Normal"
+
+
+def test_a_window_entered_or_left_has_both_its_levels():
+    library = FakeLibrary()
+    window = Condition(WINDOW, upper=-1.0, direction=LEAVE)
+    reading = blocks(library, None, pico.Trigger("B", level=2.0, condition=window))
+    reading.poll()
+    assert ("properties", ((counts(2.0), counts(-1.0), 1, pico.WINDOW_MODE),), 100) in (
+        library.calls
+    ), "the higher of the two is the upper, whichever was typed where"
+    assert ("directions", pico.NO_DIRECTION, pico.EXIT_WINDOW, *NOWHERE[2:]) in library.calls
+
+
+@pytest.mark.parametrize(("polarity", "way"), [("high", 9), (LOW, 10)])
+def test_a_runt_high_or_low(polarity, way):
+    library = FakeLibrary()
+    runt = Condition(RUNT, upper=2.0, polarity=polarity)
+    blocks(library, None, pico.Trigger("A", level=0.5, condition=runt)).poll()
+    assert ("properties", ((counts(2.0), counts(0.5), 0, pico.WINDOW_MODE),), 100) in library.calls
+    assert ("directions", way, *NOWHERE[1:]) in library.calls
+    assert (pico.POSITIVE_RUNT, pico.NEGATIVE_RUNT) == (9, 10)
+
+
+def test_a_pulse_is_timed_from_its_start_and_triggered_at_its_end():
+    library = FakeLibrary()
+    pulse = Condition(PULSE, compare=BETWEEN, shortest=1e-6, longest=2e-6)
+    reading = blocks(library, {"block_ms": 0.01}, pico.Trigger("A", level=0.5, condition=pulse))
+    reading.poll()
+    rate = reading._block_rate
+    assert ("directions", pico.FALLING, *NOWHERE[1:]) in library.calls, "a high pulse ends falling"
+    assert library.conditions.a == library.conditions.pulse_width == pico.CONDITION_TRUE
+    assert (
+        "pulse width",
+        pico.CONDITION_TRUE,
+        0,
+        pico.RISING_LOWER,
+        round(1e-6 * rate),
+        round(2e-6 * rate),
+        pico.PW_IN_RANGE,
+    ) in library.calls
+    del library.calls[:]
+    low = replace(pulse, polarity=LOW, compare=SHORTER)
+    reading.wanted_trigger = pico.Trigger("A", level=0.5, condition=low)
+    reading.poll()
+    timed = next(call for call in library.calls if call[0] == "pulse width")
+    assert timed[3] == pico.FALLING_LOWER and timed[6] == pico.PW_LESS_THAN
+    assert ("directions", pico.RISING, *NOWHERE[1:]) in library.calls, "a low pulse ends rising"
+    del library.calls[:]
+    reading.wanted_trigger = pico.Trigger("A", level=0.5)
+    reading.poll()
+    kinds = [call[0] for call in library.calls]
+    assert kinds == ["stop", "pulse width", "trigger", "block"], "the qualifier cleared"
+    assert library.calls[1] == ("pulse width", None)
+
+
+def test_a_pattern_of_channels_and_logic_inputs_together():
+    library = FakeLibrary(MSO)
+    pattern = Condition(PATTERN, pattern=(("A", 1), ("D3", 0), ("D9", 1)))
+    trigger = pico.Trigger(None, level=1.0, condition=pattern)
+    blocks(library, {"digital_0": True, "digital_1": True}, trigger).poll()
+    assert ("properties", ((counts(1.0), counts(1.0), 0, pico.LEVEL_MODE),), 100) in library.calls
+    assert ("conditions", pico.CONDITION_TRUE, 0, pico.CONDITION_TRUE) in library.calls
+    assert ("directions", pico.ABOVE, *NOWHERE[1:]) in library.calls
+    assert ("digital trigger", 3, pico.DIGITAL_LOW, 9, pico.DIGITAL_HIGH) in library.calls
+
+
+def test_a_logic_input_either_way():
+    library = FakeLibrary(MSO)
+    either = Condition(EDGE, edge=EITHER)
+    blocks(library, {"digital_0": True}, pico.Trigger("D2", condition=either)).poll()
+    assert ("digital trigger", 2, pico.DIGITAL_EITHER) in library.calls
+    assert ("conditions", 0, 0, pico.CONDITION_TRUE) in library.calls
+
+
+def test_what_the_scope_cannot_do_itself_is_its_simple_trigger():
+    library = FakeLibrary()
+    timeout = Condition(TIMEOUT, shortest=1e-3)
+    blocks(library, None, pico.Trigger("A", level=1.0, condition=timeout)).poll()
+    assert ("trigger", 0, counts(1.0), pico.RISING, 100) in library.calls
+    assert not any(call[0] == "directions" for call in library.calls)
+
+
+def test_in_auto_a_block_is_triggered_if_what_was_waited_for_is_where_the_trigger_is():
+    library = FakeLibrary()
+    either = Condition(EDGE, edge=EITHER)
+    reading = blocks(library, None, pico.Trigger("A", level=0.0, condition=either))
+    reading.poll()
+    assert reading.poll().triggered, "the wave steps up through nought in the middle"
+    reading.wanted_trigger = pico.Trigger("A", level=4.0, condition=either)
+    reading.poll()
+    assert not reading.poll().triggered, "which never reaches four volts"
+
+
+def test_the_instrument_says_what_it_can_wait_for_itself(app, monkeypatch):
+    library = FakeLibrary(MSO)
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create(
+        "picoscope2000a", None, {"mode": "block", "digital_0": True, "enabled_b": True}
+    )
+    can = instrument.triggers_itself
+    assert can(Condition(EDGE, edge=EITHER), "A") and can(Condition(EDGE, edge=EITHER), "D0")
+    assert can(Condition(WINDOW), "B") and can(Condition(RUNT), "A") and can(Condition(PULSE), "A")
+    assert not can(Condition(PULSE), "D0"), "a logic input's pulses want the MSO's structures"
+    assert not can(Condition(TIMEOUT), "A")
+    assert not can(Condition(EDGE, holdoff=1e-3), "A"), "no holdoff"
+    assert can(Condition(PATTERN, pattern=(("A", 1), ("D1", 0))), None)
+    assert not can(Condition(PATTERN, pattern=(("A", 1),), held=1e-3), None)
+    assert can(Condition(PATTERN), None), "its channels still to be chosen"
+    assert not can(Condition(PATTERN, pattern=(("D9", 1),)), None), "a port that is off"
+    instrument.set_trigger("A", 0.0, True, 0.5, False, Condition(TIMEOUT))
+    assert instrument._trigger.condition == Condition(), "an edge, then"
+    instrument.set_trigger("A", 0.0, True, 0.5, False, Condition(WINDOW))
+    assert instrument._trigger.condition == Condition(WINDOW)

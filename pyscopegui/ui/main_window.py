@@ -789,6 +789,7 @@ class MainWindow(QMainWindow):
             acquisition.position,
             # Normal and Single wait for a trigger however long it takes.
             auto=acquisition.mode == AUTO,
+            condition=acquisition.condition,
         )
 
     def _restart(self, unit: Unit, change=None) -> None:

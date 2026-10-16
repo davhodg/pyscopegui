@@ -32,7 +32,7 @@ import queue
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +41,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from pyscopegui.backends import probes
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import RECEIVED, traced_library, traffic
+from pyscopegui.core.triggers import Condition
 
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
@@ -402,6 +403,9 @@ class Trigger:
     position: float = 0.5
     #: Take the block anyway when no trigger comes.
     auto: bool = True
+    #: What is waited for beyond an edge, for a scope that can: the ps2000a
+    #: driver's. This one's takes a rising or a falling edge.
+    condition: Condition = field(default_factory=Condition)
 
 
 class ScopeError(Exception):
@@ -1206,10 +1210,18 @@ class PicoScope2000(Instrument):
         return self.settings.blocks
 
     def set_trigger(
-        self, source: str | None, level: float, rising: bool, position: float, auto: bool
+        self,
+        source: str | None,
+        level: float,
+        rising: bool,
+        position: float,
+        auto: bool,
+        condition: Condition | None = None,
     ) -> None:
         """What the scope is to trigger on, when it is reading blocks."""
-        wanted = Trigger(source, level, rising, position, auto)
+        if condition is None or not self.triggers_itself(condition, source):
+            condition = Condition()
+        wanted = Trigger(source, level, rising, position, auto, condition)
         if wanted == self._trigger:
             return
         self._trigger = wanted
