@@ -189,12 +189,23 @@ from the trigger. Choosing a trigger, or going back to none, puts it back to **F
 
 ## Voltage
 
-**Auto Y** fits the voltage axis to what is being measured, and is on to start with.
-Unticked, the axis is the range the channels are set to, as a scope's screen is: a small
-signal on a large range is then drawn small. When the channels shown are on different ranges
-the axis takes in all of them, since they share it. An offset moves a channel's range: with a
-1 V offset on ±5 V, what is read is -6 V to 4 V, and that is what the axis shows. What is read
-is still the signal itself, offset and all taken off, so a cursor on a 3.5 V signal says 3.5 V.
+**Y** says what the voltage axis shows, as **Time** does for the time axis:
+
+| Y | The axis |
+|---|----------|
+| **Auto** | Fitted to what is being measured. What it is to start with |
+| **Range** | The range the channels are set to, as a scope's screen is: a small signal on a large range is then drawn small |
+| **Manual** | Held where it is, until you move it |
+
+Choosing **Manual** keeps the axis exactly as it was. Zooming the plot with the wheel, or
+dragging the voltage axis, chooses Manual by itself; so does setting the axis by hand from
+the plot's right-click menu, under *Y axis*, which is where to type the limits you want.
+Dragging along the time axis leaves Y as it is, and zooming the voltage axis leaves Time.
+
+In **Range**, when the channels shown are on different ranges the axis takes in all of
+them, since they share it. An offset moves a channel's range: with a 1 V offset on ±5 V,
+what is read is -6 V to 4 V, and that is what the axis shows. What is read is still the
+signal itself, offset and all taken off, so a cursor on a 3.5 V signal says 3.5 V.
 
 ## How much is kept
 

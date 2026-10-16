@@ -217,8 +217,8 @@ volts at the probe's tip -- amps, through a current probe -- as a bench scope's 
 measured in finer steps.
 
 The offset is taken off again, so what is read, measured and exported is the signal itself:
-3.5 V reads 3.5 V. With **Auto Y** unticked, the plot's axis is the stretch the scope is
-measuring, 3 V to 4 V on ±500 mV with -3.5 V of offset; with it ticked, the axis fits the
+3.5 V reads 3.5 V. With **Y** set to **Range**, the plot's axis is the stretch the scope is
+measuring, 3 V to 4 V on ±500 mV with -3.5 V of offset; with **Auto**, the axis fits the
 signal whatever the offset. Unlike PicoScope's own software, the trace is not drawn moved by
 the offset: it stays at its true voltage.
 

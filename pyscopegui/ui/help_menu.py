@@ -429,7 +429,7 @@ def diagnostics(window) -> str:
         scope = window.panes.view(name)
         lines.append(
             f"  {name}: time={scope.time.currentText()} window={scope.window_s.value():g} s "
-            f"auto Y={scope.auto_y.isChecked()} shown={scope.shown() or 'none'} "
+            f"Y={scope.y_mode.currentText()} shown={scope.shown() or 'none'} "
             f"state={scope.state.text() or 'following'}"
         )
 

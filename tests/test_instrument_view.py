@@ -232,17 +232,21 @@ def y_range(scope):
     return scope.analog.getViewBox().viewRange()[1]
 
 
-def test_the_voltage_axis_fits_the_signal_unless_told_otherwise(window):
-    assert window.scope.auto_y.isChecked()
+def y_mode(window, choice):
+    window.scope.y_mode.setCurrentText(choice)
+
+
+def test_the_voltage_axis_fits_the_signal_to_start_with(window):
+    assert window.scope.y_mode.currentText() == "Auto"
     assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
 
 
-def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatch, app):
+def test_range_is_the_largest_range_shown(window, monkeypatch, app):
     FakeScope(monkeypatch)
     pick_picoscope(window)
     choose(window.instrument_view, "scale_a", 0.2)
     choose(window.instrument_view, "scale_b", 2.0)
-    window.scope.auto_y.setChecked(False)
+    y_mode(window, "Range")
     window.set_mode("auto")
     low, high = y_range(window.scope)
     assert -11.5 < low < -10 and 10 < high < 11.5
@@ -251,12 +255,12 @@ def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatc
     window.scope._on_shown("picoscope2000:B", False)
     low, high = y_range(window.scope)
     assert -1.15 < low < -1 and 1 < high < 1.15
-    window.scope.auto_y.setChecked(True)
+    y_mode(window, "Auto")
     assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
     window.stop()
 
 
-def test_unticked_the_voltage_axis_follows_an_offset(window):
+def test_range_follows_an_offset(window):
     from dataclasses import replace
 
     window.set_mode("auto")
@@ -265,16 +269,78 @@ def test_unticked_the_voltage_axis_follows_an_offset(window):
     sine = capture.records["A"].channel
     # A 1 V offset on a range of 5 V either way: what is read is -6 V to 4 V.
     capture.update_channels([replace(sine, full_scale=5.0, middle=-1.0)])
-    window.scope.auto_y.setChecked(False)
+    y_mode(window, "Range")
     low, high = y_range(window.scope)
     assert -6.6 < low < -6 and 4 < high < 4.6
     window.scope._on_shown("demo:B", False)
     assert y_range(window.scope)[0] < -6, "and with only that channel shown too"
 
 
+def test_manual_holds_the_axis_where_it_was(window):
+    from dataclasses import replace
+
+    window.set_mode("auto")
+    window.set_mode("stop")
+    capture = window.capture
+    sine = capture.records["A"].channel
+    capture.update_channels([replace(sine, full_scale=5.0)])
+    y_mode(window, "Range")
+    held = y_range(window.scope)
+    y_mode(window, "Manual")
+    assert y_range(window.scope) == held, "from Range"
+    # A change of scale, which Range would follow, leaves it alone.
+    capture.update_channels([replace(sine, full_scale=0.5)])
+    assert y_range(window.scope) == held
+    y_mode(window, "Auto")
+    fitted = y_range(window.scope)
+    y_mode(window, "Manual")
+    assert y_range(window.scope) == fitted, "and from Auto"
+
+
+def test_zooming_the_voltage_axis_chooses_manual_and_leaves_time_alone(window):
+    scope = window.scope
+    scope.time.setCurrentText("Follow")
+    scope.analog.getViewBox().sigRangeChangedManually.emit([False, True])
+    assert scope.y_mode.currentText() == "Manual" and scope.time.currentText() == "Follow"
+
+
+def test_dragging_time_chooses_manual_time_and_leaves_the_voltage_axis_alone(window):
+    scope = window.scope
+    for plot in (scope.analog, scope.digital):
+        y_mode(window, "Range")
+        scope.time.setCurrentText("Follow")
+        plot.getViewBox().sigRangeChangedManually.emit([True, False])
+        assert scope.time.currentText() == "Manual" and scope.y_mode.currentText() == "Range"
+
+
+def test_the_axis_set_by_hand_from_its_menu_is_manual(window):
+    view = window.scope.analog.getViewBox()
+    assert window.scope.y_mode.currentText() == "Auto"
+    view.setYRange(-3, 3)  # as the right-click menu's Y axis does
+    assert window.scope.y_mode.currentText() == "Manual"
+    assert y_range(window.scope)[0] < -2.9
+
+
 def test_the_choice_of_voltage_axis_is_remembered(window):
-    window.scope.auto_y.setChecked(False)
-    assert window.ctx.settings.get("scope.auto_y") is False
+    y_mode(window, "Manual")
+    assert window.ctx.settings.get("scope.y") == "Manual"
+
+
+def test_auto_y_unticked_from_before_is_range(app):
+    from pyscopegui.ui.main_window import MainWindow
+
+    window = MainWindow()
+    try:
+        window.ctx.settings.set("scope.auto_y", False)
+    finally:
+        window.close()
+        window.deleteLater()
+    again = MainWindow()
+    try:
+        assert again.scope.y_mode.currentText() == "Range"
+    finally:
+        again.close()
+        again.deleteLater()
 
 
 # --- the plot's colours ------------------------------------------------------------------------

@@ -61,6 +61,9 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **Auto Y** is now a choice of three, as Time is: **Auto**, **Range** -- the axis the
+  channels are set to -- and **Manual**, which holds the axis where it is. Zooming or dragging
+  the voltage axis chooses Manual. Auto Y unticked before comes back as Range.
 - A run keeps no more history than half the memory that is free when it starts: where the
   history chosen would take more, it keeps what fits and the Event Log says how much.
 - The last instrument can be taken out of the Instrument pane too: the pane then says there
@@ -80,7 +83,7 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
-- With **Auto Y** unticked, the voltage axis follows a channel's offset: it shows what the
+- With **Y** at **Range**, the voltage axis follows a channel's offset: it shows what the
   scope is measuring, -6 V to 4 V for a 1 V offset on ±5 V, and not the range around nought.
 - PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
   were partly dropped, without a word, and the time of everything after them was out;

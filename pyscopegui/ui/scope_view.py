@@ -37,7 +37,6 @@ import pyqtgraph as pg
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
-    QCheckBox,
     QColorDialog,
     QComboBox,
     QFileDialog,
@@ -102,10 +101,19 @@ WINDOW_TIP = (
 )
 #: What the plot is doing about the trigger, said beside the time controls.
 STOPPED, WAITING, TRIGGERED, FREE = "Stopped", "Waiting for trigger", "Triggered", "Auto"
-AUTO_Y_TIP = (
-    "Fit the voltage axis to what is being measured. Unticked, the axis is the\n"
-    "range the channels are set to, as a scope's screen is: a small signal on\n"
-    "a large range is then drawn small."
+#: What the voltage axis shows: fitted to the signal, the range the channels
+#: are set to, or wherever it was zoomed or dragged to.
+Y_AUTO, Y_RANGE = "Auto", "Range"
+Y_CHOICES = (Y_AUTO, Y_RANGE, MANUAL)
+Y_TIP = (
+    "What the voltage axis shows. Zooming or dragging it chooses Manual;\n"
+    "right-click the plot > Y axis to type where it goes."
+)
+Y_ITEM_TIPS = (
+    "Fit the axis to what is being measured.",
+    "The range the channels are set to, offset and all, as a scope's screen is:\n"
+    "a small signal on a large range is then drawn small.",
+    "Hold the axis where it is, until it is zoomed or dragged.",
 )
 #: Above and below the range when the axis is the range, as a share of the
 #: whole of it, so a signal at full scale is not drawn on the edge of the plot.
@@ -378,10 +386,14 @@ class ScopeView(QWidget):
         self.window_s.setValue(0.1)
         self.window_s.setSuffix(" s")
         self.window_s.setToolTip(WINDOW_TIP)
-        self.auto_y = QCheckBox("Auto Y")
-        self.auto_y.setToolTip(AUTO_Y_TIP)
-        self.auto_y.setChecked(True)
-        self.auto_y.toggled.connect(self._place_y)
+        self.y_mode = QComboBox()
+        self.y_mode.addItems(Y_CHOICES)
+        self.y_mode.setToolTip(Y_TIP)
+        for index, tip in enumerate(Y_ITEM_TIPS):
+            self.y_mode.setItemData(index, tip, Qt.ToolTipRole)
+        self.y_mode.currentTextChanged.connect(self._place_y)
+        # Its right-click menu can stop it fitting too, with no drag to say so.
+        self.analog.getViewBox().sigStateChanged.connect(self._on_y_state)
         clear = QPushButton("Clear history")
         clear.setToolTip("Throw away the samples collected so far, for every channel")
         clear.clicked.connect(self.session.clear)
@@ -389,7 +401,8 @@ class ScopeView(QWidget):
         bar.addWidget(QLabel("Time:"))
         bar.addWidget(self.time)
         bar.addWidget(self.window_s)
-        bar.addWidget(self.auto_y)
+        bar.addWidget(QLabel("Y:"))
+        bar.addWidget(self.y_mode)
         self.state = QLabel()
         bar.addWidget(self.state)
         self.cursors = QComboBox()
@@ -470,7 +483,10 @@ class ScopeView(QWidget):
 
         if ctx is not None:
             remember(ctx, f"{key}.window_s", self.window_s)
-            remember(ctx, f"{key}.auto_y", self.auto_y)
+            # Auto Y unticked, from before there was a choice of three, is Range.
+            if ctx.settings.get(f"{key}.y") is None and ctx.settings.get(f"{key}.auto_y") is False:
+                self.y_mode.setCurrentText(Y_RANGE)
+            remember(ctx, f"{key}.y", self.y_mode)
             remember(ctx, f"{key}.cursors", self.cursors)
         # After what was chosen last time is put back, which is not a choice.
         self.cursors.currentIndexChanged.connect(self._on_cursor_count)
@@ -585,13 +601,19 @@ class ScopeView(QWidget):
         self._place_y()
 
     def _place_y(self, *_args) -> None:
-        """Fit the voltage axis to the signal, or set it to the channels' range.
+        """Fit the voltage axis to the signal, set it to the channels' range, or
+        leave it where it is.
 
         The range covers every analog channel shown, since they share the one
         axis: each reads full scale either side of its middle, which an offset
         moves away from nought. Where none of them has a range to speak of,
-        the axis is fitted whatever the tick says: there is nothing else to set it to.
+        Range fits the axis instead: there is nothing else to set it to.
         """
+        choice = self.y_mode.currentText()
+        if choice == MANUAL:
+            # Held where it is now, whatever put it there.
+            self.analog.getViewBox().disableAutoRange(axis=pg.ViewBox.YAxis)
+            return
         reaches = [
             (channel.middle - channel.full_scale, channel.middle + channel.full_scale)
             for key, record in self._records()
@@ -599,7 +621,7 @@ class ScopeView(QWidget):
             and key not in self._hidden
             and channel.full_scale > 0
         ]
-        if self.auto_y.isChecked() or not reaches:
+        if choice == Y_AUTO or not reaches:
             self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
         else:
             low = min(low for low, _high in reaches)
@@ -694,8 +716,21 @@ class ScopeView(QWidget):
         return [key for key in self._curves if key not in self._hidden]
 
     # --- which stretch of time ------------------------------------------------------------
-    def _on_dragged(self, *_args) -> None:
-        self.time.setCurrentText(MANUAL)
+    def _on_y_state(self, *_args) -> None:
+        """Auto that has stopped fitting -- the right-click menu's Y axis, set by
+        hand -- is Manual now: held where it was put."""
+        fitting = self.analog.getViewBox().autoRangeEnabled()[1]
+        if self.y_mode.currentText() == Y_AUTO and not fitting:
+            self.y_mode.setCurrentText(MANUAL)
+
+    def _on_dragged(self, mask=None) -> None:
+        """The plot was zoomed or dragged: whichever axis moved stays where it was put.
+        ``mask`` is which axes, time and voltage, as pyqtgraph says."""
+        moved = list(mask) if isinstance(mask, list | tuple) and len(mask) == 2 else [True, True]
+        if moved[0]:
+            self.time.setCurrentText(MANUAL)
+        if moved[1] and self.sender() is self.analog.getViewBox():
+            self.y_mode.setCurrentText(MANUAL)
 
     def _show_time(self, *_args) -> None:
         # A sweep is shown whole: how much to show is not asked.
