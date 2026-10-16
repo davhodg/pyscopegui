@@ -16,6 +16,7 @@ import numpy as np
 from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block, Channel
+from pyscopegui.core.decoding import Decoding, Setup, decoding_for
 from pyscopegui.core.maths import Maths
 
 #: How much of each channel is kept, in seconds, before the oldest is dropped,
@@ -114,6 +115,10 @@ class Capture(QObject):
     channels_changed = Signal()
     #: Samples went missing between two blocks: how many.
     gap = Signal(int)
+    #: Frames decoded from a block as it arrived: the decoding, the frames,
+    #: and how many samples of the channel had arrived by then -- so how long
+    #: ago each frame was. Not those found when a channel is first decoded.
+    decoded = Signal(object, object, int)
 
     def __init__(self, history_s: float = HISTORY_S, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -122,6 +127,9 @@ class Capture(QObject):
         #: Maths channels of this instrument's: worked out as blocks arrive,
         #: and held as channels of their own. See pyscopegui.core.maths.
         self.maths: list[Maths] = []
+        #: Channels decoded as CAN buses, kept up to date as blocks arrive.
+        #: See pyscopegui.core.decoding.
+        self.decodings: list[Decoding] = []
 
     def set_channels(
         self,
@@ -130,7 +138,8 @@ class Capture(QObject):
         capacity: int | None = None,
         room: Callable[[], int | None] | None = None,
     ) -> None:
-        """Start again, empty, for these channels at this rate.
+        """Start again, empty, for these channels at this rate, and with
+        nothing decoded yet.
 
         Room for the history's worth of samples, unless a capacity is given:
         an instrument that sends sweeps holds one sweep, whatever its length.
@@ -141,6 +150,8 @@ class Capture(QObject):
         there; what was held before is gone either way.
         """
         self.records = {}
+        for decoding in self.decodings:
+            decoding.reset()
         if capacity is None:
             capacity = int(rate * self.history_s)
             most = room() if room is not None else None
@@ -233,11 +244,53 @@ class Capture(QObject):
         """Throw away what is held, and count samples from zero again."""
         for key, record in list(self.records.items()):
             self.records[key] = Record(record.channel, record.rate, record.capacity)
+        for decoding in self.decodings:
+            decoding.reset()
+
+    # --- decoded --------------------------------------------------------------------------
+    def set_decodings(self, setups: list[Setup]) -> None:
+        """These buses decoded and no others. One that is new is decoded at once
+        from what is held; one that was there already is left as it is."""
+        had = {decoding.setup: decoding for decoding in self.decodings}
+        self.decodings = []
+        for setup in dict.fromkeys(setups):
+            if (decoding := had.get(setup)) is None:
+                decoding = decoding_for(setup)
+                if (held := self._held(setup.channels())) is not None:
+                    decoding.take_block(held)
+            self.decodings.append(decoding)
+
+    def _held(self, keys: tuple[str, ...]) -> Block | None:
+        """What is held of these channels, as one block: the stretch they all
+        have. None where any of them is missing, or has nothing."""
+        records = [self.records.get(key) for key in keys]
+        if any(record is None or not record.count for record in records):
+            return None
+        first = max(record.first for record in records)
+        last = min(record.total for record in records)
+        if last <= first:
+            return None
+        data = {
+            key: record.view()[first - record.first : last - record.first]
+            for key, record in zip(keys, records, strict=True)
+        }
+        return Block(first, records[0].rate, data, sweep=True)
+
+    def _decode(self, block: Block) -> None:
+        """Each decoded bus's share of a block: its channels, read on from the last."""
+        for decoding in self.decodings:
+            found = decoding.take_block(block)
+            held = [self.records[k].first for k in decoding.setup.channels() if k in self.records]
+            if held:
+                decoding.forget_before(max(held))
+            if found:
+                self.decoded.emit(decoding, found, block.first + len(block))
 
     def add(self, block: Block) -> None:
         block = self._with_maths(block)
         if block.sweep:
             self._take_sweep(block)
+            self._decode(block)
             return
         missing = 0
         for key, samples in block.data.items():
@@ -247,6 +300,7 @@ class Capture(QObject):
                 missing = block.first - record.total
                 record.skip(missing)
             record.append(samples)
+        self._decode(block)
         # A pause the instrument took on purpose is a gap on the plot and
         # nothing to warn about.
         if missing and not block.after_pause:

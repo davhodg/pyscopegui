@@ -50,6 +50,7 @@ PAGES = (
     "event-log.md",
     "traffic.md",
     "console.md",
+    "decoding.md",
     "about.md",
     "changelog.md",
 )

@@ -27,7 +27,7 @@ def test_the_default_is_one_of_them():
 def test_the_demo_has_both_kinds_of_channel(app):
     instrument = backends.create("demo")
     kinds = [c.kind for c in instrument.channels()]
-    assert kinds.count(ANALOG) == 2 and kinds.count(DIGITAL) == 4
+    assert kinds.count(ANALOG) == 2 and kinds.count(DIGITAL) == 5, "four lines and a CAN bus"
     assert len({c.key for c in instrument.channels()}) == len(kinds)
 
 

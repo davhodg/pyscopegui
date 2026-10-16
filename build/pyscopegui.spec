@@ -39,6 +39,9 @@ HIDDEN = sorted({backend.module for backend in BACKENDS.values()})
 HIDDEN += ["pyvisa", "pyvisa.ctwrapper"]
 # The serial port, and the list of the ports there are, for the Tektronix scopes.
 HIDDEN += ["serial", "serial.tools.list_ports"]
+# python-can picks its interface by name, at run time: only udp_multicast is
+# used, to send decoded CAN frames on to pycangui, and msgpack packs them.
+HIDDEN += ["can", "can.interfaces.udp_multicast", "msgpack"]
 
 # Qt modules that are GPL or commercial only. Shipping one would change the
 # licence of the whole application, so they are kept out deliberately.

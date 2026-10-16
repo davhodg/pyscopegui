@@ -39,6 +39,7 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -54,15 +55,18 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.backends.base import ANALOG, DIGITAL
-from pyscopegui.core import capture_file, export
+from pyscopegui.core import capture_file, decoding, export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import Capture, min_max
 from pyscopegui.core.context import Context
+from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.measure import Measured, measure
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import fonts
+from pyscopegui.ui.can_dialog import CanDialog
 from pyscopegui.ui.column_widths import ColumnWidths
+from pyscopegui.ui.decode_dialog import I2cDialog, SpiDialog, UartDialog
 from pyscopegui.ui.maths_dialog import MathsDialog
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.spin import SequenceSpin
@@ -204,6 +208,10 @@ class ChannelList(QTreeWidget):
     #: this maths channel: its id.
     maths_asked = Signal(str)
     maths_removed = Signal(str)
+    #: Asked to decode this channel as a bus -- its id, and the protocol --
+    #: or to stop: its id.
+    decode_asked = Signal(str, str)
+    decode_removed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -212,6 +220,9 @@ class ChannelList(QTreeWidget):
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self._items: dict[str, QTreeWidgetItem] = {}
+        #: The channels a bus is decoded from, by id -> the protocol: their
+        #: menu says so.
+        self.decoded: dict[str, str] = {}
         self.itemChanged.connect(self._on_changed)
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
@@ -233,6 +244,16 @@ class ChannelList(QTreeWidget):
         menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key))
         if ":maths:" in key or key.startswith("maths:"):
             menu.addAction("Remove this maths channel", lambda: self.maths_removed.emit(key))
+        menu.addSeparator()
+        if (protocol := self.decoded.get(key)) is not None:
+            menu.addAction(
+                f"{PROTOCOLS[protocol]} decoding...",
+                lambda: self.decode_asked.emit(key, protocol),
+            )
+            menu.addAction("Stop decoding", lambda: self.decode_removed.emit(key))
+        decode = menu.addMenu("Decode as")
+        for each, said in PROTOCOLS.items():
+            decode.addAction(f"{said}...", lambda p=each: self.decode_asked.emit(key, p))
         menu.exec(self.viewport().mapToGlobal(at))
 
     def set_cursors(self, count: int) -> None:
@@ -381,6 +402,8 @@ class ScopeView(QWidget):
         self.channel_list.colour_asked.connect(self._on_colour_asked)
         self.channel_list.maths_asked.connect(self._on_maths_asked)
         self.channel_list.maths_removed.connect(self._on_maths_removed)
+        self.channel_list.decode_asked.connect(self._on_decode_asked)
+        self.channel_list.decode_removed.connect(self._on_decode_removed)
 
         self.time = QComboBox()
         self.time.addItems(TIME_CHOICES)
@@ -577,6 +600,11 @@ class ScopeView(QWidget):
         units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
         self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         details = {key: record.channel.detail for key, _unit, record in entries}
+        self.channel_list.decoded = {
+            unit.id(decoded.setup.main): decoded.setup.protocol
+            for unit in self.session.shown()
+            for decoded in unit.capture.decodings
+        }
         self.channel_list.fill(self._names, drawn, self._hidden, details, set(chosen))
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
@@ -694,6 +722,67 @@ class ScopeView(QWidget):
     def _on_maths_removed(self, key: str) -> None:
         unit, own = self._owners[key]
         self.remove_maths(unit, own)
+
+    # --- channels decoded as buses ------------------------------------------------------------
+    def add_decoding(self, unit: Unit, setup: decoding.Setup) -> None:
+        """Decode a bus of an instrument's, in place of how the same bus was
+        decoded before, and keep it in the workspace."""
+        kept = [d.setup for d in unit.capture.decodings if d.setup.key != setup.key]
+        unit.capture.set_decodings([*kept, setup])
+        self._save_decodings(unit)
+
+    def remove_decoding(self, unit: Unit, main: str) -> None:
+        """Stop decoding the buses decoded from this channel."""
+        kept = [d.setup for d in unit.capture.decodings if d.setup.main != main]
+        unit.capture.set_decodings(kept)
+        self._save_decodings(unit)
+
+    def _save_decodings(self, unit: Unit) -> None:
+        if self._ctx is not None and unit.name:
+            saved = [d.setup.as_saved() for d in unit.capture.decodings]
+            self._ctx.settings.set(f"{decoding.SAVED_KEY}.{unit.name}", saved)
+        # Every plot's channel list says which are decoded.
+        self.session.channels_changed.emit()
+
+    def _on_decode_asked(self, key: str, protocol: str) -> None:
+        unit, own = self._owners[key]
+        record = unit.capture.records.get(own)
+        if record is None:
+            return
+        was = next(
+            (
+                d.setup
+                for d in unit.capture.decodings
+                if d.setup.main == own and d.setup.protocol == protocol
+            ),
+            None,
+        )
+        if protocol == decoding.CAN:
+            dialog = CanDialog(own, self._names[key], record.channel.kind == ANALOG, was, self)
+        else:
+            channels = [
+                (r.channel.key, self.session.name_of(unit, r.channel), r.channel.kind == ANALOG)
+                for r in unit.capture.records.values()
+            ]
+            kind = {decoding.UART: UartDialog, decoding.SPI: SpiDialog, decoding.I2C: I2cDialog}
+            dialog = kind[protocol](channels, own, was, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.add_decoding(unit, dialog.setup())
+
+    def _on_decode_removed(self, key: str) -> None:
+        unit, own = self._owners[key]
+        self.remove_decoding(unit, own)
+
+    def go_to(self, seconds: float) -> None:
+        """Put the first cursor at this time on the axis, and have it in view."""
+        if self.cursor_count() == 0:
+            self.cursors.setCurrentIndex(1)
+        (x_from, x_to), _y = self.analog.getViewBox().viewRange()
+        if not x_from <= seconds <= x_to:
+            self.time.setCurrentText(MANUAL)
+            half = (x_to - x_from) / 2
+            self.analog.setXRange(seconds - half, seconds + half, padding=0)
+        self.set_cursor(0, seconds)
 
     def _on_colour_asked(self, key: str, how: str) -> None:
         if not how:

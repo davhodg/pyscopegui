@@ -26,6 +26,7 @@ def test_it_opens_with_the_settings_the_plot_and_the_log(window):
         "traffic",
         "measurements",
         "data",
+        "decoded",
         "console",
     }
     assert all(window.panes.on_screen(name) for name in DEFAULT_VISIBLE)
@@ -41,6 +42,7 @@ def test_the_view_menu_lists_every_pane_ticked_while_it_is_on_screen(window):
         "traffic",
         "measurements",
         "data",
+        "decoded",
         "console",
     ]
     ticked = [name for name, action in window._view_actions.items() if action.isChecked()]

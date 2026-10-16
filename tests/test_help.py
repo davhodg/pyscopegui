@@ -660,7 +660,7 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     assert held >= 5000 and f"A: {held} held of {held} received" in report
     assert "open=True running=True rate=100000 S/s" in report
     assert "mode=auto trigger=none" in report
-    assert "shown=['demo:B', 'demo:D0', 'demo:D1', 'demo:D2', 'demo:D3']" in report
+    assert "shown=['demo:B', 'demo:D0', 'demo:D1', 'demo:D2', 'demo:D3', 'demo:CAN']" in report
     window.stop()
 
 

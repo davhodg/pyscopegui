@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
@@ -30,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import capture_file, memory, shortcut, workspaces
+from pyscopegui.core import capture_file, decoding, memory, shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -38,9 +39,11 @@ from pyscopegui.core.events import PROBLEMS, EventLog
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
+from pyscopegui.core.sharing import Sharer
 from pyscopegui.ui import column_widths, event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.data_view import DataView
+from pyscopegui.ui.decoded_view import DecodedView
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
@@ -84,6 +87,17 @@ CAPTURE_FOLDER = "capture.folder"
 ADDED_KEY = "instruments.added"
 CHOSEN_KEY = "instrument.name"
 WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dragged."
+#: In QSettings: whether decoded CAN frames sent by UDP multicast reach the
+#: local network. The computer's, not the workspace's: it is about where this
+#: computer is, and the same as pycangui's.
+UDP_NETWORK_KEY = "udp/local_network"
+UDP_NETWORK_TIP = (
+    "Off, decoded CAN frames sent on by UDP multicast stay on this computer:\n"
+    "pycangui and other programs on it hear them, and nothing goes out on a\n"
+    "network. On, they reach the local network too, and no further: every\n"
+    "computer on it that has joined the group hears them. Use it on a network\n"
+    "you trust."
+)
 WIDTHS_AUTO_TIP = (
     "Every column is as wide as what is in it. Nothing to set, and nothing\n"
     "can be dragged: a long name takes the room it needs."
@@ -175,6 +189,12 @@ class MainWindow(QMainWindow):
         #: one that pane, Open and the trigger toolbar are about; Stop,
         #: Single, Normal and Auto are for all that are open.
         self.session = Session(history_s=self._saved_history(), parent=self)
+        #: Sends decoded CAN frames on, to pycangui and any other python-can program.
+        self.sharer = Sharer(
+            lambda said, problem: (self.events.warning if problem else self.events.information)(
+                said
+            )
+        )
         #: The instruments in the Instrument pane, by name, in the order they
         #: were added; and the one chosen, or "" when the pane has none.
         self._added, self._chosen = self._saved_instruments()
@@ -212,6 +232,8 @@ class MainWindow(QMainWindow):
         self.measurements = self.panes.view(self.panes.add("measurements"))
         #: The samples themselves, a row for each.
         self.data = self.panes.view(self.panes.add("data"))
+        #: What has been read off the channels decoded as buses.
+        self.decoded = self.panes.view(self.panes.add("decoded"))
         self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
@@ -280,6 +302,15 @@ class MainWindow(QMainWindow):
         settings_menu.addMenu(self.history_menu)
         self.widths_menu = self._widths_menu()
         settings_menu.addMenu(self.widths_menu)
+        self.udp_network_action = settings_menu.addAction(
+            "Share UDP multicast on the local network"
+        )
+        self.udp_network_action.setCheckable(True)
+        self.udp_network_action.setToolTip(UDP_NETWORK_TIP)
+        on = QSettings().value(UDP_NETWORK_KEY, False, type=bool)
+        self.udp_network_action.setChecked(on)
+        self.sharer.set_local_network(on)
+        self.udp_network_action.toggled.connect(self._share_on_network)
         # For a source folder and for pip: the installer makes its own entries.
         self.shortcut_action = self.desktop_action = None
         if shortcut.start() is not None:
@@ -315,6 +346,7 @@ class MainWindow(QMainWindow):
         unit = self.session.unit(name, backends.short(name))
         if new:
             unit.capture.gap.connect(self._on_gap)
+            unit.capture.decoded.connect(self._on_decoded)
             unit.acquisition.single_done.connect(lambda u=unit: self._on_single_done(u))
             unit.acquisition.changed.connect(lambda u=unit: self._tell_trigger(u))
             unit.acquisition.longest_window = self._longest_window
@@ -323,6 +355,10 @@ class MainWindow(QMainWindow):
             saved = self.ctx.settings.get(f"maths.{name}")
             found = [Maths.from_saved(s) for s in saved] if isinstance(saved, list) else []
             unit.capture.set_maths([m for m in found if m is not None])
+            # And the buses it had decoded.
+            saved = self.ctx.settings.get(f"{decoding.SAVED_KEY}.{name}")
+            setups = [decoding.from_saved(s) for s in saved] if isinstance(saved, list) else []
+            unit.capture.set_decodings([s for s in setups if s is not None])
         return unit
 
     def _saved_instruments(self) -> tuple[list[str], str]:
@@ -1003,6 +1039,14 @@ class MainWindow(QMainWindow):
         )
         self.panes.register(
             PaneKind(
+                "decoded",
+                "Decoded buses",
+                Qt.BottomDockWidgetArea,
+                lambda _n: DecodedView(self.scope),
+            )
+        )
+        self.panes.register(
+            PaneKind(
                 "console",
                 "Python Console",
                 Qt.BottomDockWidgetArea,
@@ -1128,6 +1172,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(log, self.panes.docks["console"])
         self.tabifyDockWidget(log, self.panes.docks["measurements"])
         self.tabifyDockWidget(log, self.panes.docks["data"])
+        self.tabifyDockWidget(log, self.panes.docks["decoded"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)
@@ -1178,8 +1223,27 @@ class MainWindow(QMainWindow):
         self.panes.save_view_states()
         self.panes.save()
 
+    # --- decoded CAN, sent on --------------------------------------------------------------
+    def _on_decoded(self, decoding, frames, received: int) -> None:
+        """Frames decoded as a block arrived: sent on, where they are asked to be."""
+        share = getattr(decoding.setup, "share", "")
+        if not share:
+            return
+        # The computer's time, when each started: as long ago as it is
+        # before the newest sample received.
+        now = time.time()
+        timed = [(f, now - (received - f.start) / decoding.rate) for f in frames]
+        self.sharer.send(share, timed)
+
+    def _share_on_network(self, on: bool) -> None:
+        QSettings().setValue(UDP_NETWORK_KEY, on)
+        self.sharer.set_local_network(on)
+        where = "the local network" if on else "this computer only"
+        self.events.information(f"Decoded CAN frames sent by UDP multicast reach {where}.")
+
     def closeEvent(self, event) -> None:
         QSettings().setValue("geometry", self.saveGeometry())
+        self.sharer.close()
         # Saved before they are closed: closing one puts its pane away, and
         # what is saved should be how things were left.
         self.save_arrangement()

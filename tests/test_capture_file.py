@@ -82,7 +82,15 @@ def test_our_own_export_is_laid_out_right_as_it_opens(held, tmp_path):
     assert roles["A: sine"] == (ANALOG_ROLE, "V") and roles["D0"][0] == LOGIC
     loaded = read_csv(tmp_path / "shot.csv", layout)
     assert loaded.rate == pytest.approx(100_000.0)
-    assert [c.name for c in loaded.channels] == ["A: sine", "B: ramp", "D0", "D1", "D2", "D3"]
+    assert [c.name for c in loaded.channels] == [
+        "A: sine",
+        "B: ramp",
+        "D0",
+        "D1",
+        "D2",
+        "D3",
+        "CAN",
+    ]
     assert loaded.data["D0"].dtype == np.uint8 and loaded.data["A: sine"].dtype == np.float32
 
 
@@ -151,9 +159,9 @@ def test_saving_and_opening_puts_it_back_beside_the_instruments(held, tmp_path, 
     app.processEvents()  # it arrives from the event loop, as an instrument's block does
     assert name == "file" and window.chosen == "file"
     unit = window.session.units["file"]
-    assert set(unit.capture.records) == {"A", "B", "D0", "D1", "D2", "D3"}
+    assert set(unit.capture.records) == {"A", "B", "D0", "D1", "D2", "D3", "CAN"}
     assert np.array_equal(unit.capture.records["A"].view(), before)
-    assert "Opened shot.npz: 6 channels" in window.log.toPlainText()
+    assert "Opened shot.npz: 7 channels" in window.log.toPlainText()
     assert not unit.running, "it is all there, and stops"
 
 

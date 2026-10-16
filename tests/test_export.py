@@ -147,7 +147,7 @@ def test_the_plot_writes_what_it_shows(window, tmp_path):
     written = window.scope.export_csv(tmp_path / "shot.csv")
     assert [done.path for done in written] == [tmp_path / "shot.csv"]
     rows = rows_of(tmp_path / "shot.csv")
-    assert rows[0] == ["time (s)", "A: sine (V)", "D0", "D1", "D2", "D3"], "and not B, unticked"
+    assert rows[0] == ["time (s)", "A: sine (V)", "D0", "D1", "D2", "D3", "CAN"], "and not B"
     # Ten milliseconds at 100 kS/s, to within a sample at either end.
     assert 999 <= len(rows) - 1 <= 1002
     low, high = window.scope.analog.getViewBox().viewRange()[0]

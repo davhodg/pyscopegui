@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""An instrument that needs no hardware: two analog and four digital channels.
+"""An instrument that needs no hardware: two analog and four digital channels,
+and a CAN bus.
 
 Something to look at on a first run, and what the tests read. Every sample is
 a function of its number alone, so the same stretch of time always holds the
@@ -15,6 +16,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QTimer
 
 from pyscopegui.backends.base import DIGITAL, Block, Channel, Instrument
+from pyscopegui.core.can_decode import encode
 
 RATE = 100_000.0
 #: How often a block is sent. Twenty a second is smooth to watch and far
@@ -30,10 +32,32 @@ RAMP_HZ = 7.0
 #: Each channel after it is half the rate of the one before, as a counter's bits are.
 CLOCK_HALF = 50
 
+#: The CAN bus's bit rate: ten samples a bit at RATE.
+CAN_BITRATE = 10_000
+
+
+def _can_bus() -> np.ndarray:
+    """The bits of a bus that goes round and round, a bit a sample: an engine
+    speed and a counter every few milliseconds, a 29-bit message, and now and
+    then a remote frame, with the bus idle in between."""
+    bits: list[int] = [1] * 20
+    for count in range(32):
+        rpm = 800 + 50 * count
+        bits += encode(0x0C8, bytes([rpm >> 8, rpm & 0xFF, count])) + [1] * 12
+        bits += encode(0x18FEF100, bytes([count, 0x55, 0xAA, 0, 0, 0, 0, count]), extended=True)
+        bits += [1] * 12
+        if count % 8 == 0:
+            bits += encode(0x321, remote=True, dlc=2) + [1] * 12
+    return np.repeat(np.array(bits, dtype=np.uint8), int(RATE / CAN_BITRATE))
+
+
+CAN_BUS = _can_bus()
+
 CHANNELS = [
     Channel("A", "A: sine", full_scale=2.0),
     Channel("B", "B: ramp", full_scale=0.5),
     *(Channel(f"D{bit}", f"D{bit}", DIGITAL, "") for bit in range(4)),
+    Channel("CAN", "CAN", DIGITAL, "", detail=f"{CAN_BITRATE // 1000} kbit/s"),
 ]
 
 
@@ -48,6 +72,7 @@ def samples(first: int, count: int) -> dict[str, np.ndarray]:
     counter = n // CLOCK_HALF
     for bit in range(4):
         data[f"D{bit}"] = ((counter >> bit) & 1).astype(np.uint8)
+    data["CAN"] = CAN_BUS[n % len(CAN_BUS)]
     return data
 
 

@@ -55,6 +55,14 @@ dependencies = [
     "pyvisa>=1.13",
     # The serial port a Tektronix TDS or TPS scope is on. Imported only when one is opened.
     "pyserial>=3.5",
+    # Decoded CAN frames, sent on to pycangui and any other python-can program
+    # through its udp_multicast interface. LGPL-3.0, the same terms as Qt, and
+    # a few megabytes with what it brings. Imported only when a frame is sent.
+    "python-can>=4.4",
+    # python-can's udp_multicast bus packs frames with it, and python-can asks
+    # for it everywhere but Windows -- where the bus then will not start.
+    # Apache-2.0, small, nothing of its own.
+    "msgpack>=1.0; sys_platform == 'win32'",
 ]
 
 [project.urls]

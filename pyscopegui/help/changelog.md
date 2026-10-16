@@ -11,6 +11,13 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Decoding buses**: right-click a channel and choose *Decode as* -- **CAN** (from a logic
+  input, CAN_H, CAN_L, or a maths channel of the two), a **UART** serial line, **SPI** or
+  **I²C** -- and the **Decoded buses** pane lists everything read off them, problems and all.
+  The demo has a CAN bus to try it on.
+- Decoded CAN frames **sent on to pycangui** by UDP multicast, to the group it offers as
+  *pyscopegui*, 239.74.163.10. They stay on this computer unless *Tools > Settings > Share
+  UDP multicast on the local network* is ticked. python-can is now a dependency.
 - **Tektronix over USB**, for the TDS1000B, TDS2000B and TDS2000C: **Connection** is
   Serial port or USB, through a VISA library, with the same commands either way. The
   VISA link is now shared with the Rigol's.

@@ -81,8 +81,9 @@ def test_sweeps_are_not_cut_down():
 def test_a_run_short_of_memory_keeps_less_and_says_so(window, monkeypatch):
     from pyscopegui.backends import demo
 
-    # The demo's two analog and four logic channels: 18 bytes a sample, held.
-    monkeypatch.setattr(memory, "room", lambda: int(demo.RATE * 5 * 18))
+    # The demo's two analog channels, and four logic ones and a CAN bus: with
+    # the slack, 19.5 bytes a sample, held.
+    monkeypatch.setattr(memory, "room", lambda: int(demo.RATE * 5 * 19.5))
     window.set_mode("auto")
     assert window.instrument.running
     assert window.capture.held_s() == pytest.approx(5.0)

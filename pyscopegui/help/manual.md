@@ -13,12 +13,13 @@
 - [Event Log](event-log.md) --- everything the tool says, and at what level
 - [Instrument traffic](traffic.md) --- every command and answer, while it is open
 - [Python Console](console.md) --- Python, with commands to drive the scopes
+- [Decoding buses](decoding.md) --- CAN, UART, SPI and I²C read off channels, and the Decoded buses pane
 
 ## Instruments
 
 - [PicoScope 2000 series](picoscope.md) --- the scopes on Pico's `ps2000` and `ps2000a` drivers, their logic inputs and signal generator
 - [Rigol DS1000Z](rigol.md) --- Rigol's DS1000Z and MSO1000Z scopes, over the network or USB
-- [Tektronix TDS and TPS 2000](tektronix.md) --- Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port
+- [Tektronix TDS and TPS 2000](tektronix.md) --- Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port or USB
 
 ## Also
 
