@@ -21,7 +21,13 @@ def feed(window, seconds=0.05):
 
 
 def test_it_opens_with_the_settings_the_plot_and_the_log(window):
-    assert set(window.panes.names()) == {*DEFAULT_VISIBLE, "traffic", "measurements", "console"}
+    assert set(window.panes.names()) == {
+        *DEFAULT_VISIBLE,
+        "traffic",
+        "measurements",
+        "data",
+        "console",
+    }
     assert all(window.panes.on_screen(name) for name in DEFAULT_VISIBLE)
     assert not window.panes.on_screen("traffic"), "which is opened when it is wanted"
 
@@ -34,6 +40,7 @@ def test_the_view_menu_lists_every_pane_ticked_while_it_is_on_screen(window):
         "log",
         "traffic",
         "measurements",
+        "data",
         "console",
     ]
     ticked = [name for name, action in window._view_actions.items() if action.isChecked()]

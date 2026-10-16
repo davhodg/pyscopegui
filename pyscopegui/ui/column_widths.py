@@ -142,6 +142,13 @@ class ColumnWidths(QObject):
         if self.manual:
             self.fit()
 
+    def set_fixed(self, fixed: dict[int, int]) -> None:
+        """New widths for the columns that have one: for a list whose columns
+        change with what it shows."""
+        if fixed != self._fixed:
+            self._fixed = dict(fixed)
+            self.apply()
+
     # --- manual: fitted until dragged ---------------------------------------------------
     def fit(self) -> None:
         """Give each column its dragged width, or fit it, up to the limit."""

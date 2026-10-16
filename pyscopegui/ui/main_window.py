@@ -40,6 +40,7 @@ from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.ui import column_widths, event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
+from pyscopegui.ui.data_view import DataView
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
@@ -209,6 +210,8 @@ class MainWindow(QMainWindow):
         self.console = self.panes.view(self.panes.add("console"))
         #: Each channel's levels and frequency, between the cursors.
         self.measurements = self.panes.view(self.panes.add("measurements"))
+        #: The samples themselves, a row for each.
+        self.data = self.panes.view(self.panes.add("data"))
         self.panes.pane_shown.connect(self._on_pane_shown)
         self._arrange_default()
 
@@ -995,6 +998,9 @@ class MainWindow(QMainWindow):
             )
         )
         self.panes.register(
+            PaneKind("data", "Data", Qt.BottomDockWidgetArea, lambda _n: DataView(self.scope))
+        )
+        self.panes.register(
             PaneKind(
                 "console",
                 "Python Console",
@@ -1132,6 +1138,7 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(log, self.panes.docks["traffic"])
         self.tabifyDockWidget(log, self.panes.docks["console"])
         self.tabifyDockWidget(log, self.panes.docks["measurements"])
+        self.tabifyDockWidget(log, self.panes.docks["data"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)

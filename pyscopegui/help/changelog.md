@@ -11,6 +11,8 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Data** pane: the samples themselves, a row for each, for one instrument -- between the
+  cursors or what is in view, the cursors' rows tinted, and Ctrl+C copies rows for a spreadsheet.
 - *Tools > Settings > Column widths*, as in pycangui: **Automatic**, every column as wide
   as what is in it, or **Manual**, fitted until dragged and the dragged width remembered.
 - **Current probes** on every scope: a **Sensitivity** in volts an amp, and the channel in

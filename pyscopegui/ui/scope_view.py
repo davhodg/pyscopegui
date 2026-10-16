@@ -821,6 +821,11 @@ class ScopeView(QWidget):
         """Every channel ticked to be shown, as (its id, what it is called)."""
         return [(key, self._names[key]) for key in self._curves if key not in self._hidden]
 
+    def origin_of(self, name: str) -> float:
+        """The time, in this instrument's own seconds, that the axis calls nought."""
+        timing = self._timings.get(name)
+        return timing.origin if timing is not None else 0.0
+
     def samples_between(self, key: str, t_from: float, t_to: float):
         """A channel's samples in this stretch of the time axis, the record they are
         of, and the rate. None for a channel with nothing there."""

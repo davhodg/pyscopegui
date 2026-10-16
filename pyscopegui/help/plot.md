@@ -146,6 +146,23 @@ A logic channel is 0 or 1, so only its frequency, period and duty cycle are said
 samples that were lost -- are left out. In the [Python Console](console.md), `measure()`
 gives the same numbers to a script.
 
+## Data
+
+The **Data** pane, from the **View** menu, is the samples themselves, a row for each: the
+sample's number, its time on the plot's axis, and what each channel shown read. It is the same
+stretch the Measurements pane measures -- between the two [cursors](#cursors) when there are
+two, and what is in view when there are fewer -- and the line above the table says which, how
+long, and how many samples. The rows at the cursors are tinted their colours.
+
+It is one instrument at a time, chosen above the table: one instrument's channels are read
+together, so each row is one moment, where two instruments' samples are taken at moments of
+their own. A gap -- a sample that was lost -- is an empty cell.
+
+Select rows and press **Ctrl+C** to copy them, with a heading, a tab between the columns: they
+paste into a spreadsheet as they are. For a whole capture, [Export CSV](#exporting-to-csv) is
+quicker. A stretch of more than ten million samples is shown as its first ten million: zoom in,
+or use the cursors, to see the rest.
+
 ## Time
 
 Time is counted from when the instrument was started, in seconds. It comes from the number
