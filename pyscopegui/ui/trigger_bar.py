@@ -62,6 +62,17 @@ SELF_TRIGGERED_TIP = (
     "other kinds are found in what is streamed, and it sends sweeps."
 )
 DETAILS_TIP = "The details of what is waited for: levels, times, a pattern, a holdoff."
+#: The lead list's first choice: no lead.
+EACH = "Each its own"
+LEAD_TIP = (
+    "Which instrument's trigger holds the plot. Each its own: every instrument\n"
+    "is held by its own trigger. One of them: its trigger holds the plot, and\n"
+    "the others are shown at the same moment, by the computer's clock -- to a\n"
+    "millisecond or a few. Their own triggers are not waited for, and Single\n"
+    "stops them all."
+)
+#: Where the lead chosen is kept: one for the plot, as Position is.
+LEAD_KEY = "trigger.lead"
 SOURCE_TIP = (
     "The channel to trigger on. None is no trigger: the plot follows the\n"
     "newest samples, as a chart recorder does."
@@ -157,6 +168,11 @@ class TriggerBar(QToolBar):
         # What was chosen last time, before anything is connected: putting it
         # back is not a change.
         self.position.setValue(round(self._number("trigger.position", 50.0)))
+        self.lead = QComboBox()
+        self.lead.addItem(EACH, None)
+        self.lead.setToolTip(LEAD_TIP)
+        self.lead.activated.connect(self._on_lead)
+        self.lead_label = QLabel(" Lead: ")
 
         self.source.activated.connect(self._on_source)
         self.kind.activated.connect(self._on_kind)
@@ -178,6 +194,8 @@ class TriggerBar(QToolBar):
             row.addWidget(button)
         row.addWidget(QLabel(" Position: "))
         row.addWidget(self.position)
+        row.addWidget(self.lead_label)
+        row.addWidget(self.lead)
         #: Between what is for all of them and what is for the one chosen.
         self.divider = QFrame()
         self.divider.setFrameShape(QFrame.VLine)
@@ -195,6 +213,7 @@ class TriggerBar(QToolBar):
         row.addWidget(self.details)
         row.addWidget(self.said)
         self.addWidget(self.frame)
+        self.show_leads()
         self.show_usable()
 
     @property
@@ -300,6 +319,9 @@ class TriggerBar(QToolBar):
         instrument = self.unit.instrument if self.unit is not None else None
         as_is = instrument is not None and instrument.reads_as_is
         sweeps = instrument is not None and instrument.sweeps
+        if self._following():
+            self._show_following()
+            return
         channel = self._channels.get(self.source.currentData())
         condition = self.unit.acquisition.condition if self.unit is not None else Condition()
         # A pattern's channels, and a protocol's bus, are chosen in their details.
@@ -323,6 +345,47 @@ class TriggerBar(QToolBar):
             for key, _level in condition.pattern
         )
         self.level.setEnabled((analog or pattern_analog) and not as_is)
+
+    # --- one instrument leading the others --------------------------------------------------
+    def show_leads(self) -> None:
+        """Offer each instrument shown as the lead, with two or more; and the
+        one chosen last time, once it is there."""
+        units = self.session.shown()
+        wanted = self.session.lead or self._ctx.settings.get(LEAD_KEY)
+        self.lead.blockSignals(True)
+        self.lead.clear()
+        self.lead.addItem(EACH, None)
+        for unit in units:
+            self.lead.addItem(unit.short or unit.name, unit.name)
+        self.lead.setCurrentIndex(max(self.lead.findData(wanted), 0))
+        self.lead.blockSignals(False)
+        self.session.lead = self.lead.currentData() if wanted in self.session.units else wanted
+        several = len(units) > 1
+        self.lead.setVisible(several)
+        self.lead_label.setVisible(several)
+
+    def _on_lead(self, _index: int) -> None:
+        self.session.lead = self.lead.currentData()
+        self._ctx.settings.set(LEAD_KEY, self.session.lead)
+        self.show_usable()
+
+    def _following(self) -> bool:
+        """Whether the instrument chosen follows another's trigger."""
+        lead = self.session.lead
+        shown = [u.name for u in self.session.shown()]
+        return self.unit is not None and len(shown) > 1 and lead in shown and self.unit.name != lead
+
+    def _show_following(self) -> None:
+        lead = self.session.units[self.session.lead]
+        said = (
+            f"Shown at the moment {lead.short or lead.name} triggers: its trigger holds the plot."
+        )
+        for widget in (self.source, self.kind, self.edge, self.level, self.details):
+            widget.setEnabled(False)
+            widget.setToolTip(said)
+        self.said.setText(f" follows {lead.short or lead.name}")
+        self.said.setVisible(True)
+        self.position.setEnabled(True)
 
     # --- what somebody changed -------------------------------------------------------------
     def _on_source(self, _index: int) -> None:

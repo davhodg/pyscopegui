@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **One instrument leading the others**: **Lead** on the trigger toolbar, with two or more
+  open. Its trigger holds the plot, and the others are shown at the same moment by the
+  computer's clock, to a millisecond or a few; **Single** stops them all once it has its
+  capture.
 - **Triggers beyond an edge**: a *Type* on the trigger toolbar -- **Window**, **Pulse width**,
   **Runt**, **Timeout** and **Logic pattern** -- with an edge **Either** way, a holdoff for
   every type, and the details under the button beside it. Found in what is streamed.

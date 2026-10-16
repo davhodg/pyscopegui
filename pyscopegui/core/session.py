@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, Signal
 from pyscopegui.backends.base import Channel, Instrument
 from pyscopegui.core.acquire import Acquisition
 from pyscopegui.core.capture import HISTORY_S, Capture, Record
+from pyscopegui.core.clock import SampleClock
 
 
 class Unit:
@@ -31,6 +32,9 @@ class Unit:
         self.short = short
         self.capture = Capture(history_s=history_s, parent=parent)
         self.acquisition = Acquisition(self.capture, parent=parent)
+        #: When its samples were taken, on the computer's clock: for showing
+        #: it at the same moment as another instrument's trigger.
+        self.clock = SampleClock()
         self.instrument: Instrument | None = None
         #: Open, or being opened: an instrument can take seconds to say it is.
         self.wanted_open = False
@@ -64,6 +68,9 @@ class Session(QObject):
         super().__init__(parent)
         self.history_s = history_s
         self.units: dict[str, Unit] = {}
+        #: The instrument whose trigger holds every plot, the others shown at
+        #: the same moment by their clocks; None for each held by its own.
+        self.lead: str | None = None
 
     @classmethod
     def of(cls, capture: Capture, acquisition: Acquisition | None = None) -> Session:

@@ -239,18 +239,21 @@ def test_a_picture_of_the_plot_has_the_cursors_and_their_readings_in_it(held, tm
     assert window.scope.export_png(tmp_path / "one.png")
 
     def has_cursor_colour(path):
-        """A line of the cursor's colour down most of the picture. Near that
-        colour, not exactly it: the plot's grid is drawn over everything, and
-        tints a line that falls on one of its own. The orange ramp's one
-        vertical edge is far shorter than a cursor's line."""
+        """A line of the cursor's colour down most of the picture: or a shade of
+        it, where the plot's grid tints it. The orange ramp's one vertical edge
+        is far shorter than a cursor's line."""
         picture = QImage(str(path))
         wanted = QColor(scope_view.CURSOR_COLOURS[0])
 
         def near(x, y):
-            found = QColor(picture.pixel(x, y))
-            return all(
-                abs(a - b) <= 24
-                for a, b in zip(found.getRgb()[:3], wanted.getRgb()[:3], strict=True)
+            # The cursor's colour, or a shade darker: the grid's lines, drawn
+            # over everything, darken it by as much as a tenth where it falls
+            # on one. The orange ramp is another orange, not a shade of it.
+            red, green, blue = QColor(picture.pixel(x, y)).getRgb()[:3]
+            shade = red / wanted.red()
+            return 0.75 <= shade <= 1.0 and all(
+                abs(found - shade * colour) <= 10
+                for found, colour in ((green, wanted.green()), (blue, wanted.blue()))
             )
 
         tallest = max(

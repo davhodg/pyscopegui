@@ -1084,9 +1084,10 @@ class ScopeView(QWidget):
         #: Where each instrument's samples are on the axis: all of a sweep,
         #: and all that is held of a stream. What All shows.
         spans: list[tuple[float, float]] = []
+        found = self._origins_found(units, several)
         for unit in units:
             timing = self._timings.setdefault(unit.name, _Timing())
-            origin, state, is_relative, sweep_ends = self._find_origin(unit, timing, several)
+            origin, state, is_relative, sweep_ends = found[unit.name]
             origins[unit.name] = origin
             relative = relative or is_relative
             if sweep_ends is None:
@@ -1112,6 +1113,36 @@ class ScopeView(QWidget):
             self._sweep_ends = None
         self._everything = (min(s[0] for s in spans), max(s[1] for s in spans)) if spans else None
         return origins, "   ".join(states)
+
+    def lead(self, units: list[Unit] | None = None) -> Unit | None:
+        """The instrument whose trigger holds the plot, the others shown at the
+        same moment: None where each is held by its own, or the lead is not shown."""
+        units = self.session.shown() if units is None else units
+        name = self.session.lead
+        return next((u for u in units if u.name == name), None) if len(units) > 1 else None
+
+    def _origins_found(self, units: list[Unit], several: bool) -> dict[str, tuple]:
+        """Each instrument's origin, state, whether it is a trigger's, and sweep
+        ends: found from its own trigger, or with a lead, from the lead's and
+        the two clocks -- so that nought on the axis is one moment for all."""
+        lead = self.lead(units)
+        found = {}
+        for unit in units:
+            if lead is None or unit is lead:
+                timing = self._timings.setdefault(unit.name, _Timing())
+                found[unit.name] = self._find_origin(unit, timing, several)
+        if lead is None:
+            return found
+        lead_origin, _state, relative, _ends = found[lead.name]
+        for unit in units:
+            if unit is lead:
+                continue
+            origin = None
+            if lead_origin is not None and lead.clock.known and unit.clock.known:
+                # The lead's moment on the computer's clock, in this one's own time.
+                origin = lead.clock.zero + lead_origin - unit.clock.zero
+            found[unit.name] = (origin, "", relative, None)
+        return found
 
     def show_all(self) -> None:
         """Show everything held: what a snapshot of a scope's screen wants, where

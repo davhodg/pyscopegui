@@ -91,6 +91,9 @@ WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dra
 #: local network. The computer's, not the workspace's: it is about where this
 #: computer is, and the same as pycangui's.
 UDP_NETWORK_KEY = "udp/local_network"
+#: How long after the lead has its Single capture the others are stopped, in
+#: milliseconds: for what they took at the same moment to arrive.
+FOLLOWERS_LAG_MS = 500
 UDP_NETWORK_TIP = (
     "Off, decoded CAN frames sent on by UDP multicast stay on this computer:\n"
     "pycangui and other programs on it hear them, and nothing goes out on a\n"
@@ -753,6 +756,7 @@ class MainWindow(QMainWindow):
         """Start a run, from an empty plot with time counted from zero. False if it could not."""
         if not self._make_records(unit):
             return False
+        unit.clock.reset()
         if not unit.instrument.sweeps:
             capture = unit.capture
             held, wanted = capture.held_s(), capture.history_s
@@ -807,6 +811,7 @@ class MainWindow(QMainWindow):
         return max((view.window_s.value() for view in views if view is not None), default=0.0)
 
     def _on_block(self, unit: Unit, block) -> None:
+        unit.clock.saw(block)
         unit.capture.add(block)
         unit.acquisition.examine(block)
 
@@ -817,13 +822,31 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def _on_single_done(self, unit: Unit) -> None:
-        """One instrument has its capture: it stops, and the others go on waiting for theirs."""
+        """One instrument has its capture: it stops, and the others go on waiting
+        for theirs. With a lead, its capture is everyone's: the others stop
+        too, once what they took at the same moment has had time to arrive,
+        and their own triggers are not waited for."""
+        lead = self.session.lead
+        if lead is not None and lead in self.session.units and unit.name != lead:
+            return  # it follows the lead, and stops when the lead does
         unit.acquisition.set_mode(STOP)
         if unit.running:
             unit.instrument.stop()
+        if lead == unit.name:
+            QTimer.singleShot(FOLLOWERS_LAG_MS, self._stop_followers)
+        self._settle_mode()
+
+    def _stop_followers(self) -> None:
+        """Stop the instruments following the lead, which has its Single capture."""
+        for unit in self._in_use():
+            if unit.name != self.session.lead:
+                unit.acquisition.set_mode(STOP)
+                if unit.running:
+                    unit.instrument.stop()
         self._settle_mode()
 
     def _show_trigger_sources(self) -> None:
+        self.trigger_bar.show_leads()
         for unit in self.session.units.values():
             self.trigger_bar.set_channels(unit)
 

@@ -14,6 +14,7 @@ from pyscopegui.core.session import Session
 from pyscopegui.ui.instrument_view import OPEN_MARK
 from pyscopegui.ui.main_window import MainWindow
 from pyscopegui.ui.scope_view import STOPPED, TRIGGERED, ScopeView
+from pyscopegui.ui.trigger_bar import EACH, LEAD_KEY
 from tests.test_rigol1000z import fake  # noqa: F401  the stand-in scope, as a fixture
 
 RIGOL = "rigol1000z"
@@ -200,6 +201,94 @@ def test_a_trigger_saved_before_there_were_several_is_still_used(window):
         assert again.trigger_bar.level.value() == 0.3
     finally:
         again.close()
+
+
+# --- one leading the others -------------------------------------------------------------------
+def choose_lead(window, name):
+    box = window.trigger_bar.lead
+    box.setCurrentIndex(box.findData(name))
+    box.activated.emit(box.currentIndex())
+
+
+def test_a_lead_is_offered_with_two_or_more_and_kept(both):
+    bar = both.trigger_bar
+    assert bar.lead.isVisibleTo(bar) and bar.lead_label.isVisibleTo(bar)
+    assert [bar.lead.itemText(i) for i in range(bar.lead.count())] == [EACH, "Demo", "Rigol"]
+    assert both.session.lead is None
+    choose_lead(both, "demo")
+    assert both.session.lead == "demo" and both.ctx.settings.get(LEAD_KEY) == "demo"
+    choose_lead(both, None)
+    assert both.session.lead is None and both.ctx.settings.get(LEAD_KEY) is None
+
+
+def test_one_instrument_by_itself_has_no_lead_to_choose(window):
+    window.instrument_view.open.click()
+    assert not window.trigger_bar.lead.isVisibleTo(window.trigger_bar)
+    assert window.trigger_bar.source.isEnabled()
+
+
+def test_one_that_follows_has_no_trigger_of_its_own_to_set(both):
+    window = both
+    choose_lead(window, "demo")
+    bar = window.trigger_bar
+    assert window.instrument is window.session.units[RIGOL].instrument
+    assert not bar.source.isEnabled() and not bar.level.isEnabled()
+    assert bar.said.text() == " follows Demo"
+    assert "Demo triggers" in bar.source.toolTip()
+    assert bar.position.isEnabled(), "where the trigger sits is still everyone's"
+    choose(window, "demo")
+    assert bar.source.isEnabled(), "the lead's is set as ever"
+    choose_lead(window, None)
+    choose(window, RIGOL)
+    assert bar.source.isEnabled()
+
+
+def test_the_others_are_shown_at_the_moment_the_lead_triggers(both, monkeypatch):
+    window = both
+    units = window.session.shown()
+    demo, rigol = window.session.units["demo"], window.session.units[RIGOL]
+    asked = []
+
+    def own(unit, _timing, _several):
+        asked.append(unit.name)
+        return (2.0, TRIGGERED, True, None)
+
+    monkeypatch.setattr(window.scope, "_find_origin", own)
+    window.scope._origins_found(units, True)
+    assert sorted(asked) == ["demo", RIGOL], "each by its own trigger"
+    choose_lead(window, "demo")
+    assert window.scope.lead() is demo
+    asked.clear()
+    demo.clock.zero, rigol.clock.zero = 100.0, 100.5
+    found = window.scope._origins_found(units, True)
+    assert asked == ["demo"]
+    # Two seconds into the demo's run is one and a half into the Rigol's.
+    assert found[RIGOL] == (pytest.approx(1.5), "", True, None)
+    rigol.clock.reset()
+    assert window.scope._origins_found(units, True)[RIGOL][0] is None, "not known when"
+
+
+def test_single_with_a_lead_stops_them_all_when_the_lead_has_its_capture(both, app):
+    window = both
+    choose(window, RIGOL)
+    choose_source(window, "CH1")
+    choose(window, "demo")
+    choose_source(window, "A")
+    window.trigger_bar.level.setValue(50.0)  # which the demo's sine never reaches
+    window.scope.window_s.setValue(0.01)
+    choose_lead(window, "demo")
+    window.instrument_bar.modes["single"].click()
+    units = window.session.units
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    assert units[RIGOL].running, "its own trigger is not waited for"
+    window.trigger_bar.level.setValue(0.0)
+    wait_for(app, lambda: not units["demo"].running)
+    assert units[RIGOL].running, "what it took at the same moment is still to come"
+    wait_for(app, lambda: not units[RIGOL].running)
+    assert window.instrument_bar.mode() == "stop"
 
 
 # --- on the plot -------------------------------------------------------------------------------

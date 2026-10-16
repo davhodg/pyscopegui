@@ -75,9 +75,12 @@ with its own settings, its own address or port, and its own trigger. Two scopes 
 model on the bench are two tabs.
 
 **Each instrument keeps time for itself**, and nothing says when one started by another's
-clock. What puts them on one time axis is the trigger: each has a trigger of its own, on a
-channel of its own, and nought on the axis is each one's trigger. So they line up as well
-as their triggers do:
+clock. What puts them on one time axis is either a trigger on each, or one leading the
+others.
+
+With **Lead** at *Each its own*, as it begins, each has a trigger of its own, on a channel
+of its own, and nought on the axis is each one's trigger. So they line up as well as their
+triggers do:
 
 - Put the same signal on a channel of each, and trigger each on it, at the same level and
   edge. The two then line up to within a sample or so of the slower one.
@@ -89,6 +92,19 @@ as their triggers do:
 With a signal that repeats, each instrument may be showing a different repeat of it. With
 **Single** and something that happens once, they show the same one.
 
+With **Lead** set to one of them, that one's trigger holds the plot, and the others are
+shown at the same moment -- what they took then, by the computer's clock, whatever is on
+their channels. A CAN frame caught by a logic analyser can be seen on a scope's analog
+channel without the scope having a trigger of its own on it. The others' triggers are not
+used, and **Single** stops them all once the lead has its capture.
+
+The computer's clock lines them up to a millisecond or a few: when each block of samples
+arrived, less the time those samples took, and the soonest of them over the last few
+seconds. Plenty for a frame or a burst, not for one edge against another at a microsecond a
+division -- for that, put the signal on both, and give each its own trigger. An instrument
+that streams is the better lead: one that sends sweeps, over a slow link, is known less
+surely.
+
 Closing an instrument leaves its traces on the plot to be looked at. They go when another
 instrument is opened or run.
 
@@ -98,7 +114,8 @@ The frame on the toolbar holds the trigger. To the left of its line is what is t
 every instrument that is open: the four run buttons, and **Position**. To the right is the
 trigger of the instrument chosen in the Instrument pane. With several open
 it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge and level.
-**Position** is the same for all of them, since they share the plot.
+**Position** is the same for all of them, since they share the plot, and so is **Lead**,
+there with two or more.
 
 | Setting | What it does |
 |---------|--------------|
@@ -108,6 +125,7 @@ it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge 
 | Level | The voltage the signal has to cross, drawn as a dashed line on the plot |
 | ⋯ | The details of what is waited for, beside a few words saying what they come to |
 | Position | Where the trigger sits in the plot: 50% is the middle, with as much before as after |
+| Lead | With two or more: *Each its own*, or the instrument whose trigger holds the plot, the others shown at that moment. One that follows has its trigger greyed out, and says *follows* which |
 
 ### What to wait for
 
