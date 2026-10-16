@@ -239,13 +239,24 @@ def test_a_picture_of_the_plot_has_the_cursors_and_their_readings_in_it(held, tm
     assert window.scope.export_png(tmp_path / "one.png")
 
     def has_cursor_colour(path):
+        """A line of the cursor's colour down most of the picture. Near that
+        colour, not exactly it: the plot's grid is drawn over everything, and
+        tints a line that falls on one of its own. The orange ramp's one
+        vertical edge is far shorter than a cursor's line."""
         picture = QImage(str(path))
-        wanted = QColor(scope_view.CURSOR_COLOURS[0]).rgb()
-        return any(
-            picture.pixel(x, y) == wanted
-            for x in range(picture.width())
-            for y in range(0, picture.height(), 3)
+        wanted = QColor(scope_view.CURSOR_COLOURS[0])
+
+        def near(x, y):
+            found = QColor(picture.pixel(x, y))
+            return all(
+                abs(a - b) <= 24
+                for a, b in zip(found.getRgb()[:3], wanted.getRgb()[:3], strict=True)
+            )
+
+        tallest = max(
+            sum(near(x, y) for y in range(picture.height())) for x in range(picture.width())
         )
+        return tallest > picture.height() / 2
 
     (x_from, x_to), _y = window.scope.analog.getViewBox().viewRange()
     where = f"cursor at {window.scope.cursor_time(0)} in a view of {x_from} to {x_to}"
