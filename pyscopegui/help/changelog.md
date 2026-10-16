@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Triggers beyond an edge**: a *Type* on the trigger toolbar -- **Window**, **Pulse width**,
+  **Runt**, **Timeout** and **Logic pattern** -- with an edge **Either** way, a holdoff for
+  every type, and the details under the button beside it. Found in what is streamed.
+- **Protocol triggers**: wait for a frame, burst or transfer read off a decoded bus -- by
+  its ID or address, bytes it contains, its type, or a problem with it.
 - **Decoding buses**: right-click a channel and choose *Decode as* -- **CAN** (from a logic
   input, CAN_H, CAN_L, or a maths channel of the two), a **UART** serial line, **SPI** or
   **I²C** -- and the **Decoded buses** pane lists everything read off them, problems and all.

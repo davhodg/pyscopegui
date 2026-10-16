@@ -63,6 +63,7 @@ from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.measure import Measured, measure
 from pyscopegui.core.session import Session, Unit
+from pyscopegui.core.triggers import PROTOCOL, RUNT, WINDOW
 from pyscopegui.ui import fonts
 from pyscopegui.ui.can_dialog import CanDialog
 from pyscopegui.ui.column_widths import ColumnWidths
@@ -372,6 +373,8 @@ class ScopeView(QWidget):
         self.level_line = pg.InfiniteLine(angle=0, movable=False, pen=dashed)
         #: One level for each instrument: the first is the one above.
         self._level_lines = [self.level_line]
+        #: And an upper level for each, for a window or a runt.
+        self._upper_lines: list[pg.InfiniteLine] = []
         self._dashed = dashed
         self.trigger_lines = [
             pg.InfiniteLine(pos=0, angle=90, movable=False, pen=dashed) for _ in range(2)
@@ -610,7 +613,9 @@ class ScopeView(QWidget):
         # of the axes, or the voltage axis would always stretch to the level.
         while len(self._level_lines) < len(self.session.shown()):
             self._level_lines.append(pg.InfiniteLine(angle=0, movable=False, pen=self._dashed))
-        for line in self._level_lines:
+        while len(self._upper_lines) < len(self._level_lines):
+            self._upper_lines.append(pg.InfiniteLine(angle=0, movable=False, pen=self._dashed))
+        for line in [*self._level_lines, *self._upper_lines]:
             self.analog.addItem(line, ignoreBounds=True)
         for plot, line in zip((self.analog, self.digital), self.trigger_lines, strict=True):
             plot.addItem(line, ignoreBounds=True)
@@ -988,6 +993,8 @@ class ScopeView(QWidget):
             on_plot = (
                 record is not None
                 and record.channel.kind == ANALOG
+                # A protocol trigger has no level: it is what is read.
+                and unit.acquisition.condition.kind != PROTOCOL
                 and unit.id(record.channel.key) not in self._hidden
                 # Read as it is, an instrument triggers on what it was set to
                 # itself, which is not the level here.
@@ -996,6 +1003,13 @@ class ScopeView(QWidget):
             line.setVisible(on_plot)
             if on_plot:
                 line.setValue(unit.acquisition.level)
+            # A window, or a runt, is between two levels.
+            condition = unit.acquisition.condition if unit is not None else None
+            upper = on_plot and condition is not None and condition.kind in (WINDOW, RUNT)
+            if index < len(self._upper_lines):
+                self._upper_lines[index].setVisible(upper)
+                if upper:
+                    self._upper_lines[index].setValue(condition.upper)
 
     def _find_origin(
         self, unit: Unit, timing: _Timing, several: bool

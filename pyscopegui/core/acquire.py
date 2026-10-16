@@ -24,6 +24,17 @@ from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block
 from pyscopegui.core.capture import Capture, Record
+from pyscopegui.core.triggers import (
+    EDGE,
+    EITHER,
+    FALLING,
+    PATTERN,
+    PROTOCOL,
+    RISING,
+    Condition,
+    Finder,
+    item_matches,
+)
 
 STOP, SINGLE, NORMAL, AUTO = "stop", "single", "normal", "auto"
 MODES = (STOP, SINGLE, NORMAL, AUTO)
@@ -104,6 +115,9 @@ class Acquisition(QObject):
         self.source: str | None = None
         self.level = 0.0
         self.rising = True
+        #: What is waited for beyond a rising or falling edge: see
+        #: pyscopegui.core.triggers. A plain edge is found here, as it always was.
+        self.condition = Condition()
         #: Where the trigger sits in a plot's stretch of time, from 0 at its
         #: left edge to 1 at its right.
         self.position = 0.5
@@ -113,6 +127,8 @@ class Acquisition(QObject):
         #: Goes up whenever the triggers found so far stop meaning anything.
         self.generation = 0
         self.reset()
+        # A protocol trigger is what is read off a decoded bus, as it is read.
+        capture.decoded.connect(self._on_decoded)
 
     # --- settings --------------------------------------------------------------------------
     def set_trigger(
@@ -122,6 +138,7 @@ class Acquisition(QObject):
         rising: bool | None = None,
         position: float | None = None,
         clear_source: bool = False,
+        condition: Condition | None = None,
     ) -> None:
         """Change what is waited for. What was found for the old settings is forgotten."""
         if clear_source:
@@ -134,6 +151,10 @@ class Acquisition(QObject):
             self.rising = bool(rising)
         if position is not None:
             self.position = min(max(float(position), 0.0), 1.0)
+        if condition is not None:
+            self.condition = condition
+            if condition.kind == EDGE and condition.edge in (RISING, FALLING):
+                self.rising = condition.edge == RISING
         self._forget(from_now=True)
         self.changed.emit()
 
@@ -161,6 +182,8 @@ class Acquisition(QObject):
         record = self.record()
         self._scanned = record.total if from_now and record is not None else 0
         self._armed = False
+        #: What finds anything but a plain edge, made once there are samples.
+        self._finder: Finder | None = None
         self._single: int | None = None
         self._single_said = False
         #: What Single caught, kept on screen once the instrument has stopped.
@@ -169,8 +192,31 @@ class Acquisition(QObject):
 
     # --- the samples ---------------------------------------------------------------------
     def record(self) -> Record | None:
-        """The record triggered on, or None with no trigger or no such channel."""
-        return self.capture.records.get(self.source) if self.source is not None else None
+        """The record triggered on, or None with no trigger or no such channel.
+        For a logic pattern, its first channel's."""
+        keys = self.keys()
+        return self.capture.records.get(keys[0]) if keys else None
+
+    def keys(self) -> list[str]:
+        """The channels the trigger reads: the source, or a pattern's channels."""
+        condition = self.condition
+        if condition.kind == PATTERN:
+            return [key for key, _level in condition.pattern]
+        if condition.kind == PROTOCOL:
+            decoding = self._decoding()
+            return list(decoding.setup.channels()) if decoding is not None else []
+        return [self.source] if self.source is not None else []
+
+    def _decoding(self):
+        """The decoded bus a protocol trigger waits on, if it is decoded."""
+        bus = self.condition.bus
+        return next((d for d in self.capture.decodings if d.key == bus), None)
+
+    def finds_plain_edge(self) -> bool:
+        """Whether it is a rising or falling edge and nothing more: what any
+        instrument can trigger on by itself."""
+        condition = self.condition
+        return condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff
 
     def _newest(self) -> int:
         return max((r.total for r in self.capture.records.values()), default=0)
@@ -203,6 +249,12 @@ class Acquisition(QObject):
                 self._frozen = block.trigger or 0
                 self.single_done.emit()
             return
+        if not self.finds_plain_edge():
+            if self.condition.kind != PROTOCOL:
+                self._examine_condition()
+            if self.mode == SINGLE:
+                self._watch_single()
+            return
         record = self.record()
         if record is not None and record.total > self._scanned:
             if self._scanned < record.first:
@@ -218,6 +270,53 @@ class Acquisition(QObject):
             self._scanned = record.total
         if self.mode == SINGLE:
             self._watch_single()
+
+    def _examine_condition(self) -> None:
+        """Look for the condition in what has arrived on its channels since the last look."""
+        keys = self.keys()
+        records = [self.capture.records.get(key) for key in keys]
+        if not records or any(record is None for record in records):
+            return
+        end = min(record.total for record in records)
+        held_from = max(record.first for record in records)
+        if self._scanned < held_from:
+            # More arrived than is held: what was dropped cannot be searched.
+            self._scanned, self._finder = held_from, None
+        if end <= self._scanned:
+            return
+        if self._finder is None:
+            first = records[0]
+            analog = first.channel.kind == ANALOG
+            margin = HYSTERESIS * first.channel.full_scale if analog else 0.0
+            self._finder = Finder(self.condition, self.level, margin, first.rate)
+        data = {
+            key: record.view()[self._scanned - record.first : end - record.first]
+            for key, record in zip(keys, records, strict=True)
+        }
+        found = self._finder.find(data, self._scanned)
+        if len(found):
+            self._triggers = np.concatenate((self._triggers, found))[-MOST_TRIGGERS:]
+        self._scanned = end
+
+    def _on_decoded(self, decoding, found: list, _received: int) -> None:
+        """What was read off a bus as a block arrived: a trigger at the start of
+        each thing that matches, if it is the bus waited on."""
+        condition = self.condition
+        if condition.kind != PROTOCOL or decoding.key != condition.bus:
+            return
+        protocol = decoding.setup.protocol
+        hits = [item.start for item in found if item_matches(protocol, item, condition)]
+        if hits and condition.holdoff:
+            holdoff = round(condition.holdoff * decoding.rate)
+            kept = []
+            for at in hits:
+                if not len(self._triggers) or at - int(self._triggers[-1]) >= holdoff:
+                    if not kept or at - kept[-1] >= holdoff:
+                        kept.append(at)
+            hits = kept
+        if hits:
+            found_at = np.array(hits, dtype=np.int64)
+            self._triggers = np.concatenate((self._triggers, found_at))[-MOST_TRIGGERS:]
 
     def _watch_single(self) -> None:
         """Take the first trigger since Single was pressed, and say when its capture is in."""

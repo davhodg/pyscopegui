@@ -17,6 +17,8 @@ instrument chosen waits for.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
@@ -27,20 +29,44 @@ from PySide6.QtWidgets import (
     QLabel,
     QSpinBox,
     QToolBar,
+    QToolButton,
 )
 
 from pyscopegui.backends.base import ANALOG, Channel
 from pyscopegui.core.acquire import Acquisition
 from pyscopegui.core.context import Context
+from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.session import Session, Unit
+from pyscopegui.core.triggers import (
+    EDGE,
+    EITHER,
+    FALLING,
+    KINDS,
+    PATTERN,
+    PROTOCOL,
+    RISING,
+    Condition,
+)
+from pyscopegui.ui.trigger_dialog import TriggerDialog
 
 NONE = "None"
-RISING, FALLING = "Rising", "Falling"
+#: What the edge list says, for each way.
+EDGES = {RISING: "Rising", FALLING: "Falling", EITHER: "Either"}
+KIND_TIP = (
+    "What to wait for: an edge, a window, a pulse of a width, a runt, a\n"
+    "level held too long, or a pattern of logic levels. The details are\n"
+    "under the button beside it."
+)
+SELF_TRIGGERED_TIP = (
+    "This instrument triggers itself, on a rising or a falling edge: the\n"
+    "other kinds are found in what is streamed, and it sends sweeps."
+)
+DETAILS_TIP = "The details of what is waited for: levels, times, a pattern, a holdoff."
 SOURCE_TIP = (
     "The channel to trigger on. None is no trigger: the plot follows the\n"
     "newest samples, as a chart recorder does."
 )
-EDGE_TIP = "Trigger as the signal goes up through the level, or down through it."
+EDGE_TIP = "Trigger as the signal goes up through the level, down through it, or either."
 LEVEL_TIP = (
     "The level the signal has to cross. Drawn as a dashed line on the plot.\n"
     "A digital channel has only the one level, between its 0 and its 1."
@@ -100,9 +126,20 @@ class TriggerBar(QToolBar):
         self.source = QComboBox()
         self.source.setToolTip(SOURCE_TIP)
         self.source.addItem(NONE, None)
+        self.kind = QComboBox()
+        for kind, said in KINDS.items():
+            self.kind.addItem(said, kind)
+        self.kind.setToolTip(KIND_TIP)
         self.edge = QComboBox()
-        self.edge.addItems((RISING, FALLING))
+        for edge, said in EDGES.items():
+            self.edge.addItem(said, edge)
         self.edge.setToolTip(EDGE_TIP)
+        self.details = QToolButton()
+        self.details.setText("\u22ef")
+        self.details.setToolTip(DETAILS_TIP)
+        self.details.setAutoRaise(True)
+        #: What the details come to, in a few words.
+        self.said = QLabel()
         self.level = QDoubleSpinBox()
         self.level.setDecimals(3)
         self.level.setRange(-100.0, 100.0)
@@ -122,7 +159,9 @@ class TriggerBar(QToolBar):
         self.position.setValue(round(self._number("trigger.position", 50.0)))
 
         self.source.activated.connect(self._on_source)
+        self.kind.activated.connect(self._on_kind)
         self.edge.activated.connect(self._on_edge)
+        self.details.clicked.connect(self.ask_details)
         self.level.valueChanged.connect(self._on_level)
         self.position.valueChanged.connect(self._on_position)
 
@@ -149,9 +188,12 @@ class TriggerBar(QToolBar):
         # For the instrument chosen: what it waits for.
         row.addWidget(self.label)
         row.addWidget(self.source)
+        row.addWidget(self.kind)
         for label, widget in ((" Edge: ", self.edge), (" Level: ", self.level)):
             row.addWidget(QLabel(label))
             row.addWidget(widget)
+        row.addWidget(self.details)
+        row.addWidget(self.said)
         self.addWidget(self.frame)
         self.show_usable()
 
@@ -187,10 +229,16 @@ class TriggerBar(QToolBar):
             level = float(self._saved(unit.name, "level", 0.0))
         except (TypeError, ValueError):
             level = 0.0
+        rising = self._saved(unit.name, "rising") is not False
+        condition = Condition.from_saved(self._saved(unit.name, "condition"))
+        if condition.kind == EDGE and condition.edge != EITHER:
+            # The edge was saved on its own before there were kinds.
+            condition = replace(condition, edge=RISING if rising else FALLING)
         unit.acquisition.set_trigger(
             level=level,
-            rising=self._saved(unit.name, "rising") is not False,
+            rising=rising,
             position=self.position.value() / 100,
+            condition=condition,
         )
 
     def bind(self, unit: Unit | None) -> None:
@@ -207,13 +255,21 @@ class TriggerBar(QToolBar):
             self.show_usable()
             return
         acquisition = unit.acquisition
-        for widget in (self.edge, self.level):
-            widget.blockSignals(True)
-        self.edge.setCurrentText(RISING if acquisition.rising else FALLING)
+        self._show_condition(acquisition.condition)
+        self.level.blockSignals(True)
         self.level.setValue(acquisition.level)
-        for widget in (self.edge, self.level):
-            widget.blockSignals(False)
+        self.level.blockSignals(False)
         self.set_channels(unit)
+
+    def _show_condition(self, condition: Condition) -> None:
+        for widget in (self.kind, self.edge):
+            widget.blockSignals(True)
+        self.kind.setCurrentIndex(max(self.kind.findData(condition.kind), 0))
+        self.edge.setCurrentIndex(max(self.edge.findData(condition.edge), 0))
+        for widget in (self.kind, self.edge):
+            widget.blockSignals(False)
+        channel = self._channels.get(self.source.currentData())
+        self.said.setText(f" {condition.summary(channel.unit if channel else 'V')}")
 
     def set_channels(self, unit: Unit) -> None:
         """An instrument's channels changed: have it trigger on the one wanted,
@@ -243,12 +299,30 @@ class TriggerBar(QToolBar):
         is its own business."""
         instrument = self.unit.instrument if self.unit is not None else None
         as_is = instrument is not None and instrument.reads_as_is
+        sweeps = instrument is not None and instrument.sweeps
         channel = self._channels.get(self.source.currentData())
-        self.source.setEnabled(not as_is)
+        condition = self.unit.acquisition.condition if self.unit is not None else Condition()
+        # A pattern's channels, and a protocol's bus, are chosen in their details.
+        pattern = condition.kind in (PATTERN, PROTOCOL)
+        self.source.setEnabled(not as_is and not pattern)
         self.source.setToolTip(AS_IS_TIP if as_is else SOURCE_TIP)
-        self.edge.setEnabled(channel is not None and not as_is)
-        self.position.setEnabled(channel is not None)
-        self.level.setEnabled(channel is not None and channel.kind == ANALOG and not as_is)
+        # An instrument that triggers itself does a rising or a falling edge.
+        self.kind.setEnabled((channel is not None or pattern) and not as_is and not sweeps)
+        self.kind.setToolTip(SELF_TRIGGERED_TIP if sweeps else KIND_TIP)
+        either = self.edge.model().item(self.edge.findData(EITHER))
+        if either is not None:
+            either.setEnabled(not sweeps)
+        self.edge.setEnabled(channel is not None and not as_is and condition.kind == EDGE)
+        on = channel is not None or pattern
+        self.details.setEnabled(on and not as_is and not sweeps)
+        self.said.setVisible(on and not as_is)
+        self.position.setEnabled(on)
+        analog = channel is not None and channel.kind == ANALOG
+        pattern_analog = condition.kind == PATTERN and any(
+            (c := self._channels.get(key)) is not None and c.kind == ANALOG
+            for key, _level in condition.pattern
+        )
+        self.level.setEnabled((analog or pattern_analog) and not as_is)
 
     # --- what somebody changed -------------------------------------------------------------
     def _on_source(self, _index: int) -> None:
@@ -263,9 +337,51 @@ class TriggerBar(QToolBar):
     def _on_edge(self, _index: int) -> None:
         if self.unit is None:
             return
-        rising = self.edge.currentText() == RISING
-        self._save("rising", rising)
-        self.unit.acquisition.set_trigger(rising=rising)
+        edge = self.edge.currentData()
+        if edge != EITHER:
+            self._save("rising", edge == RISING)
+        self._set_condition(replace(self.unit.acquisition.condition, edge=edge))
+
+    def _on_kind(self, _index: int) -> None:
+        if self.unit is None:
+            return
+        condition = replace(self.unit.acquisition.condition, kind=self.kind.currentData())
+        self._set_condition(condition)
+        settled = (condition.kind == PATTERN and condition.pattern) or (
+            condition.kind == PROTOCOL and condition.bus
+        )
+        if condition.kind != EDGE and not settled:
+            # A kind of its own wants its details: a pattern, its channels.
+            self.ask_details()
+
+    def ask_details(self) -> None:
+        """The details of what is waited for, asked for in a dialog."""
+        if self.unit is None:
+            return
+        condition = self.unit.acquisition.condition
+        channels = [(c.key, c.name) for c in self._channels.values()]
+        channel = self._channels.get(self.source.currentData())
+        buses = []
+        for decoding in self.unit.capture.decodings:
+            setup = decoding.setup
+            names = []
+            for key in setup.channels():
+                found = self._channels.get(key)
+                names.append(found.name if found is not None else key)
+            buses.append(
+                (decoding.key, f"{PROTOCOLS[setup.protocol]} on {', '.join(names)}", setup.protocol)
+            )
+        dialog = TriggerDialog(
+            condition, channels, channel.unit if channel else "V", self, buses=buses
+        )
+        if dialog.exec() == TriggerDialog.Accepted:
+            self._set_condition(dialog.condition())
+
+    def _set_condition(self, condition: Condition) -> None:
+        self._save("condition", condition.as_saved())
+        self.unit.acquisition.set_trigger(condition=condition)
+        self._show_condition(condition)
+        self.show_usable()
 
     def _on_level(self, value: float) -> None:
         if self.unit is None:

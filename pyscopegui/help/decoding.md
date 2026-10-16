@@ -161,6 +161,9 @@ the first [cursor](plot.md) on its start and bring it into view. Select rows and
 follows the newest as they arrive, unless it has been scrolled up to read; then it stays where
 it was put.
 
+To have the plot wait for something in particular -- a frame with an ID, a NACK, a line of
+text -- use a **Protocol** [trigger](instruments.md) on the bus.
+
 What was read stays in the list for as long as the samples it was read from are held: as the
 history moves on, the oldest goes with it. Each sweep of a Rigol or a Tektronix is decoded on
 its own, and what is read from it takes the place of the last sweep's. Samples lost part way

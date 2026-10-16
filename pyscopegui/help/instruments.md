@@ -103,16 +103,49 @@ it says whose it is -- *Trigger, Rigol* -- and each keeps its own channel, edge 
 | Setting | What it does |
 |---------|--------------|
 | Trigger | The channel to trigger on, or **None** for no trigger |
-| Edge | **Rising**, as the signal goes up through the level, or **Falling** |
+| Type | What to wait for: see below. **Edge** to begin with |
+| Edge | For an edge: **Rising**, as the signal goes up through the level, **Falling**, or **Either** |
 | Level | The voltage the signal has to cross, drawn as a dashed line on the plot |
+| ⋯ | The details of what is waited for, beside a few words saying what they come to |
 | Position | Where the trigger sits in the plot: 50% is the middle, with as much before as after |
+
+### What to wait for
+
+| Type | Triggers on | Its details |
+|------|-------------|-------------|
+| **Edge** | The signal crossing the level, up, down or either way | -- |
+| **Window** | The signal entering the band between the level and an upper level, or leaving it | The upper level, drawn as a second dashed line; entering or leaving |
+| **Pulse width** | The end of a pulse -- high, or low -- shorter than a time, longer, or between two: a glitch, or a pulse gone missing | High or low; shorter, longer or between; the times |
+| **Runt** | A pulse that crosses the level but goes back without reaching the upper level: a signal that did not make it | The upper level; high or low |
+| **Timeout** | The signal staying high, low, or either, for longer than a time: at that moment, while it still is | Which; the time |
+| **Logic pattern** | Logic channels each at the level wanted, together: as soon as they are, or once they have been for a time | Each channel's level -- 0, 1 or either; how long it has to be held |
+| **Protocol** | The start of a frame, burst or transfer read off a [decoded bus](decoding.md) that matches | The bus; an ID or address; bytes it contains; its type; all, good only, or only problems |
+
+Every type also has a **holdoff**: after a trigger, none is taken for that long -- for a
+burst of edges, say, of which only the first is wanted. A time is typed as it is said: `1 ms`,
+`500 us`, `2e-6`. A pattern's channels are chosen in its details, so **Trigger** is not used
+for one; an analog channel in a pattern is high above the level.
+
+A **Protocol** trigger waits on a bus that is [decoded](decoding.md) already, chosen in its
+details, so **Trigger** and **Level** are not used for one either. What matches:
+
+| Detail | What matches |
+|--------|--------------|
+| ID / address | A CAN identifier or an I²C address, in hex, `X` for a digit that may be anything: `18FEXX00` matches 18FE0000 to 18FEFF00. Empty for any |
+| Data contains | Bytes anywhere in it, in hex, `XX` for one that may be anything: `12 XX 34`. Or text in quotes, for a serial line: `"Error"`. Empty for anything |
+| Type | CAN: data or remote frames. I²C: reads, writes, or an address nobody answered |
+| Which | All, only what was read cleanly, or only what was not: to catch a stuff error or a NACK the moment it happens |
+
+The trigger is at the start of what matched, so the plot shows what led up to it and what
+followed.
 
 A digital channel has only one level, between its 0 and its 1, so the level box is not
 offered for one.
 
 An instrument that sends short captures taken around a trigger of its own -- a
 [PicoScope reading blocks](picoscope.md), or a [Rigol](rigol.md) -- is handed these
-settings and does the triggering. For everything else the trigger is found by pyscopegui, in the samples as they
+settings and does the triggering: a rising or a falling edge, for now, so the other types
+and **Either** are greyed out for one. For everything else the trigger is found by pyscopegui, in the samples as they
 arrive, and not by the instrument. So it is the same for every instrument, the samples either side of a trigger are
 all still there to go back over, and it finds nothing the instrument cannot stream: on a
 PicoScope 2204A, nothing faster than 1 MS/s shows.
