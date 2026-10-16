@@ -59,7 +59,18 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q -n auto tests
+        run: python -m pytest -q -n auto tests --basetemp="${{ runner.temp }}/pytest"
+
+      # What a failing test drew -- a plot exported as a picture -- to look at
+      # rather than guess from the assertion.
+      - name: Keep the pictures of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pictures-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/pytest/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Self test
         env:

@@ -227,11 +227,15 @@ def test_the_lines_are_put_back_when_the_channels_change(held):
 
 def test_a_picture_of_the_plot_has_the_cursors_and_their_readings_in_it(held, tmp_path):
     from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
 
     window = held
     assert window.scope.export_png(tmp_path / "none.png")
     choose(window, 1)
     window.scope.set_cursor(0, window.scope.cursor_time(0))
+    # As between choosing a cursor and pressing Export: the list has grown a
+    # column, and the plot is laid out and drawn again at its new size.
+    QApplication.processEvents()
     assert window.scope.export_png(tmp_path / "one.png")
 
     def has_cursor_colour(path):
