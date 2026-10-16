@@ -33,9 +33,9 @@ there were workspaces; the first time a newer pyscopegui starts, it moves them i
 
 A workspace is everything about what is being measured: the instruments in the
 [Instrument](instruments.md) pane, how each is reached and set up, their triggers, what the
-plots show, and where the panes are. One for each bench or setup -- the scopes at home, and
-the one at work -- means taking the laptop from one to the other is choosing a workspace,
-not setting everything up again.
+plots show, and where the panes are. One for each bench or setup -- two benches with
+scopes of their own, say -- means taking the laptop from one to the other is choosing a
+workspace, not setting everything up again.
 
 *File > Workspace*:
 

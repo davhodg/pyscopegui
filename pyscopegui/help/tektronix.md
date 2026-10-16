@@ -2,22 +2,37 @@
 
 # Tektronix TDS and TPS 2000
 
-For Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 series scopes, over a serial port.
-They are one family with one set of commands, and differ in bandwidth, in how many channels
-they have, and in what they are plugged in by.
+For Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 series scopes, over a serial port or
+USB. They are one family with one set of commands, and differ in bandwidth, in how many
+channels they have, and in what they are plugged in by.
 
-| Models | Channels | Serial port |
-|--------|----------|-------------|
-| TPS2012, TPS2014, TPS2024 | Two, or four where the number ends in 4 | Its own, on the side |
-| TDS1002, TDS1012, TDS2002, TDS2012, TDS2014, TDS2022, TDS2024 | Two or four, likewise | On the TDS2CMA or TDS2CM module |
-| TDS210, TDS220, TDS224 | Two or four, likewise | On the TDS2CM or TDS2CMA module |
+| Models | Channels | Plugged in by |
+|--------|----------|---------------|
+| TDS1001B, TDS1002B, TDS1012B, TDS2002B, TDS2004B, TDS2012B, TDS2014B, TDS2022B, TDS2024B, and the TDS2000C | Two, or four where the number ends in 4 | USB, on the back |
+| TPS2012, TPS2014, TPS2024 | Two or four, likewise | A serial port of its own, on the side |
+| TDS1002, TDS1012, TDS2002, TDS2012, TDS2014, TDS2022, TDS2024 | Two or four, likewise | A serial port on the TDS2CMA or TDS2CM module |
+| TDS210, TDS220, TDS224 | Two or four, likewise | A serial port on the TDS2CM or TDS2CMA module |
 
-The later scopes with a USB port in place of a serial one -- the TDS1000B, TDS2000B and
-TDS2000C -- take the same commands, but USB is not supported yet.
-
-Nothing of Tektronix's needs installing.
+Over a serial port nothing of Tektronix's needs installing. USB needs a VISA library:
+Tektronix's own TekVISA, or National Instruments' or Keysight's -- whichever is there.
 
 ## Connecting
+
+**Connection**, at the top of the Instrument pane, says which: **Serial port** to begin
+with, or **USB**. What is not for the one chosen is greyed out.
+
+### On USB
+
+- **A cable** from the USB port on the back of the scope -- the square one -- to the
+  computer. Where the scope offers that port for a computer or for a printer, it has to be
+  set for a computer.
+- **A VISA library** on the computer: TekVISA, NI-VISA or Keysight's.
+- **In the Instrument pane**, set **Connection** to **USB**. **USB device** lists the
+  Tektronix scopes plugged in at that moment; left empty, the first one found is used, and
+  a serial number can be typed to choose between two. Then press **Open**. The
+  [Event Log](event-log.md) says which device it opened.
+
+### On a serial port
 
 - **A cable.** The scope's serial port to the computer's, or to a USB serial adapter. Two
   computers' worth of port are being joined, so it is a *null modem* cable that is wanted,
@@ -36,9 +51,10 @@ Instrument pane then offers that many.
 ## It is slow
 
 A waveform is 2500 points, and a serial port is slow: a little over a second a channel at
-19200 baud, about three at 9600, and most of a minute at 300. So this is for taking a
-capture off the scope and onto the computer -- to look at closely, or to
-[export as CSV](plot.md) -- and not for watching a signal move.
+19200 baud, about three at 9600, and most of a minute at 300. So on a serial port this is for
+taking a capture off the scope and onto the computer -- to look at closely, or to
+[export as CSV](plot.md) -- and not for watching a signal move. On USB a waveform takes a
+moment, and the scope itself is what is slow: the set-up below, and its own sweeps.
 
 Setting the scope up takes a while too: it takes up to a second over each setting, and a
 first run with four channels sends about thirty, which can be half a minute. They are sent
@@ -93,11 +109,13 @@ trigger.
 
 | Setting | What it is |
 |---------|------------|
-| Port | The serial port the scope is on. Set while the scope is closed |
-| Speed | The baud rate, as the scope is set. Set while the scope is closed |
-| Flow control | Hard flagging, or none, as the scope is set. Set while the scope is closed |
-| Parity | None, even or odd, as the scope is set. Set while the scope is closed |
-| End of line | What the scope ends each answer with: LF, CR, CR/LF or LF/CR, as it is set. Set while the scope is closed |
+| Connection | Serial port, or USB. Set while the scope is closed |
+| USB device | On USB: which scope, where there are several. Set while the scope is closed |
+| Port | On a serial port: the port the scope is on. Set while the scope is closed |
+| Speed | On a serial port: the baud rate, as the scope is set. Set while the scope is closed |
+| Flow control | On a serial port: hard flagging, or none, as the scope is set. Set while the scope is closed |
+| Parity | On a serial port: none, even or odd, as the scope is set. Set while the scope is closed |
+| End of line | On a serial port: what the scope ends each answer with -- LF, CR, CR/LF or LF/CR -- as it is set. Set while the scope is closed |
 | Reading | Set up from here, or read as it is: see above |
 | Time | Seconds a division, of the ten across the screen |
 | Acquisition | Sample, peak detect, or an average of several sweeps |
@@ -119,7 +137,13 @@ would take for one of its own.
 
 ## When it does not work
 
-- *No port to open* --- **Port** in the Instrument pane is empty.
+- *No port to open* --- **Port** in the Instrument pane is empty, with **Connection** at
+  Serial port.
+- *No VISA library was found for USB* --- there is none on the computer: install TekVISA,
+  NI-VISA or Keysight's.
+- *No scope of Tektronix's was found on USB* --- the Event Log says what the VISA library
+  does list. Check the cable, that the scope is on, and that its USB port is set for a
+  computer.
 - *The serial port ... could not be opened* --- the name is wrong, or another program has
   the port.
 - *Setting ... to ...: the scope did not answer* --- it was being set up, and did not say

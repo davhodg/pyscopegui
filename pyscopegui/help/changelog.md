@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Tektronix over USB**, for the TDS1000B, TDS2000B and TDS2000C: **Connection** is
+  Serial port or USB, through a VISA library, with the same commands either way. The
+  VISA link is now shared with the Rigol's.
 - **Data** pane: the samples themselves, a row for each, for one instrument -- between the
   cursors or what is in view, the cursors' rows tinted, and Ctrl+C copies rows for a spreadsheet.
 - *Tools > Settings > Column widths*, as in pycangui: **Automatic**, every column as wide

@@ -9,7 +9,7 @@ someone else whole. What stays outside it is everything about *this
 machine*: where the window sits on the screen, and whether it is light or
 dark.
 
-The scopes at home and the one at work are two workspaces: the same laptop,
+Two benches, each with its own scopes, are two workspaces: the same laptop,
 taken from one bench to the other, opens the one it is at.
 
 The design constraint is that somebody with one bench must never have to

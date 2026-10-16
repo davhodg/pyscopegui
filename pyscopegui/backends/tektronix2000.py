@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""Tektronix TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port.
+"""Tektronix TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port or USB.
 
 One family, with one set of commands: lines of text, answered in text, and a
 waveform as a block of bytes. They differ in how many channels they have and
 in what they are plugged in by. The TPS2000 has an RS-232 port of its own and
-the older TDS scopes have one on a module; that is what is used here, through
-pyserial. The commands and the port are kept apart, so that another way in
--- USB, on the later models -- has only the port to bring.
+the older TDS scopes have one on a module, used here through pyserial; the
+later ones -- the TDS1000B and TDS2000B -- have a USB port on the back
+instead, used through a VISA library (see pyscopegui.backends.visa). The
+commands are the same either way, and are kept apart from the link.
 
 A waveform is 2500 points, and RS-232 is slow: about three seconds a channel
-at 9600 baud. So this is for taking a capture off the scope, not for
-watching one. Like any scope that triggers itself it sends sweeps, each a
-capture complete in itself.
+at 9600 baud. So over a serial port this is for taking a capture off the
+scope, not for watching one; USB takes a moment. Like any scope that
+triggers itself it sends sweeps, each a capture complete in itself.
 
 Two ways of reading. The scope can be set up from here and made to take one
 sweep after another. Or it can be left exactly as it is, and what is on its
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from pyscopegui.backends import probes
+from pyscopegui.backends import probes, visa
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import traced
 
@@ -73,6 +74,28 @@ NEAR_TRIGGER = 3
 
 class ScopeError(Exception):
     """The scope could not be reached, or stopped answering. In words for the Event Log."""
+
+
+#: How the scope is plugged in: the RS-232 port the older models have, or the
+#: USB port on the back of the later ones. The commands are the same on both.
+SERIAL, USB = "serial", "usb"
+#: Tektronix's USB vendor id, as a VISA library writes it in hex and in decimal.
+TEKTRONIX_USB = ("0X0699", "::1689::")
+#: Tektronix's instruments on USB, and what is said about them.
+MAKER = visa.Maker(
+    "Tektronix",
+    TEKTRONIX_USB,
+    library=(
+        "Tektronix's TekVISA is one, as are National Instruments' and Keysight's. A serial "
+        "port needs none."
+    ),
+    check=(
+        "Check the cable, and that the scope's USB port on the back is set for a computer "
+        "and not a printer."
+    ),
+    error=ScopeError,
+    answer_s=ANSWER_S,
+)
 
 
 #: Each channel in the colour the scope's own screen draws it in.
@@ -134,15 +157,49 @@ def serial_ports() -> list[tuple[str, str]]:
     return found
 
 
+def usb_scopes() -> list[tuple[str, str]]:
+    """The Tektronix scopes on USB now, as (serial number, what to call it in a list)."""
+    return visa.plugged_in(MAKER)
+
+
 def make_settings(channels: int = 4) -> tuple[Setting, ...]:
     """The settings to offer for a scope with this many channels."""
     made = [
+        Setting(
+            "connection",
+            "Connection",
+            SERIAL,
+            choices=((SERIAL, "Serial port"), (USB, "USB")),
+            group="Connection",
+            closed=True,
+            tip=(
+                "How the scope is plugged in: the RS-232 port the older models have,\n"
+                "or the USB port on the back of the later ones. USB needs a VISA\n"
+                "library. Changed while the scope is closed."
+            ),
+        ),
+        Setting(
+            "usb",
+            "USB device",
+            "",
+            group="Connection",
+            closed=True,
+            needs=("connection", USB),
+            found=usb_scopes,
+            empty="First Tektronix found",
+            tip=(
+                "Which scope, where more than one is plugged in. The list is of\n"
+                "those plugged in now; a serial number can be typed too. Left\n"
+                "empty, the first Tektronix found is used. Changed while the scope is closed."
+            ),
+        ),
         Setting(
             "port",
             "Port",
             "",
             group="Connection",
             closed=True,
+            needs=("connection", SERIAL),
             found=serial_ports,
             empty="Choose a port",
             tip=(
@@ -158,6 +215,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             choices=tuple((baud, f"{baud} baud") for baud in BAUDS),
             group="Connection",
             closed=True,
+            needs=("connection", SERIAL),
             tip=(
                 "As the scope is set, under Utility > Options > RS232 Setup. The\n"
                 "fastest it has is the one to choose, on the scope and here.\n"
@@ -171,6 +229,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             choices=((HARD_FLOW, "Hard flagging (RTS/CTS)"), (NO_FLOW, "None")),
             group="Connection",
             closed=True,
+            needs=("connection", SERIAL),
             tip=(
                 "As the scope is set, under Utility > Options > RS232 Setup. Hard\n"
                 "flagging needs a cable with all its wires. Soft flagging is not\n"
@@ -185,6 +244,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             choices=tuple((name, name) for name in PARITIES),
             group="Connection",
             closed=True,
+            needs=("connection", SERIAL),
             tip=_AS_THE_SCOPE + "\nChanged while the scope is closed.",
         ),
         Setting(
@@ -194,6 +254,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             choices=tuple((name, name) for name in ENDS),
             group="Connection",
             closed=True,
+            needs=("connection", SERIAL),
             tip=(
                 _AS_THE_SCOPE + " It is what the scope ends each\n"
                 "answer with, and an answer is waited for until it comes.\n"
@@ -341,6 +402,9 @@ class Settings:
 
     def __init__(self, options: object = None) -> None:
         options = options if isinstance(options, dict) else {}
+        #: On USB, and which scope there, if it was said; on a serial port otherwise.
+        self.usb = options.get("connection") == USB
+        self.usb_device = str(options.get("usb") or "").strip()
         self.port = str(options.get("port") or "").strip()
         self.baud = int(_nearest(options.get("baud"), BAUDS, 9600))
         self.hard_flow = options.get("flow") != NO_FLOW
@@ -567,7 +631,7 @@ class Scope:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.trigger = Trigger()
-        self._link: Link | None = None
+        self._link: Link | visa.VisaLink | None = None
         #: What the scope said it is, and how many channels that has.
         self.model = ""
         self.channels = 4
@@ -593,23 +657,31 @@ class Scope:
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
-        if not self.settings.port:
+        settings = self.settings
+        if settings.usb:
+            self._link = traced(visa.VisaLink(settings.usb_device, MAKER), "Tektronix USB")
+            where = "USB"
+            self.notes.append((f"On USB: {self._link.name}.", False))
+        elif not settings.port:
             raise ScopeError(
                 "No port to open. Put the serial port the scope is on in the Instrument "
-                "pane: COM3, or /dev/ttyUSB0."
+                "pane: COM3, or /dev/ttyUSB0. Or choose USB."
             )
-        settings = self.settings
-        self._link = traced(
-            Link(settings.port, settings.baud, settings.hard_flow, settings.parity, settings.eol),
-            f"Tektronix {settings.port}",
-        )
+        else:
+            self._link = traced(
+                Link(
+                    settings.port, settings.baud, settings.hard_flow, settings.parity, settings.eol
+                ),
+                f"Tektronix {settings.port}",
+            )
+            where = settings.port
         self._link.clear()
         # Answers with nothing in front of them, whatever the scope was left at.
         self._link.write("HEADER OFF")
         said = self._identify()
         parts = [part.strip() for part in said.split(",")]
         if len(parts) < 2 or "TEK" not in parts[0].upper():
-            raise ScopeError(f"What answered on {self.settings.port} is not this scope: {said!r}.")
+            raise ScopeError(f"What answered on {where} is not this scope: {said!r}.")
         self.model = parts[1]
         self.channels = channels_of(self.model)
         self.notes.append((f"{parts[0]} {self.model}: {self.channels} channels.", False))

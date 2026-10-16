@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from pyscopegui.backends import rigol1000z as rigol
+from pyscopegui.backends import visa as visa_library
 from pyscopegui.backends.base import Block
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
@@ -491,7 +492,7 @@ class FakeVisa:
 @pytest.fixture
 def visa(fake, monkeypatch):
     library = FakeVisa(fake)
-    monkeypatch.setattr(rigol, "open_visa", lambda: library)
+    monkeypatch.setattr(visa_library, "open_visa", lambda: library)
     return library
 
 
@@ -574,7 +575,7 @@ def test_no_visa_library_says_where_one_comes_from(monkeypatch):
     def none():
         raise OSError("Could not locate a VISA implementation")
 
-    monkeypatch.setattr(rigol, "open_visa", none)
+    monkeypatch.setattr(visa_library, "open_visa", none)
     with pytest.raises(rigol.ScopeError, match="No VISA library was found"):
         over_usb()
 
@@ -583,7 +584,7 @@ def test_no_pyvisa_says_what_to_install(monkeypatch):
     def missing():
         raise ImportError("No module named 'pyvisa'")
 
-    monkeypatch.setattr(rigol, "open_visa", missing)
+    monkeypatch.setattr(visa_library, "open_visa", missing)
     with pytest.raises(rigol.ScopeError, match="pip install pyvisa"):
         over_usb()
 
@@ -751,7 +752,7 @@ def test_no_visa_library_is_an_empty_list_and_not_an_error(monkeypatch):
     def none():
         raise OSError("Could not locate a VISA implementation")
 
-    monkeypatch.setattr(rigol, "open_visa", none)
+    monkeypatch.setattr(visa_library, "open_visa", none)
     assert rigol.usb_scopes() == []
 
 

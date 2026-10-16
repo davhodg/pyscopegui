@@ -936,3 +936,156 @@ def test_a_scope_set_up_from_here_leaves_the_plot_as_it_is(scope_window, port, a
     wait_for(app, lambda: window.instrument.is_open)
     window._on_setting("time_div", 0.001, False)
     assert window.scope.time.currentText() == "Follow"
+
+
+# --- over USB ---------------------------------------------------------------------------------
+class FakeInstrument:
+    """A scope as a VISA library hands it over: the stand-in above, without the serial port."""
+
+    def __init__(self, port: FakePort) -> None:
+        self._port = port
+        self.timeout = None
+        self.write_termination = None
+        self.read_termination = "\n"
+        self.closed = False
+        self.cleared = 0
+
+    def write(self, command: str) -> None:
+        self._port.write(command.encode("ascii") + b"\n")
+
+    def read_raw(self) -> bytes:
+        if self.read_termination is not None:
+            raise AssertionError("a read would stop at the first new line in a waveform")
+        taken = self._port.read(len(self._port._out))
+        if not taken:
+            raise OSError("VI_ERROR_TMO (-1073807339): Timeout expired before operation completed.")
+        return taken
+
+    def query(self, command: str) -> str:
+        self.write(command)
+        return self.read_raw().decode()
+
+    def clear(self) -> None:
+        self.cleared += 1
+        self._port.reset_input_buffer()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeVisa:
+    def __init__(self, port, listed=("USB0::0x0699::0x036A::C010001::INSTR",)) -> None:
+        self.listed = listed
+        self.instrument = FakeInstrument(port)
+        self.opened: list[str] = []
+        self.closed = False
+
+    def list_resources(self, _query: str):
+        return self.listed
+
+    def open_resource(self, name: str):
+        self.opened.append(name)
+        return self.instrument
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def usb(monkeypatch):
+    """A TDS 2024B on USB: the stand-in scope, through a stand-in VISA library."""
+    from pyscopegui.backends import visa
+
+    library = FakeVisa(FakePort("TEKTRONIX,TDS 2024B,C010001,CF:91.1CT FV:v22.11"))
+    monkeypatch.setattr(visa, "open_visa", lambda: library)
+    return library
+
+
+def over_usb(**options) -> tek.Scope:
+    scope = tek.Scope(tek.Settings({"connection": "usb", **options}))
+    scope.open()
+    return scope
+
+
+def test_usb_is_chosen_in_the_settings_and_needs_no_port():
+    settings = tek.Settings({"connection": "usb", "usb": " C010001 "})
+    assert settings.usb and settings.usb_device == "C010001"
+    assert not tek.Settings().usb, "a serial port, unless it is said"
+    needs = {setting.key: setting.needs for setting in tek.SETTINGS}
+    assert needs["usb"] == ("connection", "usb")
+    for serial_only in ("port", "baud", "flow", "parity", "eol"):
+        assert needs[serial_only] == ("connection", "serial"), serial_only
+    assert tek.SETTINGS[0].key == "connection", "how it is plugged in comes first"
+
+
+def test_a_scope_on_usb_is_opened_and_named(usb):
+    scope = over_usb()
+    assert (scope.model, scope.channels) == ("TDS 2024B", 4)
+    assert usb.opened == ["USB0::0x0699::0x036A::C010001::INSTR"]
+    assert usb.instrument.cleared == 1, "anything left over from before thrown away"
+    assert ("On USB: USB0::0x0699::0x036A::C010001::INSTR.", False) in scope.notes
+    assert not any(warned for _said, warned in scope.notes), "a TDS2000B is one of the family"
+    scope.close()
+    assert usb.instrument.closed and usb.closed
+
+
+def test_a_sweep_over_usb_is_the_same_sweep(usb):
+    scope = over_usb(time_div=1e-3, scale_1=0.5)
+    scope.start(scope.settings, tek.Trigger("CH1", 0.0, True, 0.5, auto=False))
+    block = sweep_of(scope)
+    assert len(block) == tek.POINTS and block.rate == pytest.approx(tek.POINTS / 1e-2)
+    assert block.data["CH1"][0] == pytest.approx(-2.0)
+    port = usb.instrument._port
+    assert port.state["CH1:SCALE"] == "0.5" and port.sent("*OPC?") > 0, "set up a setting at a time"
+    scope.close()
+
+
+def test_the_first_tektronix_is_found_among_what_is_plugged_in(usb):
+    usb.listed = ("USB0::0x1AB1::0x04CE::DS1ZA1::INSTR", "USB0::1689::874::C010002::0::INSTR")
+    over_usb().close()
+    assert usb.opened == ["USB0::1689::874::C010002::0::INSTR"], "in decimal too"
+    usb.opened.clear()
+    over_usb(usb="c010002").close()
+    assert usb.opened == ["USB0::1689::874::C010002::0::INSTR"], "by its serial number"
+
+
+def test_no_tektronix_on_usb_says_what_was_found_and_what_to_check(usb):
+    usb.listed = ("USB0::0x1AB1::0x04CE::DS1ZA1::INSTR",)
+    with pytest.raises(
+        tek.ScopeError, match=r"No scope of Tektronix's.*lists USB0::0x1AB1.*printer"
+    ):
+        over_usb()
+    assert usb.closed, "and the library is let go of"
+
+
+def test_no_visa_library_says_where_one_comes_from(monkeypatch):
+    from pyscopegui.backends import visa
+
+    def none():
+        raise OSError("Could not locate a VISA implementation")
+
+    monkeypatch.setattr(visa, "open_visa", none)
+    with pytest.raises(tek.ScopeError, match=r"No VISA library was found.*TekVISA"):
+        over_usb()
+    assert tek.usb_scopes() == [], "and the list of what is plugged in is empty, not an error"
+
+
+def test_a_scope_unplugged_from_usb_is_said_in_words(usb):
+    scope = over_usb()
+    scope.start(scope.settings, tek.Trigger())
+    usb.instrument._port.dead = True
+    with pytest.raises(tek.ScopeError, match="on USB"):
+        sweep_of(scope)
+    scope.close()
+
+
+def test_the_window_greys_out_the_serial_settings_for_usb(window):
+    window.choose("tektronix2000")
+    controls = window.instrument_view.controls
+    assert controls["port"].isEnabled() and not controls["usb"].isEnabled()
+    connection = controls["connection"]
+    connection.setCurrentIndex(connection.findData("usb"))
+    connection.activated.emit(connection.currentIndex())
+    assert controls["usb"].isEnabled()
+    for serial_only in ("port", "baud", "flow", "parity", "eol"):
+        assert not controls[serial_only].isEnabled(), serial_only

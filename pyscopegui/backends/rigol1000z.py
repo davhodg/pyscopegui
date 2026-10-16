@@ -36,7 +36,7 @@ from dataclasses import dataclass
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
-from pyscopegui.backends import probes
+from pyscopegui.backends import probes, visa
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import traced
 
@@ -81,6 +81,22 @@ class ScopeError(Exception):
     """The scope could not be reached, or stopped answering. In words for the Event Log."""
 
 
+#: Rigol's instruments on USB, and what is said about them.
+MAKER = visa.Maker(
+    "Rigol",
+    RIGOL_USB,
+    library=(
+        "Rigol's own software installs one, as do National Instruments' and Keysight's. "
+        "The network needs none."
+    ),
+    check=(
+        "Check the cable, and that the scope's USB Device setting under Utility > IO is Computer."
+    ),
+    error=ScopeError,
+    answer_s=ANSWER_S,
+)
+
+
 class GivenUpError(Exception):
     """A read was abandoned part way, because something else was asked for."""
 
@@ -114,33 +130,8 @@ ACQUISITIONS = (("NORM", "Normal"), ("HRES", "High resolution"), ("PEAK", "Peak 
 
 
 def usb_scopes() -> list[tuple[str, str]]:
-    """The Rigol scopes on USB now, as (serial number, what to call it in a list).
-
-    Nothing where there is no VISA library, or none plugged in: the list is
-    then only "first found", and opening says what is wrong.
-    """
-    try:
-        manager = open_visa()
-    except Exception:  # no pyvisa, or no library: opening it says so
-        return []
-    try:
-        listed = tuple(manager.list_resources("USB?*INSTR"))
-    except Exception:
-        listed = ()
-    finally:
-        try:
-            manager.close()
-        except Exception:
-            pass
-    scopes = []
-    for name in listed:
-        if not any(mark in name.upper() for mark in RIGOL_USB):
-            continue
-        # USB0::0x1AB1::0x04CE::DS1ZA000000000::INSTR: the fourth part is the serial number.
-        parts = name.split("::")
-        serial = parts[3] if len(parts) > 3 else name
-        scopes.append((serial, f"{serial}   {name}"))
-    return scopes
+    """The Rigol scopes on USB now, as (serial number, what to call it in a list)."""
+    return visa.plugged_in(MAKER)
 
 
 def make_settings() -> tuple[Setting, ...]:
@@ -428,104 +419,10 @@ class Link:
                 pass
 
 
-def open_visa():
-    """The VISA library's list of what is plugged in. ImportError where pyvisa
-    is not installed; whatever the library raises where there is no library."""
-    import pyvisa  # here, so that a scope on the network does not need it
-
-    return pyvisa.ResourceManager()
-
-
 def find_usb(listed: tuple[str, ...], wanted: str) -> str | None:
-    """Which of the USB instruments a VISA library lists is the scope asked for.
-
-    ``wanted`` is a serial number or any other part of the name, or the whole
-    of it; empty is the first one of Rigol's.
-    """
-    if wanted:
-        return next((name for name in listed if wanted.upper() in name.upper()), None)
-    return next((name for name in listed if any(mark in name.upper() for mark in RIGOL_USB)), None)
-
-
-class VisaLink:
-    """Lines of SCPI to the scope and back, over USB, through a VISA library."""
-
-    def __init__(self, wanted: str) -> None:
-        try:
-            self._manager = open_visa()
-        except ImportError as exc:
-            raise ScopeError(
-                "USB needs pyvisa, which is not installed: pip install pyvisa, and open "
-                "the scope again."
-            ) from exc
-        except Exception as exc:  # each VISA library fails in its own way
-            raise ScopeError(
-                f"No VISA library was found for USB: {str(exc).rstrip('.')}. Rigol's own "
-                "software installs "
-                "one, as do National Instruments' and Keysight's. The network needs none."
-            ) from exc
-        try:
-            listed = tuple(self._manager.list_resources("USB?*INSTR"))
-            name = find_usb(listed, wanted)
-            if name is None:
-                found = ", ".join(listed) if listed else "nothing"
-                asked = f"matching {wanted!r}" if wanted else "of Rigol's"
-                raise ScopeError(
-                    f"No scope {asked} was found on USB: the VISA library lists {found}. "
-                    "Check the cable, and that the scope's USB Device setting under "
-                    "Utility > IO is Computer."
-                )
-            self._instrument = self._manager.open_resource(name)
-            self._instrument.timeout = int(ANSWER_S * 1000)
-            self._instrument.write_termination = "\n"
-            # None, so that a read ends where the scope says the message ends and
-            # not at the first byte of a waveform that happens to be a new line.
-            self._instrument.read_termination = None
-        except ScopeError:
-            self.close()
-            raise
-        except Exception as exc:
-            self.close()
-            raise ScopeError(f"The scope on USB could not be opened: {exc}.") from exc
-        self.name = name
-
-    def write(self, command: str) -> None:
-        try:
-            self._instrument.write(command)
-        except Exception as exc:
-            raise ScopeError(f"The scope stopped answering on USB: {exc}.") from exc
-
-    def ask(self, command: str) -> str:
-        try:
-            return self._instrument.query(command).strip()
-        except Exception as exc:
-            raise ScopeError(f"The scope did not answer {command} on USB: {exc}.") from exc
-
-    def ask_bytes(self, command: str) -> bytes:
-        """The answer to a query that comes as a block: #, how many digits, how many bytes."""
-        try:
-            self._instrument.write(command)
-            data = bytes(self._instrument.read_raw())
-            if len(data) < 2 or data[:1] != b"#" or not data[1:2].isdigit():
-                raise ScopeError(f"The scope answered {command} with something else: {data[:8]!r}.")
-            digits = int(data[1:2])
-            length = int(data[2 : 2 + digits])
-            # A long block arrives in more than one piece.
-            while len(data) < 2 + digits + length:
-                data += bytes(self._instrument.read_raw())
-        except ScopeError:
-            raise
-        except Exception as exc:
-            raise ScopeError(f"The scope did not answer {command} on USB: {exc}.") from exc
-        return data[2 + digits : 2 + digits + length]
-
-    def close(self) -> None:
-        for closing in (getattr(self, "_instrument", None), getattr(self, "_manager", None)):
-            try:
-                if closing is not None:
-                    closing.close()
-            except Exception:  # nothing to be done about a library that will not let go
-                pass
+    """Which of the USB instruments a VISA library lists is the scope asked for:
+    by its serial number, or the first of Rigol's."""
+    return visa.find(listed, wanted, MAKER)
 
 
 class NotReadyError(Exception):
@@ -540,7 +437,7 @@ class Scope:
         self.settings = settings
         self.trigger = Trigger()
         self._clock = clock
-        self._link: Link | VisaLink | None = None
+        self._link: Link | visa.VisaLink | None = None
         #: What the scope said it is.
         self.model = ""
         self.running = False
@@ -562,7 +459,7 @@ class Scope:
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
         if self.settings.usb:
-            self._link = traced(VisaLink(self.settings.usb_device), "Rigol USB")
+            self._link = traced(visa.VisaLink(self.settings.usb_device, MAKER), "Rigol USB")
             where = "on USB"
             self.notes.append((f"On USB: {self._link.name}.", False))
         elif not self.settings.host:
