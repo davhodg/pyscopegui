@@ -32,7 +32,11 @@ from pyscopegui.core.triggers import (
     WINDOW,
     Condition,
 )
-from tests.test_picoscope2000 import Clock, run_for
+from tests.test_picoscope2000 import (  # noqa: F401  closed_afterwards, used as a fixture
+    Clock,
+    closed_afterwards,
+    run_for,
+)
 
 ALL_RANGES = tuple(code for code, _volts in pico.RANGES.values())
 

@@ -1007,6 +1007,25 @@ def test_every_function_used_has_its_arguments_declared():
 
 
 # --- the instrument, on its thread -----------------------------------------------------------
+@pytest.fixture(autouse=True)
+def closed_afterwards(monkeypatch):
+    """Every instrument a test makes is closed when the test ends, passed or
+    failed. One whose thread is still running when it is collected brings the
+    whole worker down, and the test that happens to run next fails with it."""
+    made = []
+    create = backends.create
+
+    def creating(*args, **kwargs):
+        instrument = create(*args, **kwargs)
+        made.append(instrument)
+        return instrument
+
+    monkeypatch.setattr(backends, "create", creating)
+    yield
+    for instrument in made:
+        instrument.close()
+
+
 def run_for(app, instrument, until, timeout_s=5.0):
     import time
 
@@ -1064,15 +1083,19 @@ def test_running_again_after_a_stop_is_quick_and_counts_from_zero(app, monkeypat
     library = FakeLibrary()
     monkeypatch.setattr(pico, "load_library", lambda: library)
     instrument = backends.create("picoscope2000")
-    blocks = []
+    blocks, states = [], []
     instrument.block.connect(blocks.append)
+    instrument.state_changed.connect(states.append)
     library.waiting.append(([1] * 10, [1] * 10))
     instrument.start()
     run_for(app, instrument, lambda: len(blocks) == 1)
     instrument.stop()
     instrument.set("rate", 100_000)
-    library.waiting.append(([2] * 4, [2] * 4))
     instrument.start()
+    # What the second run reads, once it is running: handed over sooner, the
+    # first run's last poll can take it, and what it takes is rightly dropped.
+    run_for(app, instrument, lambda: states == [True, False, True])
+    library.waiting.append(([2] * 4, [2] * 4))
     run_for(app, instrument, lambda: len(blocks) == 2)
     assert (blocks[1].first, blocks[1].rate) == (0, 100_000)
     assert library.calls.count(("open",)) == 1

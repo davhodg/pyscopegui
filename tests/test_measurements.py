@@ -5,6 +5,8 @@
 import numpy as np
 import pytest
 
+from pyscopegui.backends import demo
+from pyscopegui.backends.base import Block
 from pyscopegui.core.measure import measure
 
 
@@ -53,8 +55,14 @@ def test_gaps_are_left_out_and_too_little_is_nothing():
 
 # --- in the pane --------------------------------------------------------------------------------
 def feed(window, seconds=0.2):
-    window.instrument._started -= seconds
-    window.instrument._tick()
+    """This much more of the demo's signals, straight after what it has sent,
+    however long the computer took to get here: a tick that has fallen too
+    far behind skips what it missed, and that gap would be measured across."""
+    instrument = window.instrument
+    count = round(seconds * demo.RATE)
+    instrument._started -= seconds  # so its own next tick is not behind
+    instrument.block.emit(Block(instrument._sent, demo.RATE, demo.samples(instrument._sent, count)))
+    instrument._sent += count
 
 
 @pytest.fixture
