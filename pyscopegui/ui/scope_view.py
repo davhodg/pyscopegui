@@ -587,22 +587,24 @@ class ScopeView(QWidget):
     def _place_y(self, *_args) -> None:
         """Fit the voltage axis to the signal, or set it to the channels' range.
 
-        The range is the largest of the analog channels shown, since they
-        share the one axis. Where none of them has a range to speak of, the
-        axis is fitted whatever the tick says: there is nothing else to set it to.
+        The range covers every analog channel shown, since they share the one
+        axis: each reads full scale either side of its middle, which an offset
+        moves away from nought. Where none of them has a range to speak of,
+        the axis is fitted whatever the tick says: there is nothing else to set it to.
         """
-        most = max(
-            (
-                record.channel.full_scale
-                for key, record in self._records()
-                if record.channel.kind == ANALOG and key not in self._hidden
-            ),
-            default=0.0,
-        )
-        if self.auto_y.isChecked() or most <= 0:
+        reaches = [
+            (channel.middle - channel.full_scale, channel.middle + channel.full_scale)
+            for key, record in self._records()
+            if (channel := record.channel).kind == ANALOG
+            and key not in self._hidden
+            and channel.full_scale > 0
+        ]
+        if self.auto_y.isChecked() or not reaches:
             self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
         else:
-            self.analog.setYRange(-most, most, padding=RANGE_MARGIN)
+            low = min(low for low, _high in reaches)
+            high = max(high for _low, high in reaches)
+            self.analog.setYRange(low, high, padding=RANGE_MARGIN)
 
     # --- colours ---------------------------------------------------------------------------
     def _chosen_colours(self) -> dict[str, str]:

@@ -80,6 +80,8 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- With **Auto Y** unticked, the voltage axis follows a channel's offset: it shows what the
+  scope is measuring, -6 V to 4 V for a 1 V offset on ±5 V, and not the range around nought.
 - PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
   were partly dropped, without a word, and the time of everything after them was out;
   and samples the driver lost were drawn as a gap the Event Log said nothing about.

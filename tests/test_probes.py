@@ -110,6 +110,16 @@ def test_the_channel_says_it_is_in_amps(app):
     assert as_is.unit == "V", "read as it is, the scope's own probe setting is all there is"
 
 
+def test_an_offset_moves_the_middle_of_what_a_channel_reads(app):
+    from pyscopegui import backends
+
+    for name in ("rigol1000z", "tektronix2000"):
+        channel = backends.create(name, None, {"offset_1": 2.0}).channels()[0]
+        assert channel.middle == -2.0, name
+    as_is = backends.create("tektronix2000", None, {"offset_1": 2.0, "read": tek.AS_IS})
+    assert as_is.channels()[0].middle == 0.0, "its offset is the scope's own business"
+
+
 def test_a_picoscope_reads_amps_through_a_current_probe():
     from tests.test_picoscope2000a import FakeLibrary, started
 

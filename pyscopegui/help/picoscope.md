@@ -212,8 +212,15 @@ generator, which every one of them has.
 
 To read a signal that sits away from nought more finely -- one between 3 V and 4 V, say --
 give its channel an **Offset**. It is added to the signal before the scope measures it, in
-volts at the probe's tip -- amps, through a current probe -- as a bench scope's offset is: -3.5 V puts that signal in the
-middle of the range, and a smaller **Scale** then fits it, measured in finer steps.
+volts at the probe's tip -- amps, through a current probe -- as a bench scope's offset is:
+-3.5 V puts that signal in the middle of the range, and a smaller **Scale** then fits it,
+measured in finer steps.
+
+The offset is taken off again, so what is read, measured and exported is the signal itself:
+3.5 V reads 3.5 V. With **Auto Y** unticked, the plot's axis is the stretch the scope is
+measuring, 3 V to 4 V on ±500 mV with -3.5 V of offset; with it ticked, the axis fits the
+signal whatever the offset. Unlike PicoScope's own software, the trace is not drawn moved by
+the offset: it stays at its true voltage.
 
 Each range takes only so much offset, and the smaller ranges less: the scope says how much,
 and pyscopegui asks it. Ask for more than a range takes and it is given as much as it takes,

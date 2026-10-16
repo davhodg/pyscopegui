@@ -958,6 +958,8 @@ class Tektronix2000(Instrument):
                 unit="V" if settings.as_is else settings.probe[key].unit,
                 # Read as it is, the scope's scale is its own and not known here.
                 full_scale=0.0 if settings.as_is else settings.scale[key] * UP / 2,
+                # The offset moves nought up the screen: the middle is minus it.
+                middle=0.0 if settings.as_is else -settings.offset[key],
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
                 colour=COLOURS.get(key, ""),

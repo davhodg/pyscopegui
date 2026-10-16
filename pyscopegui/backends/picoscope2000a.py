@@ -1085,6 +1085,9 @@ class PicoScope2000A(pico.PicoScope2000):
             replace(
                 channel,
                 detail=f"{channel.detail}, offset {settings.offset[channel.key]:g} {channel.unit}",
+                # What is read is the signal with the offset taken off again,
+                # over a range that the offset has moved.
+                middle=-settings.offset[channel.key],
             )
             if settings.offset[channel.key] and self._has_offset
             else channel

@@ -863,6 +863,8 @@ class Rigol1000Z(Instrument):
                 key,
                 unit=self.settings.probe[key].unit,
                 full_scale=self.settings.scale[key] * UP / 2,
+                # The offset moves nought up the screen: the middle is minus it.
+                middle=-self.settings.offset[key],
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
                 colour=COLOURS.get(key, ""),

@@ -256,6 +256,22 @@ def test_unticked_the_voltage_axis_is_the_largest_range_shown(window, monkeypatc
     window.stop()
 
 
+def test_unticked_the_voltage_axis_follows_an_offset(window):
+    from dataclasses import replace
+
+    window.set_mode("auto")
+    window.set_mode("stop")
+    capture = window.capture
+    sine = capture.records["A"].channel
+    # A 1 V offset on a range of 5 V either way: what is read is -6 V to 4 V.
+    capture.update_channels([replace(sine, full_scale=5.0, middle=-1.0)])
+    window.scope.auto_y.setChecked(False)
+    low, high = y_range(window.scope)
+    assert -6.6 < low < -6 and 4 < high < 4.6
+    window.scope._on_shown("demo:B", False)
+    assert y_range(window.scope)[0] < -6, "and with only that channel shown too"
+
+
 def test_the_choice_of_voltage_axis_is_remembered(window):
     window.scope.auto_y.setChecked(False)
     assert window.ctx.settings.get("scope.auto_y") is False

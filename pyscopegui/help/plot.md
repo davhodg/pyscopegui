@@ -192,7 +192,9 @@ from the trigger. Choosing a trigger, or going back to none, puts it back to **F
 **Auto Y** fits the voltage axis to what is being measured, and is on to start with.
 Unticked, the axis is the range the channels are set to, as a scope's screen is: a small
 signal on a large range is then drawn small. When the channels shown are on different ranges
-the axis takes the largest, since they share it.
+the axis takes in all of them, since they share it. An offset moves a channel's range: with a
+1 V offset on ±5 V, what is read is -6 V to 4 V, and that is what the axis shows. What is read
+is still the signal itself, offset and all taken off, so a cursor on a 3.5 V signal says 3.5 V.
 
 ## How much is kept
 

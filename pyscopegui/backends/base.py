@@ -47,6 +47,10 @@ class Channel:
     #: The colour the instrument itself draws it in, as "#rrggbb", so that the
     #: plot and the scope's own screen agree. Empty where it has none.
     colour: str = ""
+    #: The middle of what it can read, which full_scale is either side of:
+    #: nought, or minus an offset. With a 1 V offset on a ±5 V range what is
+    #: read is -6 V to 4 V, and the plot's axis is set to that.
+    middle: float = 0.0
 
 
 @dataclass(frozen=True)

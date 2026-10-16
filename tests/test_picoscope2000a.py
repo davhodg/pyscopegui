@@ -903,8 +903,10 @@ def test_the_instrument_offers_an_offset_only_on_a_scope_that_has_one(app, monke
         run_for(app, instrument, lambda opened=opened: opened == [True])
         keys = [setting.key for setting in instrument.settings_offered()]
         assert ("offset_a" in keys) == offered
-        detail = instrument.channels()[0].detail
-        assert detail.endswith(", offset -1 V") == offered
+        channel = instrument.channels()[0]
+        assert channel.detail.endswith(", offset -1 V") == offered
+        # What is read is moved up by the volt the scope takes off.
+        assert channel.middle == (1.0 if offered else 0.0)
         instrument.close()
         run_for(app, instrument, lambda opened=opened: opened == [True, False])
 
