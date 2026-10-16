@@ -12,9 +12,9 @@ Open it from the **View** menu. It opens behind the [Event Log](event-log.md).
 ## Only while it is open
 
 **Nothing is kept while the pane is not on screen.** Recording starts when it is opened and
-stops when it is put away, and while it is stopped the instruments pay nothing for it. It is
-put away again every time pyscopegui starts, whatever it was left as, so that it is never
-recording without somebody having asked.
+stops when it is put away -- or when another tab is in front of it -- and while it is stopped
+the instruments pay nothing for it. pyscopegui starts with it as it was left: open and
+recording if it was open, put away if it was put away.
 
 What is shown stays until **Clear**, or until pyscopegui is closed. The newest ten thousand
 lines are kept on screen.

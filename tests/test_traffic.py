@@ -267,10 +267,29 @@ def test_clear_and_save(window, tmp_path):
     view.listen(False)
 
 
-def test_left_open_it_is_put_away_again_the_next_time(window, app):
+def test_left_open_it_is_open_again_the_next_time_and_recording(window, app):
     from pyscopegui.ui.main_window import MainWindow
 
     window.panes.show("traffic")
+    app.processEvents()
+    window.save_arrangement()
+    window.close()
+    again = MainWindow()
+    again.show()
+    app.processEvents()
+    try:
+        assert again.panes.on_screen("traffic") and traffic.on
+    finally:
+        again.close()
+        again.deleteLater()
+
+
+def test_left_put_away_it_is_put_away_the_next_time_and_keeps_nothing(window, app):
+    from pyscopegui.ui.main_window import MainWindow
+
+    window.panes.show("traffic")
+    app.processEvents()
+    window.panes.docks["traffic"].hide()
     app.processEvents()
     window.save_arrangement()
     window.close()

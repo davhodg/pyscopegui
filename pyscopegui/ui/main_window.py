@@ -305,7 +305,8 @@ class MainWindow(QMainWindow):
         self._say_how_to_add_a_shortcut()
         self._restore_layout()
         self.panes.restore_state()
-        self._put_traffic_away()
+        # As it was left: recording while it is on screen, and not otherwise.
+        self.traffic.listen(self.panes.on_screen("traffic"))
 
     # --- the instruments ---------------------------------------------------------------
     def _unit(self, name: str) -> Unit:
@@ -1012,18 +1013,6 @@ class MainWindow(QMainWindow):
     def _on_pane_shown(self, name: str, on: bool) -> None:
         if name == "traffic":
             self.traffic.listen(on)
-
-    def _put_traffic_away(self) -> None:
-        """Start with the traffic pane put away, however it was left.
-
-        It keeps every command and answer while it is open, which nobody
-        should be paying for because they once looked: opening it is asked
-        for each time, from the View menu.
-        """
-        if (window := self.panes.detached.get("traffic")) is not None:
-            window.close()
-        self.panes.docks["traffic"].hide()
-        self.traffic.listen(False)
 
     def _make_scope(self, name: str) -> ScopeView:
         view = ScopeView(self.session, self.ctx, key=name)

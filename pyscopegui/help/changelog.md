@@ -68,6 +68,8 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- The **Instrument traffic** pane comes back as it was left, open or put away, rather than put
+  away every time pyscopegui starts. It still records only while it is on screen.
 - **Auto Y** is now a choice of three, as Time is: **Auto**, **Range** -- the axis the
   channels are set to -- and **Manual**, which holds the axis where it is. Zooming or dragging
   the voltage axis chooses Manual. Auto Y unticked before comes back as Range.
