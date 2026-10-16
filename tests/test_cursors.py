@@ -240,10 +240,22 @@ def test_a_picture_of_the_plot_has_the_cursors_and_their_readings_in_it(held, tm
         return any(
             picture.pixel(x, y) == wanted
             for x in range(picture.width())
-            for y in range(0, picture.height(), 7)
+            for y in range(0, picture.height(), 3)
         )
 
-    assert has_cursor_colour(tmp_path / "one.png") and not has_cursor_colour(tmp_path / "none.png")
+    (x_from, x_to), _y = window.scope.analog.getViewBox().viewRange()
+    where = f"cursor at {window.scope.cursor_time(0)} in a view of {x_from} to {x_to}"
+    assert has_cursor_colour(tmp_path / "one.png"), where
+    assert not has_cursor_colour(tmp_path / "none.png")
+
+
+def test_a_cursor_on_the_very_edge_of_the_plot_is_brought_into_view(held):
+    window = held
+    (x_from, x_to), _y = window.scope.analog.getViewBox().viewRange()
+    window.scope.set_cursor(0, x_from)
+    choose(window, 1)
+    at = window.scope.cursor_time(0)
+    assert at == pytest.approx(x_from + (x_to - x_from) / 3)
 
 
 # --- how times are said ----------------------------------------------------------------------

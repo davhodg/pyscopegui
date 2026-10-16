@@ -140,6 +140,9 @@ CURSOR_CHOICES = ("None", "1", "2")
 #: The cursors' colours: unlike each other's, and unlike the yellow, cyan,
 #: magenta, blue, red and green the scopes draw their channels in.
 CURSOR_COLOURS = ("#ff8c1a", "#a066ff")
+#: How close to either edge of the plot, as a share of its width, a cursor
+#: counts as out of sight and is brought back when cursors are chosen.
+EDGE = 0.02
 CURSORS_TIP = (
     "Lines down the plot, dragged to a moment: the channel list then says what\n"
     "each channel read there, to the nearest sample. Two also give the time\n"
@@ -749,10 +752,12 @@ class ScopeView(QWidget):
 
     def bring_cursors(self, every: bool = False) -> None:
         """Put the cursors that are out of sight -- or every one -- back in view:
-        a third of the way across, and two thirds."""
+        a third of the way across, and two thirds. One on the very edge counts
+        as out of sight: it is under the axis there, or cut off."""
         (x_from, x_to), _y = self.analog.getViewBox().viewRange()
+        margin = (x_to - x_from) * EDGE
         for number in range(self.cursor_count()):
-            if every or not x_from <= self._cursor_at[number] <= x_to:
+            if every or not x_from + margin <= self._cursor_at[number] <= x_to - margin:
                 self.set_cursor(number, x_from + (x_to - x_from) * (number + 1) / 3)
         self._show_values()
 
