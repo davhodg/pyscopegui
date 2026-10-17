@@ -31,7 +31,7 @@ from __future__ import annotations
 import queue
 import socket
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
@@ -39,6 +39,20 @@ from PySide6.QtCore import QObject, QThread, Signal
 from pyscopegui.backends import probes, visa
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
 from pyscopegui.core.traffic import traced
+from pyscopegui.core.triggers import (
+    BETWEEN,
+    EDGE,
+    EITHER,
+    ENTER,
+    LOW,
+    PATTERN,
+    PULSE,
+    RUNT,
+    SHORTER,
+    TIMEOUT,
+    WINDOW,
+    Condition,
+)
 
 PORT = 5555
 #: Seconds to wait to be connected, and for an answer once connected.
@@ -327,6 +341,119 @@ class Trigger:
     position: float = 0.5
     #: Take the sweep anyway when no trigger comes.
     auto: bool = True
+    #: What is waited for beyond an edge, where the scope can: see triggers_itself.
+    condition: Condition = field(default_factory=Condition)
+
+
+#: The trigger types the scope is told, by what pyscopegui calls them.
+MODES = {
+    EDGE: "EDGE",
+    PULSE: "PULS",
+    RUNT: "RUNT",
+    WINDOW: "WIND",
+    TIMEOUT: "TIM",
+    PATTERN: "PATT",
+}
+#: How far either side of the middle of its screen the scope takes a trigger level from,
+#: in divisions: past the top and bottom of what it shows.
+LEVEL_DIVISIONS = 5
+#: The least holdoff the scope has, in seconds: what it is with none.
+LEAST_HOLDOFF = 16e-9
+
+
+def triggers_itself(condition: Condition, source: str | None, on: list[str]) -> bool:
+    """Whether the scope can wait for this itself, given the channels that are on.
+
+    An edge either way, a pulse's width, a runt, a window, or a pattern of
+    channels at once -- each with a holdoff, which it has as well -- and a
+    timeout, which has none. Runt, window and timeout are among the advanced
+    triggers a DS1000Z has as an option. Not a pattern that has to be held,
+    which it has only as a duration measured to the pattern's end.
+    """
+    if condition.kind == TIMEOUT and condition.holdoff:
+        return False
+    if condition.kind == PATTERN:
+        keys = [key for key, _level in condition.pattern]
+        return not condition.held and all(key in on for key in keys)
+    return condition.kind in MODES and source in on
+
+
+def waits(settings: Settings, trigger: Trigger) -> bool:
+    """Whether there is a trigger to wait for, or sweeps are taken one after another."""
+    condition = trigger.condition
+    if condition.kind == PATTERN:
+        return bool(condition.pattern) and triggers_itself(
+            condition, trigger.source, settings.keys()
+        )
+    return trigger.source in CHANNELS and settings.enabled[trigger.source]
+
+
+def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
+    """The commands for what is waited for, as what is set -> what to."""
+    condition = trigger.condition
+    if not triggers_itself(condition, trigger.source, settings.keys()):
+        condition = Condition()
+
+    def level(key: str, value: float) -> str:
+        """As the scope is told it: through the probe, and inside the five
+        divisions either side of the middle that it takes a level from."""
+        probe = settings.probe[key]
+        reach = LEVEL_DIVISIONS * probe.at_scope(settings.scale[key])
+        middle = -probe.at_scope(settings.offset[key])
+        return f"{min(max(probe.at_scope(value), middle - reach), middle + reach):g}"
+
+    kind = condition.kind
+    wanted = {":TRIG:MODE": MODES[kind]}
+    if kind == PATTERN:
+        levels = dict(condition.pattern)
+        wanted[":TRIG:PATT:PATT"] = ",".join(
+            "X" if key not in levels else "H" if levels[key] else "L" for key in CHANNELS
+        )
+        for key in levels:
+            wanted[f":TRIG:PATT:LEV CHAN{key[2:]},"] = level(key, trigger.level)
+    else:
+        key = trigger.source
+        source = "CHAN" + key[2:]
+        low, high = sorted((trigger.level, condition.upper))
+        if kind == EDGE:
+            wanted[":TRIG:EDG:SOUR"] = source
+            edge = "RFAL" if condition.edge == EITHER else "POS" if trigger.rising else "NEG"
+            wanted[":TRIG:EDG:SLOP"] = edge
+            wanted[":TRIG:EDG:LEV"] = level(key, trigger.level)
+        elif kind == PULSE:
+            wanted[":TRIG:PULS:SOUR"] = source
+            wanted[":TRIG:PULS:LEV"] = level(key, trigger.level)
+            sign = "N" if condition.polarity == LOW else "P"
+            if condition.compare == BETWEEN:
+                wanted[":TRIG:PULS:WHEN"] = sign + "GL"
+                wanted[":TRIG:PULS:UWID"] = f"{condition.longest:g}"
+                wanted[":TRIG:PULS:LWID"] = f"{condition.shortest:g}"
+            else:
+                wanted[":TRIG:PULS:WHEN"] = sign + ("LES" if condition.compare == SHORTER else "GR")
+                wanted[":TRIG:PULS:WIDT"] = f"{condition.shortest:g}"
+        elif kind == RUNT:
+            wanted[":TRIG:RUNT:SOUR"] = source
+            wanted[":TRIG:RUNT:POL"] = "NEG" if condition.polarity == LOW else "POS"
+            wanted[":TRIG:RUNT:WHEN"] = "NONE"
+            wanted[":TRIG:RUNT:ALEV"] = level(key, high)
+            wanted[":TRIG:RUNT:BLEV"] = level(key, low)
+        elif kind == TIMEOUT:
+            wanted[":TRIG:TIM:SOUR"] = source
+            wanted[":TRIG:TIM:SLOP"] = {LOW: "NEG", EITHER: "RFAL"}.get(condition.polarity, "POS")
+            wanted[":TRIG:TIM:TIM"] = f"{condition.shortest:g}"
+            # Its level is the edge trigger's: there is no command of its own
+            # for it. Found by trying, on a DS1054Z.
+            wanted[":TRIG:EDG:SOUR"] = source
+            wanted[":TRIG:EDG:LEV"] = level(key, trigger.level)
+            return wanted  # and no holdoff, which it does not have
+        else:
+            wanted[":TRIG:WIND:SOUR"] = source
+            wanted[":TRIG:WIND:SLOP"] = "RFAL"
+            wanted[":TRIG:WIND:POS"] = "ENTER" if condition.direction == ENTER else "EXIT"
+            wanted[":TRIG:WIND:ALEV"] = level(key, high)
+            wanted[":TRIG:WIND:BLEV"] = level(key, low)
+    wanted[":TRIG:HOLD"] = f"{max(condition.holdoff, LEAST_HOLDOFF):g}"
+    return wanted
 
 
 def setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
@@ -352,15 +479,42 @@ def setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
     wanted[":TIM:MAIN:SCAL"] = f"{settings.time_div:g}"
     # The scope's offset is where the middle of its screen is, measured from
     # the trigger: nought has the trigger in the middle.
-    position = trigger.position if trigger.source is not None else 0.5
+    position = trigger.position if waits(settings, trigger) else 0.5
     wanted[":TIM:MAIN:OFFS"] = f"{(0.5 - position) * ACROSS * settings.time_div:g}"
-    if trigger.source in CHANNELS and settings.enabled[trigger.source]:
-        wanted[":TRIG:MODE"] = "EDGE"
-        wanted[":TRIG:EDG:SOUR"] = "CHAN" + trigger.source[2:]
-        wanted[":TRIG:EDG:SLOP"] = "POS" if trigger.rising else "NEG"
-        level = settings.probe[trigger.source].at_scope(trigger.level)
-        wanted[":TRIG:EDG:LEV"] = f"{level:g}"
+    if waits(settings, trigger):
+        wanted.update(_trigger_setup(settings, trigger))
     return wanted
+
+
+#: A lower limit and its upper, which the scope will not have the wrong way round.
+LIMITS = (
+    (":TRIG:PULS:LWID", ":TRIG:PULS:UWID"),
+    (":TRIG:RUNT:BLEV", ":TRIG:RUNT:ALEV"),
+    (":TRIG:WIND:BLEV", ":TRIG:WIND:ALEV"),
+)
+
+
+def _in_order(changed: list[tuple[str, str]], wanted: dict[str, str]) -> list[tuple[str, str]]:
+    """What changed, with each pair of limits sent upper, lower, upper.
+
+    The scope refuses a lower limit above the upper it has, or an upper below
+    the lower, and which it has may be anything. Upper, lower and upper again
+    ends with both as wanted, whatever they were: one of the three may be
+    refused on the way, and nothing is asked about it -- a DS1000Z's link can
+    lock up when what it refused is asked about.
+    """
+    ordered = []
+    for what, to in changed:
+        pair = next((pair for pair in LIMITS if what in pair), None)
+        if pair is None:
+            ordered.append((what, to))
+        elif not any(done in pair for done, _to in ordered):
+            lower, upper = pair
+            if lower in wanted and upper in wanted:
+                ordered += [(upper, wanted[upper]), (lower, wanted[lower]), (upper, wanted[upper])]
+            else:
+                ordered.append((what, to))
+    return ordered
 
 
 # --- the wire -------------------------------------------------------------------------------
@@ -502,12 +656,22 @@ class Scope:
         """Send whatever of the setup is not what was last sent."""
         wanted = setup(self.settings, self.trigger)
         changed = [(what, to) for what, to in wanted.items() if self._sent.get(what) != to]
-        for what, to in changed:
-            self._link.write(f"{what} {to}")
+        for what, to in _in_order(changed, wanted):
+            # A pattern's level is said of a channel: "...:LEV CHAN1,0.5".
+            self._link.write(f"{what}{to}" if what.endswith(",") else f"{what} {to}")
         self._sent.update(wanted)
         if changed:
             # Answered once all of it has been done: nothing is read before then.
             self._link.ask("*OPC?")
+        mode = wanted.get(":TRIG:MODE", "EDGE")
+        if mode != "EDGE" and any(what == ":TRIG:MODE" for what, _to in changed):
+            # One without the advanced triggers option keeps the type it had.
+            if self._link.ask(":TRIG:MODE?") != mode:
+                self._sent.pop(":TRIG:MODE", None)
+                raise ScopeError(
+                    "The scope would not take that type of trigger: runt, window and "
+                    "timeout are among Rigol's advanced triggers, an option on a DS1000Z."
+                )
 
     def _arm(self) -> None:
         self._link.write(":SING")
@@ -539,7 +703,11 @@ class Scope:
         if self._link.ask(":TRIG:STAT?") != "STOP":
             trigger = self.trigger
             give_up = AUTO_S + ACROSS * self.settings.time_div
-            if (trigger.auto or trigger.source is None) and not self._forced and waited > give_up:
+            if (
+                (trigger.auto or not waits(self.settings, trigger))
+                and not self._forced
+                and (waited > give_up)
+            ):
                 self._link.write(":TFOR")
                 self._forced = True
             return None
@@ -599,7 +767,7 @@ class Scope:
             self.notes.append(
                 (f"Sweeps of {shortest} points at {rate:,.0f} a second, from each channel.", False)
             )
-        if self.trigger.source is None or at is None or not 0 <= at < shortest:
+        if not waits(settings, self.trigger) or at is None or not 0 <= at < shortest:
             return Block(0, rate, data, sweep=True)
         return Block(0, rate, data, sweep=True, trigger=at, triggered=not self._forced)
 
@@ -737,6 +905,9 @@ class Rigol1000Z(Instrument):
     def sweeps(self) -> bool:
         return True
 
+    def triggers_itself(self, condition: Condition, source: str | None) -> bool:
+        return triggers_itself(condition, source, self.settings.keys())
+
     def set_trigger(
         self,
         source: str | None,
@@ -744,10 +915,11 @@ class Rigol1000Z(Instrument):
         rising: bool,
         position: float,
         auto: bool,
-        condition=None,
+        condition: Condition | None = None,
     ) -> None:
-        # A rising or a falling edge, for now: the scope's own kinds are still to come.
-        wanted = Trigger(source, level, rising, position, auto)
+        if condition is None or not self.triggers_itself(condition, source):
+            condition = Condition()
+        wanted = Trigger(source, level, rising, position, auto, condition)
         if wanted == self._trigger:
             return
         self._trigger = wanted

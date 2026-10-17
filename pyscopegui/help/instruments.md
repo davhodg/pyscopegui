@@ -162,9 +162,9 @@ offered for one.
 
 An instrument that sends short captures taken around a trigger of its own -- a
 [PicoScope reading blocks](picoscope.md), or a [Rigol](rigol.md) -- is handed these
-settings and does the triggering. What it cannot wait for itself is greyed out: a Rigol,
-and an older PicoScope, do a rising or a falling edge, and a newer PicoScope most of the
-types -- [what it does](picoscope.md). For everything else the trigger is found by pyscopegui, in the samples as they
+settings and does the triggering. What it cannot wait for itself is greyed out: an older
+PicoScope does a rising or a falling edge, and a newer PicoScope and a Rigol most of the
+types -- what [each](picoscope.md) [does](rigol.md). For everything else the trigger is found by pyscopegui, in the samples as they
 arrive, and not by the instrument. So it is the same for every instrument, the samples either side of a trigger are
 all still there to go back over, and it finds nothing the instrument cannot stream: on a
 PicoScope 2204A, nothing faster than 1 MS/s shows.

@@ -12,6 +12,20 @@ import pytest
 from pyscopegui.backends import rigol1000z as rigol
 from pyscopegui.backends import visa as visa_library
 from pyscopegui.backends.base import Block
+from pyscopegui.core.triggers import (
+    BETWEEN,
+    EDGE,
+    EITHER,
+    LEAVE,
+    LOW,
+    PATTERN,
+    PULSE,
+    RUNT,
+    SHORTER,
+    TIMEOUT,
+    WINDOW,
+    Condition,
+)
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
 
@@ -27,7 +41,7 @@ class FakeScope(socketserver.ThreadingTCPServer):
         #: Everything it was sent, in order.
         self.heard: list[str] = []
         #: What was last set: ":CHAN1:SCAL" -> "1".
-        self.state: dict[str, str] = {}
+        self.state: dict[str, str] = {":TRIG:MODE": "EDGE"}
         self.status = "STOP"
         #: Whether a trigger comes by itself once it is armed.
         self.triggers = True
@@ -37,6 +51,8 @@ class FakeScope(socketserver.ThreadingTCPServer):
         self.moved = 0
         #: How many points its memory holds.
         self.depth = 600_000
+        #: Trigger types it does not have, as one without the advanced option.
+        self.lacks: set[str] = set()
         threading.Thread(target=self.serve_forever, daemon=True).start()
 
     @property
@@ -65,11 +81,15 @@ class FakeScope(socketserver.ThreadingTCPServer):
             return b"0\n" if self.state.get(":SYST:BEEP") == "OFF" else b"1\n"
         elif what == ":WAV:PRE?":
             return self._preamble().encode() + b"\n"
+        elif what.endswith("?") and what[:-1] in self.state:
+            return self.state[what[:-1]].encode() + b"\n"
         elif what == ":WAV:DATA?":
             if self._raw() and self.state.get(":SYST:BEEP", "1") != "OFF":
                 self.beeps += 1  # "Can Operate Now!", after each piece of its memory
             data = self._data()
             return b"#9%09d" % len(data) + data + b"\n"
+        elif what == ":TRIG:MODE" and to in self.lacks:
+            pass  # kept as it was, as the real one does
         elif to:
             self.state[what] = to
             # As the real one does: an end set past the other moves that one too.
@@ -183,6 +203,110 @@ def test_the_setup_has_the_trigger_where_the_toolbar_put_it():
     # A quarter of the way across twelve divisions: the middle is three after it.
     assert float(wanted[":TIM:MAIN:OFFS"]) == pytest.approx(0.003)
     assert wanted[":CHAN3:DISP"] == "OFF" and ":CHAN3:SCAL" not in wanted
+
+
+def trigger_of(condition, source="CH1", level=1.0, **options):
+    settings = rigol.Settings({"enabled_2": True, **options})
+    wanted = rigol.setup(settings, rigol.Trigger(source, level, True, 0.5, condition=condition))
+    return {what: to for what, to in wanted.items() if what.startswith(":TRIG")}
+
+
+def test_an_edge_either_way_and_a_holdoff():
+    assert trigger_of(Condition(EDGE, edge=EITHER, holdoff=2e-6)) == {
+        ":TRIG:MODE": "EDGE",
+        ":TRIG:EDG:SOUR": "CHAN1",
+        ":TRIG:EDG:SLOP": "RFAL",
+        ":TRIG:EDG:LEV": "1",
+        ":TRIG:HOLD": "2e-06",
+    }
+    assert trigger_of(Condition())[":TRIG:HOLD"] == "1.6e-08", "the least it has, for none"
+
+
+def test_a_pulse_wider_narrower_or_between_high_or_low():
+    wider = trigger_of(Condition(PULSE, shortest=4e-4), "CH2", 0.5)
+    assert wider[":TRIG:MODE"] == "PULS" and wider[":TRIG:PULS:SOUR"] == "CHAN2"
+    assert wider[":TRIG:PULS:WHEN"] == "PGR" and wider[":TRIG:PULS:WIDT"] == "0.0004"
+    assert wider[":TRIG:PULS:LEV"] == "0.5"
+    narrower = trigger_of(Condition(PULSE, polarity=LOW, compare=SHORTER, shortest=1e-6))
+    assert narrower[":TRIG:PULS:WHEN"] == "NLES"
+    between = trigger_of(Condition(PULSE, compare=BETWEEN, shortest=4e-4, longest=6e-4))
+    assert between[":TRIG:PULS:WHEN"] == "PGL"
+    assert (between[":TRIG:PULS:LWID"], between[":TRIG:PULS:UWID"]) == ("0.0004", "0.0006")
+
+
+def test_a_runt_and_a_window_have_the_higher_level_as_their_upper():
+    runt = trigger_of(Condition(RUNT, upper=0.2, polarity=LOW), level=2.0)
+    assert runt[":TRIG:MODE"] == "RUNT" and runt[":TRIG:RUNT:POL"] == "NEG"
+    assert (runt[":TRIG:RUNT:ALEV"], runt[":TRIG:RUNT:BLEV"]) == ("2", "0.2")
+    assert runt[":TRIG:RUNT:WHEN"] == "NONE"
+    window = trigger_of(Condition(WINDOW, upper=3.0, direction=LEAVE))
+    assert window[":TRIG:MODE"] == "WIND" and window[":TRIG:WIND:POS"] == "EXIT"
+    assert window[":TRIG:WIND:SLOP"] == "RFAL", "out of either side"
+    assert (window[":TRIG:WIND:ALEV"], window[":TRIG:WIND:BLEV"]) == ("3", "1")
+
+
+@pytest.mark.parametrize(("polarity", "slope"), [("high", "POS"), (LOW, "NEG"), (EITHER, "RFAL")])
+def test_a_timeout_has_the_edge_triggers_level_and_no_holdoff(polarity, slope):
+    assert trigger_of(Condition(TIMEOUT, polarity=polarity, shortest=4e-4), "CH2", 1.5) == {
+        ":TRIG:MODE": "TIM",
+        ":TRIG:TIM:SOUR": "CHAN2",
+        ":TRIG:TIM:SLOP": slope,
+        ":TRIG:TIM:TIM": "0.0004",
+        ":TRIG:EDG:SOUR": "CHAN2",
+        ":TRIG:EDG:LEV": "1.5",
+    }
+
+
+def test_a_pattern_of_channels_each_with_the_level():
+    wanted = trigger_of(Condition(PATTERN, pattern=(("CH1", 1), ("CH2", 0))), source=None)
+    assert wanted[":TRIG:MODE"] == "PATT" and wanted[":TRIG:PATT:PATT"] == "H,L,X,X"
+    assert wanted[":TRIG:PATT:LEV CHAN1,"] == wanted[":TRIG:PATT:LEV CHAN2,"] == "1"
+
+
+def test_levels_are_told_to_the_scope_through_its_probe():
+    wanted = trigger_of(Condition(RUNT, upper=4.0), level=2.0, probe_1="10")
+    assert (wanted[":TRIG:RUNT:ALEV"], wanted[":TRIG:RUNT:BLEV"]) == ("4", "2")
+
+
+def test_a_level_past_what_the_scope_takes_is_the_nearest_it_does():
+    # One volt a division, moved up by one: five divisions either side are -4 V to 6 V.
+    wanted = trigger_of(Condition(WINDOW, upper=9.0), level=-7.0, scale_1=1.0, offset_1=-1.0)
+    assert (wanted[":TRIG:WIND:ALEV"], wanted[":TRIG:WIND:BLEV"]) == ("6", "-4")
+    wanted = trigger_of(Condition(), level=7.0, scale_1=1.0, offset_1=1.0)
+    assert wanted[":TRIG:EDG:LEV"] == "4"
+
+
+def test_limits_are_sent_so_that_they_end_up_as_wanted_whatever_they_were(fake):
+    scope = opened(fake)
+    between = Condition(PULSE, compare=BETWEEN, shortest=4e-4, longest=6e-4)
+    scope.start(scope.settings, rigol.Trigger("CH1", condition=between))
+    sent = [line for line in fake.heard if "WID" in line]
+    assert sent == [":TRIG:PULS:UWID 0.0006", ":TRIG:PULS:LWID 0.0004", ":TRIG:PULS:UWID 0.0006"]
+    assert not any("ERR" in line for line in fake.heard), "nothing refused is asked about"
+    scope.close()
+
+
+def test_what_it_cannot_do_itself():
+    on = ["CH1", "CH2"]
+    can = rigol.triggers_itself
+    assert can(Condition(EDGE, edge=EITHER, holdoff=1e-3), "CH1", on)
+    assert can(Condition(PULSE), "CH2", on) and can(Condition(RUNT), "CH1", on)
+    assert can(Condition(TIMEOUT), "CH1", on)
+    assert not can(Condition(TIMEOUT, holdoff=1e-3), "CH1", on), "a timeout has no holdoff"
+    assert not can(Condition(WINDOW), "CH3", on), "a channel that is off"
+    assert not can(Condition(PATTERN, pattern=(("CH1", 1),), held=1e-3), None, on)
+    assert can(Condition(PATTERN), None, on), "its channels still to be chosen"
+    assert not can(Condition("protocol"), "CH1", on)
+
+
+def test_a_scope_without_the_advanced_triggers_says_so(fake):
+    fake.lacks = {"RUNT", "WIND"}
+    scope = opened(fake)
+    with pytest.raises(rigol.ScopeError, match="advanced triggers"):
+        scope.start(scope.settings, rigol.Trigger("CH1", condition=Condition(RUNT, upper=2.0)))
+    scope.start(scope.settings, rigol.Trigger("CH1", condition=Condition(PULSE)))
+    assert fake.state[":TRIG:MODE"] == "PULS"
+    scope.close()
 
 
 def test_a_trigger_on_a_channel_that_is_off_is_left_alone():

@@ -11,6 +11,9 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **A Rigol triggers on more than an edge itself**: **Either** edge, **Pulse width**,
+  **Runt**, **Window**, **Timeout** and **Logic pattern**, with a holdoff, as the scope's
+  own trigger types. A trigger level past what the scope takes is the nearest it does.
 - **A newer PicoScope triggers on more than an edge itself**, reading blocks: **Either**
   edge, **Window**, **Pulse width**, **Runt** and **Logic pattern**, in its own hardware at
   its full rate. What a scope that sends sweeps cannot wait for itself is greyed out.

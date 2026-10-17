@@ -58,6 +58,24 @@ trigger for as long as it takes. **Auto** waits a little longer than one screen 
 has the scope take the sweep anyway. **Single** takes one sweep and stops. With no trigger
 chosen, sweeps are taken one after another.
 
+The trigger's [types](instruments.md) are the scope's own, each tried on a DS1054Z:
+
+| Type | On the scope |
+|------|--------------|
+| Edge | Rising, falling or **Either** |
+| Pulse width | Shorter, longer or between, high or low |
+| Runt | High or low: an option on a DS1000Z |
+| Window | Entering or leaving: an option on a DS1000Z |
+| Timeout | High, low or either for longer than a time: an option on a DS1000Z |
+| Logic pattern | Channels together, each at the level, as soon as they are so |
+| Protocol | Greyed out |
+
+Each with a **holdoff**, which the scope has too -- all but a timeout, which has none. A
+pattern that has to be **held** is greyed out, because the scope measures how long one
+lasted only once it is over. Runt, window and timeout are among the advanced triggers Rigol
+sells as an option for the DS1000Z: a scope without it says so in the
+[Event Log](event-log.md) when one is asked for.
+
 The plot shows the whole sweep, so the box beside **Time** has no say in how much is drawn:
 **Time** in the Instrument pane does that, as the knob on the scope would.
 
