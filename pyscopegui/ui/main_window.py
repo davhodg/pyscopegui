@@ -63,7 +63,7 @@ from pyscopegui.ui.workspace_menu import SWITCH_WHILE_OPEN, WorkspaceMenu
 LAYOUT_VERSION = 3
 
 #: Open on a first run. Everything else is one click away in the View menu.
-DEFAULT_VISIBLE = ("instrument", "scope", "log")
+DEFAULT_VISIBLE = ("instrument", "scope", "log", "measurements")
 
 #: How near the bottom of the Event Log still counts as being at the bottom,
 #: in scrollbar steps. Exactly at the end is too strict: a line arriving
@@ -362,6 +362,10 @@ class MainWindow(QMainWindow):
             saved = self.ctx.settings.get(f"{decoding.SAVED_KEY}.{name}")
             setups = [decoding.from_saved(s) for s in saved] if isinstance(saved, list) else []
             unit.capture.set_decodings([s for s in setups if s is not None])
+            # Those that were paused, still paused.
+            paused = self.ctx.settings.get(f"{decoding.PAUSED_KEY}.{name}")
+            for each in unit.capture.decodings:
+                each.pause(isinstance(paused, list) and each.key in paused)
         return unit
 
     def _saved_instruments(self) -> tuple[list[str], str]:
@@ -1045,9 +1049,17 @@ class MainWindow(QMainWindow):
         self.panes.register(
             PaneKind("log", "Event Log", Qt.BottomDockWidgetArea, lambda _name: self.log)
         )
+        # Those not in the default arrangement open floating the first time:
+        # in front of the window, still part of it, rather than as one more
+        # tab behind the Event Log. Where they go after that is up to whoever
+        # moves them, and the saved layout keeps it.
         self.panes.register(
             PaneKind(
-                "traffic", "Instrument traffic", Qt.BottomDockWidgetArea, lambda _n: TrafficView()
+                "traffic",
+                "Instrument traffic",
+                Qt.BottomDockWidgetArea,
+                lambda _n: TrafficView(),
+                floating_first=True,
             )
         )
         self.panes.register(
@@ -1059,7 +1071,13 @@ class MainWindow(QMainWindow):
             )
         )
         self.panes.register(
-            PaneKind("data", "Data", Qt.BottomDockWidgetArea, lambda _n: DataView(self.scope))
+            PaneKind(
+                "data",
+                "Data",
+                Qt.BottomDockWidgetArea,
+                lambda _n: DataView(self.scope),
+                floating_first=True,
+            )
         )
         self.panes.register(
             PaneKind(
@@ -1067,6 +1085,7 @@ class MainWindow(QMainWindow):
                 "Decoded buses",
                 Qt.BottomDockWidgetArea,
                 lambda _n: DecodedView(self.scope),
+                floating_first=True,
             )
         )
         self.panes.register(
@@ -1075,6 +1094,7 @@ class MainWindow(QMainWindow):
                 "Python Console",
                 Qt.BottomDockWidgetArea,
                 lambda _n: ConsoleView(Scripting(self).names(), self.ctx),
+                floating_first=True,
             )
         )
 
@@ -1085,6 +1105,8 @@ class MainWindow(QMainWindow):
     def _make_scope(self, name: str) -> ScopeView:
         view = ScopeView(self.session, self.ctx, key=name)
         view.channel_picked.connect(self._on_channel_picked)
+        # What a bus reads, in front of whoever has just asked for it decoded.
+        view.decoding_started.connect(lambda: self.panes.show("decoded"))
         return view
 
     def _on_channel_picked(self, instrument: str, group: str) -> None:
@@ -1178,31 +1200,34 @@ class MainWindow(QMainWindow):
     def _arrange_default(self) -> None:
         """The layout a first run opens with, and what Reset layout goes back to.
 
-            +------------+-------------------+
-            | Instrument | Channels and Plot |
-            +------------+-------------------+
-            |           Event Log            |
-            +--------------------------------+
+            +------------+-------------------------+
+            | Instrument |    Channels and Plot    |
+            +------------+-------------------------+
+            | Event Log  |      Measurements       |
+            +------------+-------------------------+
 
         The plot gets most of the room; the settings are a narrow column
-        beside it, and the log is the thing you glance at rather than work in.
+        beside it. Under them, the log is the thing you glance at rather than
+        work in, and the measurements -- a column for each reading -- have
+        two thirds of the width.
         """
-        instrument, scope, log = (self.panes.docks[n] for n in DEFAULT_VISIBLE)
+        instrument, scope, log, measurements = (self.panes.docks[n] for n in DEFAULT_VISIBLE)
         self.addDockWidget(Qt.TopDockWidgetArea, instrument)
         self.splitDockWidget(instrument, log, Qt.Vertical)
         self.splitDockWidget(instrument, scope, Qt.Horizontal)
+        self.splitDockWidget(log, measurements, Qt.Horizontal)
         # Behind the Event Log, put away until they are asked for.
         self.tabifyDockWidget(log, self.panes.docks["traffic"])
         self.tabifyDockWidget(log, self.panes.docks["console"])
-        self.tabifyDockWidget(log, self.panes.docks["measurements"])
         self.tabifyDockWidget(log, self.panes.docks["data"])
         self.tabifyDockWidget(log, self.panes.docks["decoded"])
         for name, dock in self.panes.docks.items():
             dock.setFloating(False)
             dock.setVisible(name in DEFAULT_VISIBLE)
-        # The inner division first, and the outer through a dock that sits
+        # The inner divisions first, and the outer through a dock that sits
         # directly in it: an outer call re-divides what an inner one settled.
         self.resizeDocks([instrument, scope], [1, 5], Qt.Horizontal)
+        self.resizeDocks([log, measurements], [1, 2], Qt.Horizontal)
         self.resizeDocks([log, scope], [1, 4], Qt.Vertical)
 
     def _restore_layout(self) -> None:

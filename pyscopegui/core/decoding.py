@@ -40,6 +40,8 @@ CAN, UART, SPI, I2C = "can", "uart", "spi", "i2c"
 PROTOCOLS = {CAN: "CAN", UART: "UART", SPI: "SPI", I2C: "I²C"}
 #: Under this name in the workspace, and an instrument's: its channels decoded.
 SAVED_KEY = "decode"
+#: And under this, the keys of those of its buses that are paused.
+PAUSED_KEY = "decode_paused"
 #: The most found kept for one decoding. Past it the oldest go.
 MOST_ITEMS = 100_000
 #: Either side of a threshold that a signal has to go to change level, in volts.
@@ -340,11 +342,22 @@ class Decoding:
         self.rate = 1.0
         #: What is wrong, where nothing can be decoded: too few samples a bit.
         self.problem = ""
+        #: Paused: kept, with what it found, but nothing more decoded until
+        #: it is set going again.
+        self.paused = False
         self.reset()
 
     @property
     def key(self) -> str:
         return self.setup.key
+
+    def pause(self, paused: bool) -> None:
+        """Pause, or go on: from the next block, as though from a gap, rather
+        than joining what came after the pause to what came before it."""
+        if self.paused and not paused:
+            self._high = {}
+            self._restart()
+        self.paused = paused
 
     def reset(self) -> None:
         """Start again, with nothing found: a new run, or the history cleared."""

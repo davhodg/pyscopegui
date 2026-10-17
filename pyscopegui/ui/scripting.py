@@ -289,23 +289,44 @@ class Scripting:
             "samples": measured.samples,
         }
 
-    def maths(self, a: str, op: str, b: str) -> str:
-        """Make a maths channel of the chosen instrument: maths("CH1", "-", "CH2").
-        ``op`` is "+", "-", "*" or "/". The name the plot gives it."""
-        from pyscopegui.core.maths import OPERATIONS, Maths
+    def maths(
+        self,
+        a: str,
+        op: str,
+        b: str = "",
+        k: float = 1.0,
+        c: float = 0.0,
+        unit: str = "",
+        over: float = 1e-3,
+    ) -> str:
+        """Make a maths channel of the chosen instrument, and say what the plot
+        calls it. Of two channels, ``op`` "+", "-", "*" or "/":
+        maths("CH1", "-", "CH2"). Of one, "neg", "abs", "sq", "sqrt", "ddt",
+        "int"; "scale", k times it plus c, in ``unit``: maths("CH1", "scale",
+        k=10, unit="A"); or "avg", the mean of ``over`` seconds before each
+        sample: maths("CH1", "avg", over=1e-3)."""
+        from pyscopegui.core.maths import OPERATIONS, TWO, Maths
 
+        measured_in = unit  # the name is wanted below for the instrument
         if op not in OPERATIONS:
             raise ScriptError(f"No such operation {op!r}: one of {', '.join(OPERATIONS)}.")
+        if op in TWO and not b:
+            raise ScriptError(f'{op!r} takes two channels: maths("CH1", {op!r}, "CH2").')
+        if op == "avg" and not over > 0:
+            raise ScriptError("An average is over a time of more than nought.")
         window = self._window
         unit = self._unit()
         if unit.instrument is None and not window._have(window.chosen):
             raise ScriptError(f"{backends.title(window.chosen)} could not be started.")
-        for key in (a, b):
+        for key in (a, b) if op in TWO else (a,):
             record = unit.capture.records.get(key)
             if record is None or record.channel.kind != "analog":
                 found = [k for k, r in unit.capture.records.items() if r.channel.kind == "analog"]
                 raise ScriptError(f"No analog channel {key!r} of this instrument: {found}.")
-        made = Maths(a, op, b)
+        if op in TWO:
+            made = Maths(a, op, b)
+        else:
+            made = Maths(a, op, k=float(k), c=float(c), unit=measured_in, span=float(over))
         window.scope.add_maths(unit, made)
         window.scope.redraw()
         return window.scope._names[unit.id(made.key)]

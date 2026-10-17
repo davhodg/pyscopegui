@@ -11,6 +11,13 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **More maths**: of one channel, **−A**, **|A|**, **A²**, **√A**, **k × A + c** in a unit of
+  its own, **dA/dt**, **∫A dt** and an **average** over a time, beside the four of two
+  channels. Every maths channel is named *Math: ...*; right-click below the channels for one.
+- The **Decoded buses** pane lists each bus with a tick to pause it, and **Add...** and
+  **Remove** buttons; it opens by itself when a channel is decoded.
+- The **Measurements** pane is in the default arrangement, beside the Event Log, and the
+  other panes open floating the first time, in front of the window.
 - **A Rigol triggers on more than an edge itself**: **Either** edge, **Pulse width**,
   **Runt**, **Window**, **Timeout** and **Logic pattern**, with a holdoff, as the scope's
   own trigger types. A trigger level past what the scope takes is the nearest it does.

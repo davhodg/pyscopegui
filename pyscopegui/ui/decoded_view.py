@@ -3,8 +3,10 @@
 """The Decoded buses pane: everything read off the channels decoded -- CAN
 frames, serial lines' characters, SPI and I2C transfers -- in one list.
 
-A row for each, every bus's in the order they came, and the time each started
-on the plot's axis. Clicking one puts the first cursor on it, and brings it
+Above it, the buses: each can be paused -- kept, with what it read, but not
+decoded and not listed until it is ticked again -- or removed, and more added.
+Below, a row for each thing read, every bus's in the order they came, and the
+time each started on the plot's axis. Clicking one puts the first cursor on it, and brings it
 into view. One read wrong -- a stuff error, a parity error, a word cut short --
 is a row of its own, said in red: what a bus did is the point, the bad as much
 as the good.
@@ -22,9 +24,15 @@ from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
     QTableView,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -42,8 +50,17 @@ TIME, BUS, ID, TYPE, DATA, ACK, PROBLEM = range(len(HEADINGS))
 #: What is read wrong is said in.
 WRONG = QColor("#d04040")
 NOTHING_DECODED = (
-    "No channel is decoded. Right-click a channel in the plot's list and choose Decode as."
+    "No channel is decoded. Add... decodes one, as does right-clicking a channel "
+    "in the plot's list and choosing Decode as."
 )
+BUSES_TIP = (
+    "The buses decoded. Untick one to pause it: what it read is kept, and\n"
+    "nothing more is decoded or listed until it is ticked again."
+)
+ADD_TIP = "Decode a channel: choose it, and then what it carries."
+REMOVE_TIP = "Stop decoding the bus chosen above, and forget what it read."
+#: The most buses shown at once in the list above the table; more scroll.
+BUSES_SHOWN = 4
 DECODED_TIP = (
     "Everything read off the channels decoded. Click a row to put the first\n"
     "cursor on it. Select rows and press Ctrl+C to copy them."
@@ -151,6 +168,20 @@ class DecodedView(QWidget):
         self.scope = scope
         self.over = QLabel()
         self.over.setWordWrap(True)
+        #: The buses, a tick to have each decoded, and what each has read.
+        self.buses = QListWidget()
+        self.buses.setToolTip(BUSES_TIP)
+        self.buses.itemChanged.connect(self._on_ticked)
+        self.buses.currentRowChanged.connect(lambda _row: self._show_usable())
+        self.add = QToolButton()
+        self.add.setText("Add...")
+        self.add.setToolTip(ADD_TIP)
+        self.add.setPopupMode(QToolButton.InstantPopup)
+        self.add.setMenu(QMenu(self.add))
+        self.add.menu().aboutToShow.connect(self._fill_add)
+        self.remove = QPushButton("Remove")
+        self.remove.setToolTip(REMOVE_TIP)
+        self.remove.clicked.connect(self._remove)
         self.items = Items(self)
         self.table = QTableView()
         self.table.setModel(self.items)
@@ -171,10 +202,20 @@ class DecodedView(QWidget):
         self.widths = ColumnWidths(
             self.table, ctx.settings if ctx is not None else None, "decoded", stretch=PROBLEM
         )
+        buttons = QVBoxLayout()
+        buttons.addWidget(self.add)
+        buttons.addWidget(self.remove)
+        buttons.addStretch()
+        top = QHBoxLayout()
+        top.addWidget(self.buses, 1)
+        top.addLayout(buttons)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.over)
-        layout.addWidget(self.table)
+        layout.addLayout(top)
+        layout.addWidget(self.table, 1)
+        #: The buses listed, as (instrument, key, paused): rebuilt when that changes.
+        self._listed: list[tuple[str, str, bool]] = []
         #: What was shown last: each bus's count and first item, so the list
         #: is laid out again only when there is something new.
         self._shown: tuple = ()
@@ -194,17 +235,87 @@ class DecodedView(QWidget):
                 found.append((unit.name, ", ".join(names), decoding))
         return found
 
+    # --- the buses ------------------------------------------------------------------------
+    def _list_buses(self, decodings: list[tuple[str, str, Decoding]]) -> None:
+        """A line for each bus, ticked unless it is paused, saying what it has read."""
+        listed = [(unit, d.key, d.paused) for unit, _name, d in decodings]
+        if listed != self._listed:
+            chosen = self.buses.currentRow()
+            self.buses.blockSignals(True)
+            self.buses.clear()
+            for unit, _name, decoding in decodings:
+                item = QListWidgetItem()
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked if decoding.paused else Qt.Checked)
+                item.setData(Qt.UserRole, (unit, decoding.key))
+                self.buses.addItem(item)
+            self.buses.setCurrentRow(min(chosen, self.buses.count() - 1))
+            self.buses.blockSignals(False)
+            self._listed = listed
+            rows = min(max(len(listed), 1), BUSES_SHOWN)
+            height = self.buses.sizeHintForRow(0) if listed else 0
+            self.buses.setFixedHeight(rows * max(height, 1) + 2 * self.buses.frameWidth() + 2)
+        self.buses.blockSignals(True)
+        for row, (_unit, name, decoding) in enumerate(decodings):
+            said = self._summary(name, decoding) + (", paused" if decoding.paused else "")
+            if self.buses.item(row).text() != said:
+                self.buses.item(row).setText(said)
+        self.buses.blockSignals(False)
+        self.buses.setVisible(bool(decodings))
+        self._show_usable()
+
+    def _show_usable(self) -> None:
+        self.remove.setEnabled(self.buses.currentItem() is not None and self.buses.isVisible())
+
+    def _unit_and_key(self, item: QListWidgetItem):
+        unit_name, key = item.data(Qt.UserRole)
+        return self.scope.session.units.get(unit_name), key
+
+    def _on_ticked(self, item: QListWidgetItem) -> None:
+        unit, key = self._unit_and_key(item)
+        if unit is not None:
+            self.scope.pause_decoding(unit, key, item.checkState() != Qt.Checked)
+            self.refresh()
+
+    def _remove(self) -> None:
+        item = self.buses.currentItem()
+        if item is None:
+            return
+        unit, key = self._unit_and_key(item)
+        if unit is not None:
+            self.scope.remove_bus(unit, key)
+            self.refresh()
+
+    def _fill_add(self) -> None:
+        """Every channel there is, each with what it can be decoded as."""
+        menu = self.add.menu()
+        menu.clear()
+        session = self.scope.session
+        entries = list(session.entries())
+        if not entries:
+            menu.addAction("No channels: open an instrument first").setEnabled(False)
+        for key, unit, record in entries:
+            each = menu.addMenu(session.name_of(unit, record.channel))
+            for protocol, said in PROTOCOLS.items():
+                each.addAction(
+                    f"{said}...", lambda k=key, p=protocol: self.scope.ask_decoding(k, p)
+                )
+
+    # --- what they read --------------------------------------------------------------------
     def refresh(self) -> None:
         if not self.isVisible():
             return
         decodings = self._decodings()
+        self._list_buses(decodings)
+        self.over.setVisible(not decodings)
         if not decodings:
             self.over.setText(NOTHING_DECODED)
             if self.items.rows:
                 self.items.show([])
             self._shown = ()
             return
-        self.over.setText("    |    ".join(self._summary(name, d) for _u, name, d in decodings))
+        # A paused bus is kept, but not listed.
+        decodings = [(u, n, d) for u, n, d in decodings if not d.paused]
         shown = tuple(
             (id(d), len(d.items), d.items[0].start if d.items else -1) for _u, _n, d in decodings
         )

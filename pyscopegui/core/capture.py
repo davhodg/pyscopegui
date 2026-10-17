@@ -17,7 +17,7 @@ from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block, Channel
 from pyscopegui.core.decoding import Decoding, Setup, decoding_for
-from pyscopegui.core.maths import Maths
+from pyscopegui.core.maths import Maths, Worker
 
 #: How much of each channel is kept, in seconds, before the oldest is dropped,
 #: unless Tools > Settings > History says otherwise.
@@ -127,6 +127,9 @@ class Capture(QObject):
         #: Maths channels of this instrument's: worked out as blocks arrive,
         #: and held as channels of their own. See pyscopegui.core.maths.
         self.maths: list[Maths] = []
+        #: What works each out, block after block, by its key: carrying what
+        #: a rate of change, an integral or an average needs from the last.
+        self._workers: dict[str, Worker] = {}
         #: Channels decoded as CAN buses, kept up to date as blocks arrive.
         #: See pyscopegui.core.decoding.
         self.decodings: list[Decoding] = []
@@ -162,6 +165,7 @@ class Capture(QObject):
                 capacity = fits
         try:
             self.records = {c.key: Record(c, rate, capacity) for c in channels}
+            self._workers = {}  # a new run: nothing came before
             for maths, channel in self._maths_channels():
                 self.records[maths.key] = Record(channel, rate, capacity)
         finally:
@@ -171,7 +175,7 @@ class Capture(QObject):
         """Bytes a sample of every one of these channels takes, held: with its
         maths channels, and the slack a record has on top."""
         analog = {c.key for c in channels if c.kind == ANALOG}
-        maths = sum(1 for m in self.maths if m.a in analog and m.b in analog)
+        maths = sum(1 for m in self.maths if all(key in analog for key in m.sources))
         each = sum(np.dtype(_dtype(c)).itemsize for c in channels)
         each += maths * np.dtype(np.float32).itemsize
         return max(each, 1) * (1 + SLACK)
@@ -182,12 +186,12 @@ class Capture(QObject):
         return min((r.capacity / r.rate for r in self.records.values()), default=0.0)
 
     def _maths_channels(self) -> list[tuple[Maths, Channel]]:
-        """Each maths channel there are both channels for, and what it is."""
+        """Each maths channel there are the channels for, and what it is."""
         found = []
         for maths in self.maths:
-            a, b = self.records.get(maths.a), self.records.get(maths.b)
-            if a is not None and b is not None and ANALOG == a.channel.kind == b.channel.kind:
-                found.append((maths, maths.channel(a.channel, b.channel)))
+            records = [self.records.get(key) for key in maths.sources]
+            if all(r is not None and r.channel.kind == ANALOG for r in records):
+                found.append((maths, maths.channel(*(r.channel for r in records))))
         return found
 
     def set_maths(self, maths: list[Maths]) -> None:
@@ -197,19 +201,21 @@ class Capture(QObject):
         for key in [key for key in self.records if key.startswith("maths:")]:
             if key not in wanted:
                 del self.records[key]
+        for key in [key for key in self._workers if key not in wanted]:
+            del self._workers[key]
         for maths, channel in self._maths_channels():
             if maths.key in self.records:
                 continue
-            a, b = self.records[maths.a], self.records[maths.b]
+            sources = [self.records[key] for key in maths.sources]
+            a = sources[0]
             record = Record(channel, a.rate, a.capacity)
-            first, last = max(a.first, b.first), min(a.total, b.total)
+            first = max(r.first for r in sources)
+            last = min(r.total for r in sources)
             record.total = first  # numbered as the samples it is worked out from
+            worker = self._workers[maths.key] = Worker(maths, a.rate)
             if last > first:
                 record.append(
-                    maths.work_out(
-                        a.view()[first - a.first : last - a.first],
-                        b.view()[first - b.first : last - b.first],
-                    )
+                    worker.take(*(r.view()[first - r.first : last - r.first] for r in sources))
                 )
             self.records[maths.key] = record
         self.channels_changed.emit()
@@ -220,8 +226,16 @@ class Capture(QObject):
             return block
         data = dict(block.data)
         for maths in self.maths:
-            if maths.key in self.records and maths.a in data and maths.b in data:
-                data[maths.key] = maths.work_out(data[maths.a], data[maths.b])
+            record = self.records.get(maths.key)
+            if record is None or not all(key in data for key in maths.sources):
+                continue
+            worker = self._workers.get(maths.key)
+            if worker is None:
+                worker = self._workers[maths.key] = Worker(maths, block.rate)
+            if block.sweep or block.first != record.total:
+                # Complete in itself, or after a gap: nothing to carry on from.
+                worker.reset()
+            data[maths.key] = worker.take(*(data[key] for key in maths.sources), rate=block.rate)
         return replace(block, data=data)
 
     def update_channels(self, channels: list[Channel]) -> None:
@@ -244,6 +258,8 @@ class Capture(QObject):
         """Throw away what is held, and count samples from zero again."""
         for key, record in list(self.records.items()):
             self.records[key] = Record(record.channel, record.rate, record.capacity)
+        for worker in self._workers.values():
+            worker.reset()
         for decoding in self.decodings:
             decoding.reset()
 
@@ -279,6 +295,8 @@ class Capture(QObject):
     def _decode(self, block: Block) -> None:
         """Each decoded bus's share of a block: its channels, read on from the last."""
         for decoding in self.decodings:
+            if decoding.paused:
+                continue
             found = decoding.take_block(block)
             held = [self.records[k].first for k in decoding.setup.channels() if k in self.records]
             if held:

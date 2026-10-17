@@ -224,6 +224,10 @@ class ChannelList(QTreeWidget):
         #: The channels a bus is decoded from, by id -> the protocol: their
         #: menu says so.
         self.decoded: dict[str, str] = {}
+        #: Where a maths channel can be made from, for a right-click on no
+        #: channel: each instrument with an analog channel, as its first
+        #: analog channel's id and what to call the instrument.
+        self.makers: list[tuple[str, str]] = []
         self.itemChanged.connect(self._on_changed)
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
@@ -232,9 +236,11 @@ class ChannelList(QTreeWidget):
         self.customContextMenuRequested.connect(self._menu)
 
     def _menu(self, at) -> None:
-        """Colour..., and back to the instrument's own, for the channel right-clicked."""
+        """Colour..., and back to the instrument's own, for the channel right-clicked;
+        a maths channel, for a right-click on none."""
         item = self.itemAt(at)
         if item is None:
+            self._maths_menu(at)
             return
         key = item.data(NAME, Qt.UserRole)
         menu = QMenu(self)
@@ -255,6 +261,20 @@ class ChannelList(QTreeWidget):
         decode = menu.addMenu("Decode as")
         for each, said in PROTOCOLS.items():
             decode.addAction(f"{said}...", lambda p=each: self.decode_asked.emit(key, p))
+        menu.exec(self.viewport().mapToGlobal(at))
+
+    def _maths_menu(self, at) -> None:
+        """A maths channel, made from an instrument's channels: one entry for
+        each instrument that has one to make it from."""
+        menu = QMenu(self)
+        if not self.makers:
+            menu.addAction("Maths channel: needs an analog channel").setEnabled(False)
+        elif len(self.makers) == 1:
+            key = self.makers[0][0]
+            menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key))
+        else:
+            for key, name in self.makers:
+                menu.addAction(f"Maths channel, {name}...", lambda k=key: self.maths_asked.emit(k))
         menu.exec(self.viewport().mapToGlobal(at))
 
     def set_cursors(self, count: int) -> None:
@@ -321,6 +341,9 @@ class ScopeView(QWidget):
     channel_picked = Signal(str, str)
     #: A cursor was put somewhere else, or there are more or fewer of them.
     cursors_moved = Signal()
+    #: A bus is decoded now that was not, or is decoded differently: what it
+    #: reads is worth having in front of somebody.
+    decoding_started = Signal()
 
     def __init__(
         self,
@@ -608,6 +631,7 @@ class ScopeView(QWidget):
             for unit in self.session.shown()
             for decoded in unit.capture.decodings
         }
+        self.channel_list.makers = self._maths_makers()
         self.channel_list.fill(self._names, drawn, self._hidden, details, set(chosen))
         # Cleared with everything else, so put back: left out of the fitting
         # of the axes, or the voltage axis would always stretch to the level.
@@ -710,6 +734,21 @@ class ScopeView(QWidget):
             saved = [m.as_saved() for m in unit.capture.maths]
             self._ctx.settings.set(f"{MATHS_KEY}.{unit.name}", saved)
 
+    def _maths_makers(self) -> list[tuple[str, str]]:
+        """Each instrument shown that has an analog channel, as its first
+        one's id, and what it is called."""
+        makers = []
+        units = self.session.shown()
+        for unit in units:
+            analog = [
+                record.channel.key
+                for record in unit.capture.records.values()
+                if record.channel.kind == ANALOG and not record.channel.key.startswith("maths:")
+            ]
+            if analog:
+                makers.append((unit.id(analog[0]), unit.short or unit.name))
+        return makers
+
     def _on_maths_asked(self, key: str) -> None:
         unit, own = self._owners[key]
         channels = [
@@ -717,8 +756,8 @@ class ScopeView(QWidget):
             for record in unit.capture.records.values()
             if record.channel.kind == ANALOG and not record.channel.key.startswith("maths:")
         ]
-        if len(channels) < 2:
-            self._say("A maths channel needs two analog channels of one instrument.", problem=True)
+        if not channels:
+            self._say("A maths channel needs an analog channel to work out from.", problem=True)
             return
         dialog = MathsDialog(channels, own, self)
         if dialog.exec() == MathsDialog.Accepted:
@@ -742,10 +781,19 @@ class ScopeView(QWidget):
         unit.capture.set_decodings(kept)
         self._save_decodings(unit)
 
+    def pause_decoding(self, unit: Unit, key: str, paused: bool) -> None:
+        """Pause a bus of an instrument's, by its key, or set it going again."""
+        for decoded in unit.capture.decodings:
+            if decoded.key == key:
+                decoded.pause(paused)
+        self._save_decodings(unit)
+
     def _save_decodings(self, unit: Unit) -> None:
         if self._ctx is not None and unit.name:
             saved = [d.setup.as_saved() for d in unit.capture.decodings]
             self._ctx.settings.set(f"{decoding.SAVED_KEY}.{unit.name}", saved)
+            paused = [d.key for d in unit.capture.decodings if d.paused]
+            self._ctx.settings.set(f"{decoding.PAUSED_KEY}.{unit.name}", paused)
         # Every plot's channel list says which are decoded.
         self.session.channels_changed.emit()
 
@@ -773,6 +821,17 @@ class ScopeView(QWidget):
             dialog = kind[protocol](channels, own, was, self)
         if dialog.exec() == QDialog.Accepted:
             self.add_decoding(unit, dialog.setup())
+            self.decoding_started.emit()
+
+    def ask_decoding(self, key: str, protocol: str) -> None:
+        """Ask how to decode this channel, by its id, as this protocol."""
+        self._on_decode_asked(key, protocol)
+
+    def remove_bus(self, unit: Unit, key: str) -> None:
+        """Stop decoding one bus of an instrument's, by its key."""
+        kept = [d.setup for d in unit.capture.decodings if d.key != key]
+        unit.capture.set_decodings(kept)
+        self._save_decodings(unit)
 
     def _on_decode_removed(self, key: str) -> None:
         unit, own = self._owners[key]

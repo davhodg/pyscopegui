@@ -5,12 +5,14 @@
 from itertools import pairwise
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from pyscopegui.backends import demo
-from pyscopegui.core.decoding import CAN_H, CAN_L, DIFFERENTIAL, LOGIC, CanSetup
+from pyscopegui.core.decoding import CAN_H, CAN_L, DIFFERENTIAL, LOGIC, CanSetup, UartSetup
 from pyscopegui.ui.can_dialog import CanDialog, bitrate_text, source_for
 from pyscopegui.ui.decoded_view import NOTHING_DECODED
+from pyscopegui.ui.main_window import MainWindow
 
 
 def feed(window, seconds=0.3):
@@ -132,7 +134,7 @@ def test_the_pane_lists_the_frames_and_says_what_is_decoded(held):
     window.decoded.refresh()
     rows = window.decoded.items.rows
     assert rows and all(a.seconds <= b.seconds for a, b in pairwise(rows))
-    said = window.decoded.over.text()
+    said = window.decoded.buses.item(0).text()
     assert "CAN on CAN (Logic level)" in said and "10 kbit/s" in said and "read" in said
     model = window.decoded.items
     first_ok = next(n for n, row in enumerate(rows) if row.item.ok)
@@ -245,3 +247,75 @@ def test_decode_as_from_the_menu_offers_every_protocol(held, monkeypatch):
     assert decoding.setup.protocol == "uart" and decoding.setup.line == "D0"
     assert window.scope.channel_list.decoded == {"demo:D0": "uart"}
     assert window.ctx.settings.get("decode.demo") == [decoding.setup.as_saved()]
+
+
+# --- the buses, in the pane ---------------------------------------------------------------------
+def test_decoding_a_channel_opens_the_pane(held, monkeypatch):
+    window = held
+    monkeypatch.setattr(CanDialog, "exec", lambda _self: CanDialog.Accepted)
+    assert not window.panes.on_screen("decoded")
+    window.scope.ask_decoding("demo:CAN", "can")
+    assert window.unit.capture.decodings, "decoded"
+    assert window.panes.on_screen("decoded"), "and what it reads is in front of you"
+
+
+def test_a_bus_can_be_paused_and_set_going_again(held):
+    window = held
+    decoding = decoded(window)
+    window.panes.show("decoded")
+    view = window.decoded
+    view.refresh()
+    assert view.items.rows and view.buses.count() == 1
+    view.buses.item(0).setCheckState(Qt.Unchecked)
+    assert decoding.paused and not view.items.rows, "kept, but not listed"
+    assert "paused" in view.buses.item(0).text()
+    window.set_mode("auto")  # a new run, which starts every bus afresh
+    feed(window, 0.2)
+    assert not decoding.items, "and nothing decoded while it is paused"
+    assert window.ctx.settings.get("decode_paused.demo") == ["can:CAN"]
+    again = MainWindow()
+    try:
+        assert again.session.units["demo"].capture.decodings[0].paused, "still paused next time"
+    finally:
+        again.close()
+        again.deleteLater()
+    view.buses.item(0).setCheckState(Qt.Checked)
+    feed(window, 0.2)
+    window.set_mode("stop")
+    view.refresh()
+    assert not decoding.paused and decoding.items and view.items.rows, "going again"
+    assert window.ctx.settings.get("decode_paused.demo") == []
+
+
+def test_a_bus_is_removed_by_itself(held):
+    window = held
+    decoded(window)
+    window.scope.add_decoding(window.unit, UartSetup("A", 9600))
+    window.panes.show("decoded")
+    view = window.decoded
+    view.refresh()
+    assert view.buses.count() == 2
+    assert not view.remove.isEnabled() or view.buses.currentItem() is not None
+    view.buses.setCurrentRow(0)
+    assert view.remove.isEnabled()
+    view.remove.click()
+    view.refresh()
+    assert [d.setup.protocol for d in window.unit.capture.decodings] == ["uart"]
+    assert view.buses.count() == 1
+
+
+def test_add_offers_every_channel_and_what_it_can_be_decoded_as(held, monkeypatch):
+    window = held
+    window.panes.show("decoded")
+    view = window.decoded
+    view._fill_add()
+    channels = [action.text() for action in view.add.menu().actions()]
+    assert "CAN" in channels and "A: sine" in channels, channels
+    can = next(a.menu() for a in view.add.menu().actions() if a.text() == "CAN")
+    assert [a.text() for a in can.actions()] == ["CAN...", "UART...", "SPI...", "I²C..."]
+    asked = []
+    monkeypatch.setattr(window.scope, "ask_decoding", lambda key, p: asked.append((key, p)))
+    view._fill_add()
+    can = next(a.menu() for a in view.add.menu().actions() if a.text() == "CAN")
+    can.actions()[0].trigger()
+    assert asked == [("demo:CAN", "can")]

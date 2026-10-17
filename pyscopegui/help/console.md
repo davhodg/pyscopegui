@@ -32,7 +32,7 @@ is taken.
 | `trigger("CH1", level=0.5, rising=True, position=0.5)` | The chosen instrument's trigger. `None` for no trigger |
 | `channels()` | Every channel's name, as the plot gives it |
 | `data("Rigol CH1")` | A channel's times and samples, all that is held of it, as numpy arrays |
-| `maths("CH1", "-", "CH2")` | A [maths channel](plot.md) of the chosen instrument: `"+"`, `"-"`, `"*"` or `"/"`. Gives its name |
+| `maths("CH1", "-", "CH2")` | A [maths channel](plot.md) of the chosen instrument: `"+"`, `"-"`, `"*"` or `"/"`. Of one channel: `maths("CH1", "ddt")`, with `"neg"`, `"abs"`, `"sq"`, `"sqrt"`, `"ddt"` or `"int"`; `maths("CH1", "scale", k=10, c=0, unit="A")`; `maths("CH1", "avg", over=1e-3)`. Gives its name |
 | `measure("Rigol CH1")` | What the [Measurements](plot.md) pane says of it, as numbers: `["frequency"]`, `["rms"]` and the rest |
 | `export_csv(path)`, `export_png(path)` | What *Export CSV* and *Export PNG* do |
 | `wait(seconds)` | Lets the window and the instruments run for that long: a script's sleep |

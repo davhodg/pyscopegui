@@ -6,7 +6,9 @@ A channel, or a few of one instrument's, can be read as a bus: **CAN**, a **UART
 line, **SPI** or **I²C**. What is read off it is listed in the **Decoded buses** pane, a row
 for each frame, burst or transfer, as it arrives.
 
-**Right-click a channel** in the plot's list and choose **Decode as**, then the protocol. A
+**Right-click a channel** in the plot's list and choose **Decode as**, then the protocol --
+or press **Add...** in the Decoded buses pane and choose the channel there. Once decoded, the
+Decoded buses pane opens, with what is read off it. A
 bus with more than one line takes the others from the same instrument: its channels are
 sampled together, so they line up sample for sample. The channel's menu then offers the
 protocol's **decoding...**, to change how it is decoded, and **Stop decoding**. What is
@@ -141,9 +143,16 @@ says it has had enough, and is no problem.
 
 ## The Decoded buses pane
 
-Open it from the **View** menu. The line above the list says what each bus is decoded from
-and how, and how much has been read from it. Then a row for each thing read, every bus's
-together in the order they came:
+Open it from the **View** menu; it opens by itself when a channel is decoded. At its top is
+a line for each bus: what it is decoded from and how, and how much has been read from it.
+
+- **Untick** a bus to pause it. What it read is kept, but nothing more is decoded, sent on or
+  triggered on, and its rows are left out of the list, until it is ticked again -- when it
+  starts afresh from the next samples. A paused bus stays paused with the workspace.
+- **Add...** decodes another: choose the channel, then what it carries.
+- **Remove** stops decoding the bus chosen, and forgets what it read.
+
+Below, a row for each thing read, every bus's together in the order they came:
 
 | Column | What it is |
 |--------|------------|

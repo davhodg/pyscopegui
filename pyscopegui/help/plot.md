@@ -105,9 +105,25 @@ their readings, since the picture is of the plot and its channel list together.
 ## Maths channels
 
 **Right-click a channel** in the list and choose **Maths channel...** for a channel worked out
-from two of one instrument's, sample by sample: one added to the other, taken from it,
-multiplied by it or divided by it. CH1 − CH2 is the voltage across something neither end of
-which is at ground; CH1 × CH2, with a current probe on one, is power.
+from that one -- and another, where it takes two. Right-click below the channels, on none of
+them, and it starts from the instrument's first two analog channels instead, either of which
+can be changed in the dialog. Every maths channel's name starts with *Math*: *Math: CH1 −
+CH2*.
+
+| Operation | What it is |
+|-----------|------------|
+| A + B, A − B, A × B, A ÷ B | Two channels, sample by sample. CH1 − CH2 is the voltage across something neither end of which is at ground; CH1 × CH2, with a current probe on one, is power |
+| −A | Turned upside down |
+| \|A\| | Its size, whichever side of nought |
+| A², √A | Squared, or square-rooted: √ of less than nought is a gap |
+| k × A + c | Multiplied and offset, and measured in a unit of its own if one is given: a shunt's volts as amps, say |
+| dA/dt | How fast it is changing, per second |
+| ∫A dt | Added up over time since the run began: charge from a current, say |
+| Average | Each sample the mean of a time before it: noise smoothed away |
+
+The rate of change, the integral and the average carry on from one block of samples to the
+next, and start afresh at a new run, at each sweep from a scope that sends them, and after a
+gap. An average is over a million samples at most.
 
 A maths channel is a channel of its instrument like any other: drawn, read by the cursors,
 measured, exported, saved in a capture, and given to the [Python Console](console.md) --
@@ -118,8 +134,9 @@ takes it away. The maths channels of each instrument are kept with the
 
 Both channels have to be one instrument's and analog: two instruments' samples are not taken
 at the same moments, and a logic level is not a number to add. Dividing by nought is a gap.
-What it is measured in follows from the two: volts plus volts is volts, volts times volts is
-V², and volts over volts is a plain number.
+What it is measured in follows from what it is worked out from: volts plus volts is volts,
+volts times volts is V², volts over volts is a plain number, a rate of change is V/s and an
+integral V·s.
 
 ## Measurements
 

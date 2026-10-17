@@ -46,7 +46,30 @@ def test_the_view_menu_lists_every_pane_ticked_while_it_is_on_screen(window):
         "console",
     ]
     ticked = [name for name, action in window._view_actions.items() if action.isChecked()]
-    assert ticked == ["instrument", "scope", "log"]
+    assert ticked == ["instrument", "scope", "log", "measurements"]
+
+
+def test_the_measurements_are_beside_the_event_log_with_two_thirds_of_the_width(window, app):
+    window._reset_layout()
+    app.processEvents()
+    log, measurements = window.panes.docks["log"], window.panes.docks["measurements"]
+    assert not measurements.isFloating() and measurements.isVisible()
+    assert measurements.x() > log.x() and abs(measurements.y() - log.y()) < 5, "to its right"
+    share = measurements.width() / (log.width() + measurements.width())
+    assert 0.6 < share < 0.72, share
+    assert window.panes.docks["scope"].y() < log.y(), "under the plot"
+
+
+def test_a_pane_not_in_the_default_arrangement_opens_floating_the_first_time(window):
+    for name in ("data", "decoded", "console", "traffic"):
+        window.panes.show(name)
+        dock = window.panes.docks[name]
+        assert dock.isFloating() and dock.isVisible(), name
+        assert name not in window.panes.detached, "in front of the window, still part of it"
+    window.panes.docks["data"].setFloating(False)
+    window.panes.docks["data"].hide()
+    window.panes.show("data")
+    assert not window.panes.docks["data"].isFloating(), "after that, where it was put"
 
 
 def test_run_fills_the_plot_from_the_demo(window):
