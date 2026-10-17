@@ -59,9 +59,9 @@ def test_what_was_kept_before_is_moved_once_and_not_over_what_is_there(home):
 
 # --- which one is in use -------------------------------------------------------------------
 def test_the_choice_is_remembered(home):
-    workspaces.create("Work bench")
-    workspaces.set_active("Work bench")
-    assert workspaces.active() == "Work bench"
+    workspaces.create("Second bench")
+    workspaces.set_active("Second bench")
+    assert workspaces.active() == "Second bench"
 
 
 def test_a_pointer_to_a_workspace_that_is_gone_falls_back(home):
@@ -85,7 +85,7 @@ def test_default_is_listed_first(home):
 
 
 # --- naming one ------------------------------------------------------------------------------
-@pytest.mark.parametrize("name", ["Work bench", "home-2", "rev_1.4", "A"])
+@pytest.mark.parametrize("name", ["Second bench", "home-2", "rev_1.4", "A"])
 def test_names_people_would_type(home, name):
     assert workspaces.why_not(name) == ""
 
@@ -139,8 +139,8 @@ def filled_default():
 
 def test_save_as_keeps_what_was_on_screen(home):
     filled_default()
-    workspaces.create("Work bench", copy_from=workspaces.DEFAULT)
-    forked = workspaces.dir_for("Work bench")
+    workspaces.create("Second bench", copy_from=workspaces.DEFAULT)
+    forked = workspaces.dir_for("Second bench")
     assert json.loads((forked / "settings.json").read_text())[RIGOL] == {"address": "a"}
 
 
@@ -340,10 +340,10 @@ def test_several_open_are_counted_in_the_question(win, monkeypatch):
 def test_the_title_names_a_workspace_that_is_not_the_default(app, home):
     from pyscopegui.ui.main_window import MainWindow
 
-    workspaces.create("Work bench")
-    workspaces.set_active("Work bench")
+    workspaces.create("Second bench")
+    workspaces.set_active("Second bench")
     made = MainWindow()
-    assert made.windowTitle().endswith(" - Work bench")
+    assert made.windowTitle().endswith(" - Second bench")
     made.close()
     made.deleteLater()
 
