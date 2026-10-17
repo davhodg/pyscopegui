@@ -238,7 +238,10 @@ def test_it_is_not_said_with_a_shortcut_there_already(no_window_yet, tmp_path, m
 def test_neither_launcher_asks_anything_at_the_end_of_setup():
     """Nothing outside the folder is written unasked, and nothing waits for a key."""
     root = Path(__file__).resolve().parent.parent
-    for name in ("pyscopegui.cmd", "pyscopegui.sh"):
+    for name, after in (("pyscopegui.cmd", "\n:check\n"), ("pyscopegui.sh", "elif cmp")):
         text = (root / name).read_text(encoding="utf-8")
         assert "pyscopegui.core.shortcut" not in text
-        assert "choice " not in text and "read -r answer" not in text
+        # From the end of setup to starting pyscopegui. The one question a
+        # launcher does ask is about a .venv that can no longer run.
+        end = text[text.index("Setup finished") : text.index(after)]
+        assert end and "choice " not in end and "read -r" not in end, name

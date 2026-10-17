@@ -13,8 +13,20 @@ rem goto; .gitattributes enforces that.
 setlocal
 cd /d "%~dp0"
 
-if exist ".venv\Scripts\python.exe" goto :check
+if not exist ".venv\Scripts\python.exe" goto :setup
 
+rem A .venv is made from one Python, and its python.exe only passes the
+rem work on to that one, named as home in pyvenv.cfg. Uninstalled -- or
+rem replaced by a newer version, which on Windows lives in a folder of its
+rem own -- and python.exe cannot start, and pythonw says nothing about it:
+rem the window simply never opens. Checked by looking for the file, which
+rem costs nothing, rather than by starting Python.
+set "VENV_HOME="
+if exist ".venv\pyvenv.cfg" for /f "usebackq tokens=1,* delims== " %%A in (".venv\pyvenv.cfg") do if /i "%%A"=="home" set "VENV_HOME=%%B"
+if defined VENV_HOME if not exist "%VENV_HOME%\python.exe" goto :gone
+goto :check
+
+:setup
 echo.
 echo ============================================================
 echo  First run: setting up pyscopegui
@@ -36,10 +48,34 @@ echo  minutes. Every later start is immediate.
 echo.
 
 echo  [1/3] Checking Python...
-python --version
-if errorlevel 1 goto :nopython
-python -c "import sys; sys.exit(sys.version_info < (3, 12))"
+rem Which Python .venv is made from, by its full path: the same one checks,
+rem builds .venv and, through uv, is used by uv, which left to itself chooses
+rem by rules of its own and can even fetch a Python of its own.
+rem
+rem The newest of these that is installed comes first, asked of the py
+rem launcher by version: every library pyscopegui runs on has a ready-made
+rem download for each of them on Windows, and its tests run on the newest two
+rem there. A Python newer than these -- a preview, say -- may have none yet,
+rem and pip would build the missing ones from source, which needs a C
+rem compiler most computers do not have. Add a version here once it is
+rem tested on Windows.
+rem
+rem Without py, or with none of these, it is whatever python is on the PATH.
+set "PYEXE="
+set "PY="
+where py >nul 2>&1 && set PY=1
+if defined PY for %%V in (3.15 3.14 3.13 3.12) do if not defined PYEXE for /f "delims=" %%P in ('py -%%V -c "import sys; print(sys.executable)" 2^>nul') do set "PYEXE=%%P"
+if not defined PYEXE (
+    python --version >nul 2>&1
+    if errorlevel 1 goto :nopython
+    for /f "delims=" %%P in ('python -c "import sys; print(sys.executable)"') do set "PYEXE=%%P"
+)
+"%PYEXE%" --version
+"%PYEXE%" -c "import sys; sys.exit(sys.version_info < (3, 12))"
 if errorlevel 1 goto :oldpython
+rem From here on, a failure leaves no half-made .venv behind: the next run
+rem would take it for a finished one and never choose a Python again.
+set FIRSTRUN=1
 
 rem uv is a much faster drop-in replacement for pip. Used if it happens to be
 rem installed; never required.
@@ -50,9 +86,9 @@ if defined UV echo        uv found: using it instead of pip.
 echo.
 echo  [2/3] Creating the virtual environment in .venv ...
 if defined UV (
-    uv venv .venv
+    uv venv --python "%PYEXE%" .venv
 ) else (
-    python -m venv .venv
+    "%PYEXE%" -m venv .venv
     if errorlevel 1 goto :fail
     ".venv\Scripts\python.exe" -m pip install --upgrade pip
 )
@@ -125,26 +161,92 @@ copy /y "pyproject.toml" ".venv\.deps-ok" >nul
 start "" ".venv\Scripts\pythonw.exe" -m pyscopegui %*
 exit /b 0
 
+:gone
+echo.
+echo  pyscopegui's .venv folder was made with a Python that is not there any more:
+echo.
+echo      %VENV_HOME%
+echo.
+echo  It was probably uninstalled, or replaced by a newer version.
+echo.
+echo  .venv holds only the libraries pyscopegui runs on, made for that Python,
+echo  so it has to be made again with the Python installed now. Your
+echo  workspaces and settings are not in it, and are kept.
+echo.
+choice /c YN /m " Delete .venv and set it up again"
+if errorlevel 2 goto :keepvenv
+rmdir /s /q ".venv"
+if exist ".venv" goto :cannotdelete
+goto :setup
+
+:keepvenv
+echo.
+echo .venv was left as it is, and pyscopegui cannot start until it is made
+echo again: delete the .venv folder beside this script, and run it again.
+pause
+exit /b 1
+
+:cannotdelete
+echo.
+echo .venv could not be deleted completely: something may still be using it.
+echo Close pyscopegui if it is open, delete the .venv folder beside this
+echo script by hand, and run it again.
+pause
+exit /b 1
+
 :nopython
 echo.
-echo Python was not found on the PATH.
-echo Install Python 3.12 or newer from https://www.python.org/downloads/
-echo and tick "Add python.exe to PATH" in the installer.
+echo Python was not found.
+echo Install Python 3.15: with the Python Install Manager, "py install 3.15";
+echo or from https://www.python.org/downloads/, ticking "Add python.exe to PATH".
 pause
 exit /b 1
 
 :oldpython
 echo.
 echo pyscopegui needs Python 3.12 or newer, and the python on the PATH is older.
-echo Install a newer one from https://www.python.org/downloads/
-echo and tick "Add python.exe to PATH" in the installer.
+echo Install Python 3.15: with the Python Install Manager, "py install 3.15";
+echo or from https://www.python.org/downloads/, ticking "Add python.exe to PATH".
 pause
 exit /b 1
 
 :fail
+set "FAILED=%errorlevel%"
 echo.
-echo Setup failed ^(errorlevel %errorlevel%^). The messages above say why;
-echo the usual causes are no internet connection, or a proxy that blocks
-echo pypi.org.
+echo Setup failed ^(errorlevel %FAILED%^). The messages above say why. The
+echo usual causes are:
+echo.
+echo  - no internet connection, or a proxy that blocks pypi.org;
+echo  - "Failed to build" in the messages: .venv was made with a Python newer
+echo    than every library pyscopegui runs on has a ready-made download for,
+echo    so one had to be built from source. Python 3.12 to 3.15 have them all;
+echo    "py install 3.15" installs the newest, and the next setup chooses it
+echo    over a newer one by itself.
+rem Whatever went wrong, a .venv made with the wrong Python stays made with
+rem it: installing another changes nothing until .venv is made again. So it goes
+rem -- without asking after a first setup, which leaves nothing worth
+rem keeping, and asked after an update of one that had been working.
+if defined FIRSTRUN goto :failfirst
+echo.
+choice /c YN /m "Delete .venv, so that the next run sets it up again"
+if errorlevel 2 goto :failkept
+rmdir /s /q ".venv" >nul 2>&1
+if exist ".venv" goto :cannotdelete
+echo.
+echo .venv was deleted. Run this again to set it up afresh.
+pause
+exit /b 1
+
+:failfirst
+rmdir /s /q ".venv" >nul 2>&1
+echo.
+echo The half-made .venv was removed, so the next run sets it up afresh.
+pause
+exit /b 1
+
+:failkept
+echo.
+echo .venv was left as it is. Deleting it later has the same effect: the next
+echo run sets it up again.
 pause
 exit /b 1

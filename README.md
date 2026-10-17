@@ -84,6 +84,10 @@ There are three options:
 
    The first run sets itself up: it creates a *virtual environment* -- a folder called `.venv` holding its own copy of Python and only the libraries pyscopegui needs, so nothing else on the machine is touched -- and downloads a couple of hundred megabytes into it. That takes a few minutes once; every later start is immediate, and deleting `.venv` undoes the whole thing. If `uv` is installed it is used instead of pip.
 
+   **On Windows** the launcher makes `.venv` from Python 3.15, 3.14, 3.13 or 3.12 when the `py` launcher has one of them, newest first, even if a newer Python -- a preview, say -- is the one on the PATH: those are the versions every library pyscopegui runs on has a ready-made download for.
+
+   **If the Python `.venv` was made with is uninstalled** -- or replaced by a newer version -- the launcher says so, and offers to delete `.venv` and set it up again with the Python installed now. Workspaces and settings are not in `.venv`, and are kept. A setup that fails does not leave a half-made `.venv` behind.
+
 **On Linux**, however pyscopegui is installed, Qt needs a system library to draw the window, and Debian, Ubuntu, Linux Mint and the like often leave it out:
 
 ```

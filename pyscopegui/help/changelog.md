@@ -114,6 +114,11 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- The launchers notice a `.venv` whose Python has been uninstalled or replaced, and offer
+  to make it again: before, Windows opened nothing and Linux took it for a first run. On
+  Windows, `.venv` is made from Python 3.15, 3.14, 3.13 or 3.12, newest first, through the
+  `py` launcher when one is installed, and a setup that fails no longer leaves a half-made
+  `.venv` behind. CI tests on Windows with Python 3.15 too.
 - With **Y** at **Range**, the voltage axis follows a channel's offset: it shows what the
   scope is measuring, -6 V to 4 V for a 1 V offset on ±5 V, and not the range around nought.
 - PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
