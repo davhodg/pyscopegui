@@ -212,6 +212,8 @@ class FakeLibrary:
     def ps2000aSetSigGenBuiltIn(self, handle, offset, pk_to_pk, wave, start, stop, *rest):
         self.calls.append(("generator", offset, pk_to_pk, wave, start, stop))
         assert len(rest) == 9
+        #: shots, sweeps, trigger type and source, as last set.
+        self.generator_trigger = rest[4:8]
         return pico.OK if self.generates else 0x13
 
     def ps2000aStop(self, handle):
@@ -1092,3 +1094,39 @@ def test_the_instrument_says_what_it_can_wait_for_itself(app, monkeypatch):
     assert instrument._trigger.condition == Condition(), "an edge, then"
     instrument.set_trigger("A", 0.0, True, 0.5, False, Condition(WINDOW))
     assert instrument._trigger.condition == Condition(WINDOW)
+
+
+# --- the generator, on the scope's trigger --------------------------------------------------
+def test_the_generator_runs_at_once_unless_it_is_to_wait_for_the_trigger():
+    library = FakeLibrary()
+    blocks(library, {"gen_wave": "sine"})
+    assert library.generator_trigger == (0, 0, pico.SIGGEN_RISING, pico.SIGGEN_NONE)
+
+
+def test_on_the_scopes_trigger_it_puts_out_its_cycles_each_time():
+    library = FakeLibrary()
+    reading = blocks(library, {"gen_wave": "square", "gen_start": "trigger", "gen_cycles": 3})
+    assert library.generator_trigger == (3, 0, pico.SIGGEN_RISING, pico.SIGGEN_SCOPE_TRIG)
+    assert any("3 cycles at each trigger" in text for text, _warning in reading.notes)
+    library = FakeLibrary()
+    blocks(library, {"gen_wave": "square", "gen_start": "trigger", "gen_cycles": 0})
+    assert library.generator_trigger[0] == pico.SIGGEN_CONTINUOUS_RUN, "and runs on, for 0"
+
+
+def test_waiting_for_a_trigger_while_streaming_is_said_to_wait_for_ever():
+    library = FakeLibrary()
+    reading = started(library, {"gen_wave": "sine", "gen_start": "trigger"})
+    assert any("waits for ever" in text and warning for text, warning in reading.notes), (
+        "the scope triggers itself only when reading blocks"
+    )
+
+
+def test_off_is_off_whatever_it_was_to_wait_for():
+    library = FakeLibrary()
+    blocks(library, {"gen_wave": "off", "gen_start": "trigger"})
+    assert library.generator_trigger == (0, 0, pico.SIGGEN_RISING, pico.SIGGEN_NONE)
+
+
+def test_the_start_and_the_cycles_are_offered_with_the_generator():
+    keys = [setting.key for setting in pico.SETTINGS]
+    assert keys.index("gen_offset") < keys.index("gen_start") < keys.index("gen_cycles")

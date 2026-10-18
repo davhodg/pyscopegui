@@ -66,6 +66,36 @@ class FakeLibrary:
             self.calls.append(("trigger", source, threshold, direction, delay, auto_ms))
         return 1
 
+    # The advanced trigger, recorded as what each call was given.
+    def ps2000SetAdvTriggerChannelConditions(self, handle, conditions, count):
+        if not count:
+            self.calls.append(("adv conditions", None))
+        else:
+            wanted = conditions._obj
+            self.calls.append(("adv conditions", wanted.a, wanted.b, wanted.pulse_width))
+        return 1
+
+    def ps2000SetAdvTriggerChannelDirections(self, handle, *directions):
+        self.calls.append(("adv directions", *directions))
+        return 1
+
+    def ps2000SetAdvTriggerChannelProperties(self, handle, properties, count, auto_ms):
+        each = tuple((p.major, p.minor, p.channel, p.mode) for p in properties)
+        self.calls.append(("adv properties", each, auto_ms))
+        return 1
+
+    def ps2000SetPulseWidthQualifier(self, handle, conditions, count, way, lower, upper, kind):
+        if not count:
+            self.calls.append(("pulse width", None))
+        else:
+            timed = conditions._obj
+            self.calls.append(("pulse width", timed.a, timed.b, way, lower, upper, kind))
+        return 1
+
+    def ps2000SetAdvTriggerDelay(self, handle, delay, before):
+        self.calls.append(("adv delay", delay, before))
+        return 1
+
     def ps2000_get_timebase(self, handle, timebase, samples, interval, units, oversample, most):
         """As a 2204A: 10 ns at its fastest, doubling, with 8000 samples shared
         between the channels that are on, and no fastest timebase with both on."""
@@ -1002,7 +1032,7 @@ def test_without_the_library_the_instrument_says_what_to_install(app, monkeypatc
 def test_every_function_used_has_its_arguments_declared():
     """A call with undeclared arguments passes Python ints as C ints, which
     is the wrong width for most of these."""
-    used = {name for name in dir(FakeLibrary) if name.startswith("ps2000_")}
+    used = {name for name in dir(FakeLibrary) if name.startswith("ps2000")}
     assert used == set(pico.PROTOTYPES)
 
 
@@ -1128,3 +1158,140 @@ def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch)
     run_for(app, instrument, lambda: states == [False])
     assert len(errors) == 1 and "No PicoScope was found" in errors[0]
     assert not instrument.running and not instrument.is_open
+
+
+# --- what an older scope waits for itself, beyond an edge --------------------------------------
+from pyscopegui.core.triggers import (  # noqa: E402
+    BETWEEN,
+    EDGE,
+    EITHER,
+    LEAVE,
+    LOW,
+    PATTERN,
+    PULSE,
+    RUNT,
+    TIMEOUT,
+    WINDOW,
+    Condition,
+)
+
+NONE5 = [pico.ADV_NONE] * 5
+
+
+def counts(volts, full=5.0):
+    return round(volts / full * pico.MAX_VALUE)
+
+
+def armed_with(condition, source="A", level=1.0, position=0.5, auto=False, library=None):
+    library = library or FakeLibrary()
+    trigger = pico.Trigger(source, level, True, position, auto, condition)
+    reading = blocks(library, None, trigger)
+    reading.poll()
+    return reading, library
+
+
+def test_an_edge_either_way_is_the_advanced_trigger_with_its_place_in_the_block():
+    _reading, library = armed_with(Condition(EDGE, edge=EITHER), position=0.25)
+    level = counts(1.0)
+    kinds = [call[0] for call in library.calls]
+    assert (
+        kinds.index("adv conditions")
+        < kinds.index("adv directions")
+        < kinds.index("adv properties")
+        < kinds.index("adv delay")
+        < kinds.index("block")
+    ), "in the order Pico's example sets them"
+    assert ("adv conditions", pico.CONDITION_TRUE, 0, 0) in library.calls
+    assert ("adv directions", pico.ADV_EITHER, *NONE5[1:]) in library.calls
+    assert ("adv properties", ((level, level, 0, pico.LEVEL_MODE),), 0) in library.calls
+    assert ("adv delay", 0, -25.0) in library.calls
+    assert not any(call[0] == "trigger" for call in library.calls), "not the simple trigger"
+
+
+def test_a_window_has_its_higher_level_as_the_major_threshold():
+    _reading, library = armed_with(Condition(WINDOW, upper=-1.0, direction=LEAVE), "B", 2.0)
+    assert ("adv properties", ((counts(2.0), counts(-1.0), 1, pico.WINDOW_MODE),), 0) in (
+        library.calls
+    )
+    assert ("adv directions", pico.ADV_NONE, pico.ADV_EXIT, *NONE5[2:]) in library.calls
+
+
+def test_a_pulse_is_timed_from_one_edge_and_triggered_at_the_other():
+    pulse = Condition(PULSE, compare=BETWEEN, shortest=1e-6, longest=2e-6)
+    reading, library = armed_with(pulse, level=0.5)
+    rate = reading._block_rate
+    assert ("adv conditions", pico.CONDITION_TRUE, 0, pico.CONDITION_TRUE) in library.calls
+    assert ("adv directions", pico.ADV_FALLING, *NONE5[1:]) in library.calls, "at its end"
+    timed = next(call for call in library.calls if call[0] == "pulse width")
+    assert timed == (
+        "pulse width",
+        pico.CONDITION_TRUE,
+        0,
+        pico.ADV_RISING,
+        round(1e-6 * rate),
+        round(2e-6 * rate),
+        pico.PW_IN_RANGE,
+    ), "from its start"
+    del library.calls[:]
+    low = Condition(PULSE, polarity=LOW)
+    reading.wanted_trigger = pico.Trigger("A", 0.5, True, 0.5, False, low)
+    reading.poll()
+    timed = next(call for call in library.calls if call[0] == "pulse width")
+    assert timed[3] == pico.ADV_FALLING and timed[6] == pico.PW_GREATER_THAN
+    del library.calls[:]
+    reading.wanted_trigger = pico.Trigger("A", 0.5, True, 0.5, False)
+    reading.poll()
+    kinds = [call[0] for call in library.calls]
+    assert kinds == ["stop", "adv conditions", "pulse width", "trigger", "block"], (
+        "the advanced trigger cleared for the simple one"
+    )
+
+
+def test_a_pattern_of_both_channels():
+    pattern = Condition(PATTERN, pattern=(("A", 1), ("B", 0)))
+    _reading, library = armed_with(pattern, source=None, level=1.0)
+    level = counts(1.0)
+    assert ("adv conditions", pico.CONDITION_TRUE, pico.CONDITION_TRUE, 0) in library.calls
+    assert ("adv directions", pico.ADV_ABOVE, pico.ADV_BELOW, *NONE5[2:]) in library.calls
+    assert (
+        "adv properties",
+        ((level, level, 0, pico.LEVEL_MODE), (level, level, 1, pico.LEVEL_MODE)),
+        0,
+    ) in library.calls
+
+
+def test_a_block_in_auto_is_triggered_if_what_was_waited_for_is_where_the_trigger_is():
+    library = FakeLibrary()
+    either = Condition(EDGE, edge=EITHER)
+    reading, _library = armed_with(either, level=0.0, auto=True, library=library)
+    assert reading.poll().triggered, "the wave steps through nought at the trigger"
+    reading.wanted_trigger = pico.Trigger("A", 4.0, True, 0.5, True, either)
+    reading.poll()
+    assert not reading.poll().triggered
+
+
+def test_only_the_models_with_the_advanced_trigger_do_more_than_an_edge():
+    on = ["A", "B"]
+    can = pico.triggers_itself
+    for model in pico.ADVANCED_MODELS:
+        assert can(Condition(EDGE, edge=EITHER), "A", on, model)
+        assert can(Condition(WINDOW), "B", on, model) and can(Condition(PULSE), "A", on, model)
+        assert can(Condition(PATTERN, pattern=(("A", 1), ("B", 0))), None, on, model)
+        assert not can(Condition(RUNT), "A", on, model), "the driver has no runt"
+        assert not can(Condition(TIMEOUT), "A", on, model)
+        assert not can(Condition(EDGE, edge=EITHER, holdoff=1e-3), "A", on, model)
+    for model in ("2203", "2104", "2105", None):
+        assert can(Condition(EDGE), "A", on, model), "a plain edge, on any"
+        assert not can(Condition(EDGE, edge=EITHER), "A", on, model), model
+
+
+def test_the_instrument_says_what_it_can_wait_for_once_it_knows_the_model(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000", None, {"mode": "block"})
+    assert not instrument.triggers_itself(Condition(WINDOW), "A"), "not before it is open"
+    instrument._model = "2204A"
+    assert instrument.triggers_itself(Condition(WINDOW), "A")
+    assert instrument.triggers_itself(Condition(PATTERN), None), "its channels still to be chosen"
+    instrument.set_trigger("A", 0.0, True, 0.5, False, Condition(WINDOW))
+    assert instrument._trigger.condition == Condition(WINDOW)

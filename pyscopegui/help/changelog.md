@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **An older PicoScope triggers on more than an edge itself**, reading blocks: **Either**
+  edge, **Window**, **Pulse width** and a **Logic pattern** of A and B, on the models with
+  Pico's advanced trigger (2202, 2204, 2204A, 2205, 2205A).
+- **The signal generator on the scope's trigger**, on a newer PicoScope: **Start** at once,
+  or on the scope's trigger, with a number of **Cycles** each time, or running on from it.
 - **More maths**: of one channel, **−A**, **|A|**, **A²**, **√A**, **k × A + c** in a unit of
   its own, **dA/dt**, **∫A dt** and an **average** over a time, beside the four of two
   channels. Every maths channel is named *Math: ...*; right-click below the channels for one.

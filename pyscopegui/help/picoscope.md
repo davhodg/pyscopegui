@@ -122,18 +122,21 @@ Two things are different from streaming. The plot shows the whole block, so the 
 **Time** has no say in how much is drawn. And only a channel of this scope can be the
 trigger, since it is the scope that is triggering.
 
-**What the scope waits for itself.** An older scope, on `ps2000`, triggers on a rising or a
-falling edge. A newer one, on `ps2000a`, does more of the trigger's
-[types](instruments.md) in its own hardware, at its full rate:
+**What the scope waits for itself.** Beyond a rising or a falling edge, a scope does more of
+the trigger's [types](instruments.md) in its own hardware, at its full rate. On `ps2000`,
+those with Pico's advanced trigger -- the 2202, 2204, 2204A, 2205 and 2205A -- do; the 2203,
+2104 and 2105 trigger on an edge only.
 
-| Type | On `ps2000a` |
-|------|--------------|
-| Edge | Rising, falling or **Either**, on a channel or a logic input |
-| Window | Entering or leaving, on a channel |
-| Pulse width | Shorter, longer or between, high or low, on a channel |
-| Runt | High or low, on a channel |
-| Logic pattern | Channels and logic inputs together, as soon as they are so |
-| Timeout, Protocol | Not in the scope: greyed out with blocks |
+| Type | On `ps2000a` | On `ps2000`, with the advanced trigger |
+|------|--------------|----------------------------------------|
+| Edge | Rising, falling or **Either**, on a channel or a logic input | Rising, falling or **Either** |
+| Window | Entering or leaving | Entering or leaving |
+| Pulse width | Shorter, longer or between, high or low | Shorter, longer or between, high or low |
+| Runt | High or low | -- |
+| Logic pattern | Channels and logic inputs together, as soon as they are so | A and B together, as soon as they are so |
+| Timeout, Protocol | -- | -- |
+
+What is not in the scope -- a dash -- is greyed out with blocks.
 
 A **holdoff**, and a pattern that has to be **held** for a time, are not offered with blocks
 either. What the scope cannot do itself is greyed out on the toolbar and in the details, and
@@ -180,6 +183,13 @@ scope is not opened again.
 | Frequency | 1 Hz to 100 kHz. Its arrows go 1, 2, 5, 10, 20, 50 |
 | Peak to peak | From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V |
 | Offset | Moves the whole wave up or down, within 2 V of zero |
+| Start | `ps2000a` only. **At once**: the wave runs all the time. **On the scope's trigger**: it waits, and puts out its cycles each time the scope triggers -- a stimulus at the moment of the capture |
+| Cycles | `ps2000a` only. How many cycles it puts out at each trigger; 0 starts it at the first and leaves it running |
+
+**On the scope's trigger** needs the scope to be triggering itself, which it does when
+reading **blocks** with a trigger chosen. Streaming, the trigger is found by pyscopegui in
+what has already arrived, too late to tell the generator: the Event Log says it waits for
+ever.
 
 It is off until you choose a waveform, and what was chosen is put back the next time the
 scope is run. **The output is a real voltage on the connector**: know what it is connected
@@ -224,8 +234,8 @@ generator, which every one of them has.
 | Logic inputs | None | D0 to D15 on an MSO |
 | Streaming | To 1 MS/s on each channel | To 31.25 MS/s: see below |
 | Blocks | To 100 MS/s, a few thousand samples | To the scope's fastest -- 500 MS/s or 1 GS/s -- and up to a million samples |
-| Trigger for blocks | A or B, a rising or falling edge | Any channel that is on, or any logic input; window, pulse width, runt and pattern too |
-| Signal generator | To 100 kHz | To 1 MHz |
+| Trigger for blocks | A or B; either edge, window, pulse width and pattern too, on the models with the advanced trigger | Any channel that is on, or any logic input; window, pulse width, runt and pattern too |
+| Signal generator | To 100 kHz | To 1 MHz, and on the scope's trigger |
 | Offset | None | On the models that have it |
 
 ### Offset

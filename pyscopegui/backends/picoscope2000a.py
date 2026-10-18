@@ -37,7 +37,6 @@ from pyscopegui.backends import picoscope2000 as pico
 from pyscopegui.backends.base import DIGITAL, Block, Channel, Setting
 from pyscopegui.backends.picoscope2000 import (
     BLOCKS,
-    NEAR_TRIGGER,
     RANGES,
     STREAM,
     ScopeError,
@@ -57,7 +56,6 @@ from pyscopegui.core.triggers import (
     SHORTER,
     WINDOW,
     Condition,
-    Finder,
 )
 
 #: Set to the library's full path to use that one and look nowhere else.
@@ -108,6 +106,14 @@ LEVEL_MODE, WINDOW_MODE = 0, 1
 PW_NONE, PW_LESS_THAN, PW_GREATER_THAN, PW_IN_RANGE = 0, 1, 2, 3
 #: A steady voltage: at nought volts, the nearest the driver has to off.
 WAVES = {"off": 8, "sine": 0, "square": 1, "triangle": 2}
+#: When the generator puts its wave out: at once, or when the scope triggers.
+NOW, ON_TRIGGER = "now", "trigger"
+#: PS2000A_SIGGEN_TRIG_TYPE and _SOURCE: on a rising edge of the scope's trigger.
+SIGGEN_RISING, SIGGEN_NONE, SIGGEN_SCOPE_TRIG = 0, 0, 1
+#: As shots: start at the trigger and run on, rather than a number of cycles.
+SIGGEN_CONTINUOUS_RUN = 0xFFFFFFFF
+#: The most cycles it is asked for after a trigger: the driver's limit.
+MOST_SHOTS = (1 << 30) - 1
 GENERATOR_VOLTS = 2.0
 GENERATOR_HZ = 1_000_000.0
 
@@ -464,6 +470,34 @@ def make_settings(
                 ),
             ]
     made += pico.generator_settings(GENERATOR_HZ)
+    made += [
+        Setting(
+            "gen_start",
+            "Start",
+            NOW,
+            choices=((NOW, "At once"), (ON_TRIGGER, "On the scope's trigger")),
+            tip=(
+                "At once: the wave runs all the time. On the scope's trigger: the\n"
+                "generator waits, and puts out its cycles when the scope triggers --\n"
+                "a stimulus at the moment of the capture. The scope triggers itself\n"
+                "when reading blocks; streaming, the trigger is found by pyscopegui\n"
+                "afterwards, and the generator is not told."
+            ),
+            group="Signal generator",
+            live=True,
+        ),
+        Setting(
+            "gen_cycles",
+            "Cycles",
+            1,
+            minimum=0,
+            maximum=MOST_SHOTS,
+            decimals=0,
+            tip="How many cycles it puts out at each trigger: 0 starts it and leaves it running.",
+            group="Signal generator",
+            live=True,
+        ),
+    ]
     return tuple(made)
 
 
@@ -533,6 +567,8 @@ class Settings(pico.Settings):
                 max(self._number(options.get("gen_offset"), 0.0), -GENERATOR_VOLTS),
                 GENERATOR_VOLTS,
             ),
+            ON_TRIGGER if options.get("gen_start") == ON_TRIGGER else NOW,
+            int(min(max(self._number(options.get("gen_cycles"), 1.0), 0), MOST_SHOTS)),
         )
 
     def for_scope(self, channels: int, digital: bool) -> Settings:
@@ -1134,9 +1170,7 @@ class Stream(pico.Stream):
         first = keys[0]
         margin = HYSTERESIS * self.settings.volts(first) if first in ANALOG else 0.0
         level = trigger.level if first in ANALOG or trigger.condition.kind == PATTERN else 0.5
-        finder = Finder(trigger.condition, level, margin, self._block_rate)
-        found = finder.find({key: data[key] for key in keys}, 0)
-        return bool(np.any(np.abs(found - at) <= NEAR_TRIGGER))
+        return pico.met_near(trigger.condition, data, keys, at, level, margin, self._block_rate)
 
     def _in_units(self, raw: dict[int, np.ndarray]) -> dict[str, np.ndarray]:
         """What the driver filled, as volts for a channel and as 0 or 1 for each
@@ -1158,10 +1192,13 @@ class Stream(pico.Stream):
                 data[digital_key(what, bit)] = ((counts >> bit) & 1).astype(np.uint8)
         return data
 
-    def set_generator(self, generator: tuple[str, float, float, float]) -> None:
-        """Set the signal generator output: a fixed frequency, no sweep."""
-        wave, frequency, amplitude, offset = generator
+    def set_generator(self, generator: tuple) -> None:
+        """Set the signal generator output: a fixed frequency, no sweep, and at
+        once or a number of cycles each time the scope triggers."""
+        wave, frequency, amplitude, offset, start, cycles = generator
         off = wave == "off"
+        triggered = start == ON_TRIGGER and not off
+        shots = (cycles or SIGGEN_CONTINUOUS_RUN) if triggered else 0
         status = self._library.ps2000aSetSigGenBuiltIn(
             self._handle,
             0 if off else round(offset * 1e6),
@@ -1173,10 +1210,10 @@ class Stream(pico.Stream):
             0.0,
             0,
             0,
+            shots,
             0,
-            0,
-            0,
-            0,
+            SIGGEN_RISING,
+            SIGGEN_SCOPE_TRIG if triggered else SIGGEN_NONE,
             0,
         )
         if status != OK and not off:
@@ -1187,13 +1224,28 @@ class Stream(pico.Stream):
                 )
             )
         elif not off:
+            when = ""
+            if triggered:
+                when = (
+                    f", {cycles} cycle{'s' if cycles != 1 else ''} at each trigger"
+                    if cycles
+                    else ", from the scope's trigger on"
+                )
             self.notes.append(
                 (
                     f"Signal generator: {wave}, {frequency:g} Hz, {amplitude:g} V peak to peak, "
-                    f"{offset:g} V offset.",
+                    f"{offset:g} V offset{when}.",
                     False,
                 )
             )
+            if triggered and not self.settings.blocks:
+                self.notes.append(
+                    (
+                        "The signal generator waits for the scope's own trigger, which it "
+                        "has only when reading blocks: streaming, it waits for ever.",
+                        True,
+                    )
+                )
         elif self._generating:
             self.notes.append(("Signal generator: off.", False))
         self._generating = status == OK and not off

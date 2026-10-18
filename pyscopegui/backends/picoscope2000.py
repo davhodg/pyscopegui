@@ -40,8 +40,21 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends import probes
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core.acquire import HYSTERESIS
 from pyscopegui.core.traffic import RECEIVED, traced_library, traffic
-from pyscopegui.core.triggers import Condition
+from pyscopegui.core.triggers import (
+    BETWEEN,
+    EDGE,
+    EITHER,
+    ENTER,
+    LOW,
+    PATTERN,
+    PULSE,
+    SHORTER,
+    WINDOW,
+    Condition,
+    Finder,
+)
 
 #: Set to the library's full path to use that one and look nowhere else.
 LIBRARY_ENV = "PYSCOPEGUI_PS2000"
@@ -107,6 +120,18 @@ GENERATOR_HZ = 100_000.0
 
 #: Trigger directions, as the driver numbers them.
 RISING, FALLING = 0, 1
+#: And for its advanced trigger, PS2000_THRESHOLD_DIRECTION: above or below a
+#: level, for a pattern; through it; into or out of a window. A channel left
+#: out is given NONE, which is RISING.
+ADV_ABOVE, ADV_BELOW, ADV_RISING, ADV_FALLING, ADV_EITHER = 0, 1, 2, 3, 4
+ADV_ENTER, ADV_EXIT, ADV_NONE = ADV_RISING, ADV_FALLING, ADV_RISING
+#: PS2000_THRESHOLD_MODE, PS2000_TRIGGER_STATE and PS2000_PULSE_WIDTH_TYPE.
+LEVEL_MODE, WINDOW_MODE = 0, 1
+CONDITION_TRUE = 1
+PW_LESS_THAN, PW_GREATER_THAN, PW_IN_RANGE = 1, 2, 3
+#: The models with the advanced trigger: those Pico's own example offers it
+#: on. The 2203, 2104 and 2105 trigger on a rising or falling edge only.
+ADVANCED_MODELS = ("2202", "2204", "2204A", "2205", "2205A")
 #: The slowest timebase any of these scopes has. Each is twice the interval
 #: of the one before, from the scope's fastest at nought.
 MAX_TIMEBASE = 23
@@ -156,6 +181,36 @@ OverviewCallback = _CALLBACK_FACTORY(
 )
 
 _INT16, _INT32, _UINT32 = ctypes.c_int16, ctypes.c_int32, ctypes.c_uint32
+
+
+class AdvProperties(ctypes.Structure):
+    """PS2000_TRIGGER_CHANNEL_PROPERTIES: a channel's thresholds, in counts --
+    the major one for a level, both for a window."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("major", _INT16),
+        ("minor", _INT16),
+        ("hysteresis", ctypes.c_uint16),
+        ("channel", _INT16),
+        ("mode", _INT32),
+    ]
+
+
+class AdvConditions(ctypes.Structure):
+    """PS2000_TRIGGER_CONDITIONS: what has to be so, of each source, for a trigger."""
+
+    _pack_ = 1
+    _fields_ = [(name, _INT32) for name in ("a", "b", "c", "d", "external", "pulse_width")]
+
+
+class PwqConditions(ctypes.Structure):
+    """PS2000_PWQ_CONDITIONS: which source's pulses the pulse-width qualifier times."""
+
+    _pack_ = 1
+    _fields_ = [(name, _INT32) for name in ("a", "b", "c", "d", "external")]
+
+
 #: Name -> (return type, argument types), for the functions used here.
 PROTOTYPES = {
     "ps2000_open_unit": (_INT16, []),
@@ -192,7 +247,58 @@ PROTOTYPES = {
         _INT16,
         [_INT16, _INT32, _UINT32, _INT32, *[ctypes.c_float] * 4, _INT32, _UINT32],
     ),
+    "ps2000SetAdvTriggerChannelConditions": (
+        _INT16,
+        [_INT16, ctypes.POINTER(AdvConditions), _INT16],
+    ),
+    "ps2000SetAdvTriggerChannelDirections": (_INT16, [_INT16, *[_INT32] * 5]),
+    "ps2000SetAdvTriggerChannelProperties": (
+        _INT16,
+        [_INT16, ctypes.POINTER(AdvProperties), _INT16, _INT32],
+    ),
+    "ps2000SetPulseWidthQualifier": (
+        _INT16,
+        [_INT16, ctypes.POINTER(PwqConditions), _INT16, _INT32, _UINT32, _UINT32, _INT32],
+    ),
+    "ps2000SetAdvTriggerDelay": (_INT16, [_INT16, _UINT32, ctypes.c_float]),
 }
+
+
+def triggers_itself(
+    condition: Condition, source: str | None, analog: list[str], model: str | None
+) -> bool:
+    """Whether a scope on this driver can wait for this itself, reading blocks.
+
+    A rising or falling edge, any of them. One with the advanced trigger
+    also an edge either way, a window, a pulse's width, or a pattern of its
+    channels at once; not a runt, a timeout, a holdoff, or a pattern that
+    has to be held, which the driver has nothing for.
+    """
+    if condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff:
+        return True
+    if model not in ADVANCED_MODELS or condition.holdoff:
+        return False
+    if condition.kind == PATTERN:
+        keys = [key for key, _level in condition.pattern]
+        return not condition.held and all(key in analog for key in keys)
+    return condition.kind in (EDGE, WINDOW, PULSE) and source in analog
+
+
+def met_near(
+    condition: Condition,
+    data: dict[str, np.ndarray],
+    keys: list[str],
+    at: int,
+    level: float,
+    margin: float,
+    rate: float,
+) -> bool:
+    """Whether what was waited for is in a block where its trigger is: the
+    drivers do not say whether they triggered or gave up waiting."""
+    finder = Finder(condition, level, margin, rate)
+    found = finder.find({key: data[key] for key in keys}, 0)
+    return bool(np.any(np.abs(found - at) <= NEAR_TRIGGER))
+
 
 _COUPLING = (("DC", "DC"), ("AC", "AC"))
 _GENERATOR = {"group": "Signal generator", "live": True}
@@ -615,6 +721,10 @@ class Stream:
         self._paused = False
         #: Whether the generator has been set to anything but off.
         self._generating = False
+        #: Whether the advanced trigger was set for the block in hand, and the
+        #: pulse-width qualifier with it: both to be cleared for a simple one.
+        self._advanced = False
+        self._pulse_width = False
         #: Settings waiting to be taken up by the next poll, or None. Set from
         #: the GUI thread, taken by the thread that owns the scope.
         self.wanted: Settings | None = None
@@ -786,6 +896,14 @@ class Stream:
     def _arm(self) -> None:
         """Tell the scope what to trigger on, and start it filling a block."""
         trigger, settings = self.trigger, self.settings
+        condition = trigger.condition
+        plain = condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff
+        if not plain and triggers_itself(condition, trigger.source, settings.keys(), self.model):
+            self._set_advanced()
+            self._run_block()
+            return
+        if self._advanced:
+            self._no_advanced()
         source = {"A": CHANNEL_A, "B": CHANNEL_B}.get(trigger.source, NO_TRIGGER)
         if trigger.source is None or not settings.enabled.get(trigger.source, False):
             source = NO_TRIGGER
@@ -805,6 +923,9 @@ class Stream:
             -round(trigger.position * 100),
             min(wait_ms, 32767),
         )
+        self._run_block()
+
+    def _run_block(self) -> None:
         taken = ctypes.c_int32(0)
         started = self._library.ps2000_run_block(
             self._handle, self._block_samples, self._timebase, 1, ctypes.byref(taken)
@@ -815,6 +936,98 @@ class Stream:
                 "Try a different block length."
             )
         self._block_pending = True
+
+    def _wait_ms(self) -> int:
+        """How long to wait for a trigger before taking the block anyway:
+        nought is for ever, which is what Normal and Single mean."""
+        trigger, settings = self.trigger, self.settings
+        wait_ms = max(AUTO_TRIGGER_MS, round(2e3 * settings.block_s)) if trigger.auto else 0
+        return min(wait_ms, 32767)
+
+    def _counts(self, key: str, value: float) -> int:
+        volts = self.settings.volts(key)
+        return round(min(max(value / volts, -1.0), 1.0) * MAX_VALUE)
+
+    def _set_advanced(self) -> None:
+        """Trigger on more than an edge: each channel's thresholds, which have
+        to be so together, the way through each, and the pulse-width
+        qualifier -- in the order Pico's own example sets them."""
+        trigger = self.trigger
+        condition, source = trigger.condition, trigger.source
+        hysteresis = round(HYSTERESIS * MAX_VALUE)
+        properties: list[AdvProperties] = []
+        wanted = AdvConditions()
+        directions = [ADV_NONE] * 5
+        pulse = None
+
+        def threshold(key: str, major: float, minor: float, mode: int) -> int:
+            index = ("A", "B").index(key)
+            properties.append(
+                AdvProperties(
+                    self._counts(key, major), self._counts(key, minor), hysteresis, index, mode
+                )
+            )
+            setattr(wanted, "ab"[index], CONDITION_TRUE)
+            return index
+
+        if condition.kind == PATTERN:
+            for key, level in condition.pattern:
+                index = threshold(key, trigger.level, trigger.level, LEVEL_MODE)
+                directions[index] = ADV_ABOVE if level else ADV_BELOW
+        elif condition.kind == WINDOW:
+            low, high = sorted((trigger.level, condition.upper))
+            index = threshold(source, high, low, WINDOW_MODE)
+            directions[index] = ADV_ENTER if condition.direction == ENTER else ADV_EXIT
+        elif condition.kind == PULSE:
+            # The driver has one threshold a direction, so the pulse is timed
+            # from the edge it starts with and the trigger is at the edge it
+            # ends with: the two directions differ, as it asks.
+            index = threshold(source, trigger.level, trigger.level, LEVEL_MODE)
+            high = condition.polarity != LOW
+            directions[index] = ADV_FALLING if high else ADV_RISING
+            wanted.pulse_width = CONDITION_TRUE
+            timed = PwqConditions(**{"ab"[index]: CONDITION_TRUE})
+            shortest = max(1, round(condition.shortest * self._block_rate))
+            longest = max(shortest + 1, round(condition.longest * self._block_rate))
+            kind = {SHORTER: PW_LESS_THAN, BETWEEN: PW_IN_RANGE}.get(
+                condition.compare, PW_GREATER_THAN
+            )
+            pulse = (timed, ADV_RISING if high else ADV_FALLING, shortest, longest, kind)
+        else:
+            index = threshold(source, trigger.level, trigger.level, LEVEL_MODE)
+            directions[index] = ADV_EITHER
+        library, handle = self._library, self._handle
+        listed = (AdvProperties * len(properties))(*properties)
+        done = (
+            library.ps2000SetAdvTriggerChannelConditions(handle, ctypes.byref(wanted), 1)
+            and library.ps2000SetAdvTriggerChannelDirections(handle, *directions)
+            and library.ps2000SetAdvTriggerChannelProperties(
+                handle, listed, len(properties), self._wait_ms()
+            )
+        )
+        if done and pulse is not None:
+            timed, way, shortest, longest, kind = pulse
+            done = library.ps2000SetPulseWidthQualifier(
+                handle, ctypes.byref(timed), 1, way, shortest, longest, kind
+            )
+            self._pulse_width = True
+        elif done and self._pulse_width:
+            done = library.ps2000SetPulseWidthQualifier(handle, None, 0, ADV_NONE, 0, 0, 0)
+            self._pulse_width = False
+        # Where the trigger sits, as a share of the block back from its start.
+        done = done and library.ps2000SetAdvTriggerDelay(handle, 0, -100.0 * trigger.position)
+        self._advanced = True
+        if not done:
+            raise ScopeError(f"The scope would not trigger on {condition.summary() or 'that'}.")
+
+    def _no_advanced(self) -> None:
+        """Clear the advanced trigger, for the simple one to be set."""
+        library, handle = self._library, self._handle
+        library.ps2000SetAdvTriggerChannelConditions(handle, None, 0)
+        if self._pulse_width:
+            library.ps2000SetPulseWidthQualifier(handle, None, 0, ADV_NONE, 0, 0, 0)
+            self._pulse_width = False
+        self._advanced = False
 
     def _poll_block(self) -> Block | None:
         """The block that was asked for, if it is in; and ask for the next."""
@@ -873,17 +1086,21 @@ class Stream:
             raw = np.ctypeslib.as_array(buffer)[:count]
             data[key] = raw.astype(np.float32) * np.float32(volts / MAX_VALUE)
         trigger = self.trigger
-        if trigger.source not in data:
+        condition = trigger.condition
+        pattern = self._advanced and condition.kind == PATTERN
+        keys = [key for key, _level in condition.pattern] if pattern else [trigger.source]
+        if any(key not in data for key in keys):
             return Block(0, self._block_rate, data, sweep=True)
         at = min(round(trigger.position * samples), count - 1)
-        return Block(
-            0,
-            self._block_rate,
-            data,
-            sweep=True,
-            trigger=at,
-            triggered=crossed(data[trigger.source], at, trigger.level, trigger.rising),
-        )
+        if self._advanced:
+            # Waited for in Normal; in Auto, there if it is found where it should be.
+            margin = HYSTERESIS * settings.volts(keys[0])
+            triggered = not trigger.auto or met_near(
+                condition, data, keys, at, trigger.level, margin, self._block_rate
+            )
+        else:
+            triggered = crossed(data[trigger.source], at, trigger.level, trigger.rising)
+        return Block(0, self._block_rate, data, sweep=True, trigger=at, triggered=triggered)
 
     def _take_up(self, wanted: Settings) -> None:
         """Change a range, the coupling or the generator while streaming.
@@ -1208,6 +1425,12 @@ class PicoScope2000(Instrument):
     @property
     def sweeps(self) -> bool:
         return self.settings.blocks
+
+    def triggers_itself(self, condition: Condition, source: str | None) -> bool:
+        if condition.kind == PATTERN and not condition.pattern:
+            # Its channels are still to be chosen.
+            return self._model in ADVANCED_MODELS and not condition.held and not condition.holdoff
+        return triggers_itself(condition, source, self.settings.keys(), self._model)
 
     def set_trigger(
         self,
