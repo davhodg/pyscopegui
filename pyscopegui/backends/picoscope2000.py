@@ -1260,9 +1260,10 @@ class Stream:
         if abs(arriving - self.settings.rate) > RATE_TOLERANCE * self.settings.rate:
             self.notes.append(
                 (
-                    f"The scope is delivering {arriving:,.0f} samples a second where "
+                    f"Samples are arriving at {arriving:,.0f} a second where "
                     f"{self.settings.rate:,.0f} were asked for, so times on the plot are out "
-                    "by that ratio. Set a rate it can keep to.",
+                    "by that ratio. The computer, or its USB connection, may not be keeping "
+                    "up: choose a lower rate.",
                     True,
                 )
             )

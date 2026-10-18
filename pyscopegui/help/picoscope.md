@@ -15,8 +15,8 @@ scope is on: a 2205A is on `ps2000` and a 2205A MSO is on `ps2000a`.
 
 Choosing the wrong one does no harm: it says that no PicoScope was found.
 
-The single-channel 2104 and 2105 are on the `ps2000` driver but cannot stream as this back
-end needs, and are not supported.
+The single-channel 2104 and 2105 stream in a different way, which pyscopegui does not
+support.
 
 Nearly everything on this page is the same for both. Where the newer scopes differ is
 gathered under *The newer scopes, on ps2000a*, below.
@@ -145,6 +145,15 @@ block's samples, so it is as fine as the block's rate. In **Auto**, a block is c
 triggered only when what was waited for is where the trigger is in it: the driver does not
 say whether it triggered or gave up waiting.
 
+Every type in the table has been tried on a 2206B and a 2204A, each scope triggering on its
+own generator's square wave, except the logic pattern, which has not been tried on either.
+
+**Choose a range the signal fills** for the most dependable trigger. The scope triggers on
+its own readings, with a fiftieth of the range to go back past before it triggers again, so
+a signal that spans much of the range gives it the most to work with: a 0.3 V signal
+triggers cleanly on the ±200 mV range. A trigger level beyond the range is taken as the top
+or the bottom of it.
+
 ## Settings
 
 In the [Instrument](instruments.md) pane.
@@ -189,7 +198,8 @@ scope is not opened again.
 **On the scope's trigger** needs the scope to be triggering itself, which it does when
 reading **blocks** with a trigger chosen. Streaming, the trigger is found by pyscopegui in
 what has already arrived, too late to tell the generator: the Event Log says it waits for
-ever.
+ever. In **Auto**, a block the scope takes because nothing came does not start it either:
+only a real trigger does.
 
 It is off until you choose a waveform, and what was chosen is put back the next time the
 scope is run. **The output is a real voltage on the connector**: know what it is connected
@@ -207,8 +217,9 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
 - *The scope would not set channel A to ...* --- this model does not have that range. If
   it was running, it is still reading on the range it had.
 - *Both channels are switched off* --- tick **Enabled** for one of them.
-- *The scope is delivering ... samples a second where ... were asked for* --- it cannot keep
-  to that rate, and the times on the plot are out by that ratio. Choose a lower rate.
+- *Samples are arriving at ... a second where ... were asked for* --- the computer, or its USB
+  connection, is not keeping up with the rate asked for, and the times on the plot are out by
+  that ratio. Choose a lower rate.
 - *The driver's buffer filled before it was read* --- the computer did not keep up, and
   samples were lost.
 - *The driver lost ... samples, which are shown as a gap* --- the same, said for the
@@ -319,9 +330,8 @@ one channel; with two it is half that, and the logic inputs count as well.
   rounded the rate, and time on the plot is counted at the rate it gave.
 - *The driver's buffer filled before it was read, and it has stopped* --- the computer did
   not keep up. Choose a lower rate.
-- A message that ends *driver status 0x...* --- the driver refused something for a reason
-  pyscopegui has no words for. Pico's `PicoStatus.h`, in the SDK, lists what each number
-  means; say the number in a bug report.
+- A message that ends *driver status 0x...* --- the driver refused something. Pico's
+  `PicoStatus.h`, in the SDK, lists what each number means; say the number in a bug report.
 
 ## Grounds
 

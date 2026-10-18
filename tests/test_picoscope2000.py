@@ -450,7 +450,8 @@ def test_samples_arriving_at_half_the_rate_asked_for_are_said_once():
     reading.poll()
     warnings = [text for text, is_warning in reading.notes if is_warning]
     assert len(warnings) == 1
-    assert "250,000 samples a second where 500,000 were asked for" in warnings[0]
+    assert "arriving at 250,000 a second where 500,000 were asked for" in warnings[0]
+    assert "computer" in warnings[0], "and says where to look"
 
 
 def test_samples_arriving_at_the_rate_asked_for_say_nothing():
