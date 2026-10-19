@@ -46,7 +46,8 @@ HYSTERESIS = 0.02
 #: How long Auto waits for a trigger before showing what there is anyway, at
 #: the least. A plot showing a longer stretch than this waits that long.
 AUTO_S = 0.25
-#: The most triggers remembered. Only the newest few are ever drawn from.
+#: The most triggers remembered as they came, and the most older ones,
+#: thinned out over the history: see Acquisition._keep.
 MOST_TRIGGERS = 4096
 
 
@@ -264,9 +265,7 @@ class Acquisition(QObject):
             level, low = self.levels(record)
             found, self._armed = find_triggers(samples, level, low, self.rising, self._armed)
             if len(found):
-                self._triggers = np.concatenate((self._triggers, found + self._scanned))[
-                    -MOST_TRIGGERS:
-                ]
+                self._keep(found + self._scanned)
             self._scanned = record.total
         if self.mode == SINGLE:
             self._watch_single()
@@ -295,7 +294,7 @@ class Acquisition(QObject):
         }
         found = self._finder.find(data, self._scanned)
         if len(found):
-            self._triggers = np.concatenate((self._triggers, found))[-MOST_TRIGGERS:]
+            self._keep(found)
         self._scanned = end
 
     def _on_decoded(self, decoding, found: list, _received: int) -> None:
@@ -316,7 +315,26 @@ class Acquisition(QObject):
             hits = kept
         if hits:
             found_at = np.array(hits, dtype=np.int64)
-            self._triggers = np.concatenate((self._triggers, found_at))[-MOST_TRIGGERS:]
+            self._keep(found_at)
+
+    def _keep(self, found: np.ndarray) -> None:
+        """Remember these triggers too: the newest MOST_TRIGGERS of all of them,
+        and before those, the first in each MOST_TRIGGERS'th of the history.
+
+        A plot waits for the newest trigger with half its span still to come
+        after it, so one that far back has to be remembered: a 10 s span
+        needs one from 5 s ago, and the newest 4096 of a 1 kHz signal go
+        back only 4.1 s. Thinned, those older ones reach back over the
+        whole history and never number more than MOST_TRIGGERS.
+        """
+        triggers = np.concatenate((self._triggers, found))
+        if len(triggers) > MOST_TRIGGERS:
+            older, newest = triggers[:-MOST_TRIGGERS], triggers[-MOST_TRIGGERS:]
+            held = max((r.capacity for r in self.capture.records.values()), default=0)
+            buckets = older // max(1, held // MOST_TRIGGERS)
+            first = np.concatenate(([True], buckets[1:] != buckets[:-1]))
+            triggers = np.concatenate((older[first][-MOST_TRIGGERS:], newest))
+        self._triggers = triggers
 
     def _watch_single(self) -> None:
         """Take the first trigger since Single was pressed, and say when its capture is in."""

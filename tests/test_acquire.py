@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 
 from pyscopegui.backends.base import DIGITAL, Block, Channel
-from pyscopegui.core.acquire import AUTO, NORMAL, SINGLE, STOP, Acquisition, find_triggers
+from pyscopegui.core.acquire import (
+    AUTO,
+    MOST_TRIGGERS,
+    NORMAL,
+    SINGLE,
+    STOP,
+    Acquisition,
+    find_triggers,
+)
 from pyscopegui.core.capture import Capture
 
 RATE = 1000.0
@@ -109,6 +117,21 @@ def test_the_newest_trigger_with_its_samples_already_here_is_the_one_to_draw(acq
     assert acquisition.trigger_for(50) == 450
     assert acquisition.trigger_for(51) == 350, "450 has only fifty after it yet"
     assert acquisition.trigger_for(1000) is None
+
+
+def test_a_trigger_half_a_long_span_back_is_there_however_many_came_since(acquisition):
+    """A 10 s span waits for a trigger 5 s back: further than the newest 4096 go."""
+    capture = acquisition.capture
+    capture.history_s = 10.0
+    capture.set_channels([record.channel for record in capture.records.values()], rate=RATE)
+    acquisition.set_trigger(source="A", level=0.0)
+    acquisition.set_mode(NORMAL)
+    for _ in range(20):
+        feed(acquisition, square(500, half=1))  # an edge every other sample, 20 s of them
+    assert capture.records["A"].first == 10_000, "ten seconds held"
+    found = acquisition.trigger_for(9_000)
+    assert found is not None and 10_990 <= found <= 11_000
+    assert len(acquisition._triggers) <= 2 * MOST_TRIGGERS
 
 
 def test_triggers_are_found_across_the_join_of_two_blocks(acquisition):

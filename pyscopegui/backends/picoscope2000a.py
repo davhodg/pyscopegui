@@ -834,6 +834,10 @@ class Stream(pico.Stream):
             )
         self.streaming = True
 
+    def _streaming_rate(self) -> float:
+        # What the driver said it came to, which may not be what was asked for.
+        return self._rate
+
     def stop(self) -> None:
         """Stop reading and leave the scope open. Safe when it is not reading."""
         if self.streaming:

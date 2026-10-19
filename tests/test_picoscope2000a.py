@@ -18,6 +18,7 @@ import pytest
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000a as pico
 from pyscopegui.backends.base import DIGITAL
+from pyscopegui.backends.picoscope2000 import CHECK_AFTER_S
 from pyscopegui.core.triggers import (
     BETWEEN,
     EDGE,
@@ -450,6 +451,21 @@ def test_the_rate_is_the_one_the_driver_says_it_is_streaming_at():
     library.waiting.append({0: [1, 2]})
     assert reading.poll().rate == pytest.approx(1e9 / 2048)
     assert any("nearest it has" in text for text, _warning in reading.notes)
+
+
+def test_samples_arriving_at_the_rate_the_driver_gave_say_nothing():
+    """Asked for 100 kS/s and given 12 us a sample: what arrives is checked against that."""
+    library, clock = FakeLibrary(), Clock()
+    library.interval = 12_000
+    reading = stream(library, {"rate": 100_000, "enabled_b": False}, clock)
+    reading.open()
+    reading.start()
+    reading.notes.clear()
+    clock.now = CHECK_AFTER_S + 1
+    arrived = round((CHECK_AFTER_S + 1) * 1e9 / 12_000)
+    library.waiting.append({0: np.zeros(arrived, dtype=np.int16)})
+    reading.poll()
+    assert not [text for text, is_warning in reading.notes if is_warning]
 
 
 def test_the_fastest_rate_offered_is_a_whole_number_of_nanoseconds_a_sample():

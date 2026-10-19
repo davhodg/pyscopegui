@@ -1257,16 +1257,21 @@ class Stream:
             return
         self._rate_checked = True
         arriving = self._sent / elapsed
-        if abs(arriving - self.settings.rate) > RATE_TOLERANCE * self.settings.rate:
+        expected = self._streaming_rate()
+        if abs(arriving - expected) > RATE_TOLERANCE * expected:
             self.notes.append(
                 (
                     f"Samples are arriving at {arriving:,.0f} a second where "
-                    f"{self.settings.rate:,.0f} were asked for, so times on the plot are out "
+                    f"{expected:,.0f} were expected, so times on the plot are out "
                     "by that ratio. The computer, or its USB connection, may not be keeping "
                     "up: choose a lower rate.",
                     True,
                 )
             )
+
+    def _streaming_rate(self) -> float:
+        """Samples a second the scope is streaming at, which times are counted in."""
+        return self.settings.rate
 
     def close(self) -> None:
         """Stop and let go of the scope. Safe when it never opened."""

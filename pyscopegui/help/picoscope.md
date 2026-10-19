@@ -217,7 +217,7 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
 - *The scope would not set channel A to ...* --- this model does not have that range. If
   it was running, it is still reading on the range it had.
 - *Both channels are switched off* --- tick **Enabled** for one of them.
-- *Samples are arriving at ... a second where ... were asked for* --- the computer, or its USB
+- *Samples are arriving at ... a second where ... were expected* --- the computer, or its USB
   connection, is not keeping up with the rate asked for, and the times on the plot are out by
   that ratio. Choose a lower rate.
 - *The driver's buffer filled before it was read* --- the computer did not keep up, and
