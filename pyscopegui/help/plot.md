@@ -248,17 +248,24 @@ The last ten seconds of every channel, to begin with. Past that the oldest are d
 starts the instrument again.
 
 It is all held in memory, so a long history at a high rate is a great deal of it: four bytes
-a sample for an analog channel and one for a digital one, and half as much again. Ten seconds
-of two channels at 1 MS/s is about 120 MB; ten minutes of them is about 7 GB. The
-[Event Log](event-log.md) says how much the history chosen comes to each time the instrument
-is run.
+a sample for an analog channel and one for a digital one, and half as much again. A
+PicoScope's channels are held as the scope sends them, two bytes a sample, and its logic
+inputs eight to a byte. Ten seconds of two channels at 1 MS/s is about 120 MB, or 60 MB from
+a PicoScope; ten minutes of them is about 7 GB, or 3.6 GB. The [Event Log](event-log.md)
+says how much the history chosen comes to each time the instrument is run.
 
-A run takes no more than half the memory that is free when it starts, leaving the rest for
-drawing, measuring and everything else on the computer. Where the history chosen would take
-more, the run keeps as much as fits and the Event Log says how much that is: "Keeping the last
-2.5 s of each channel, not 10 s". History itself is left as it was, for the next run. Only
-where not even a tenth of a second fits is the instrument not started. On macOS, which does
-not say how much is free, the history is always what was chosen.
+A run takes no more than a share of the memory that is free when it starts, leaving the rest
+for drawing, measuring and everything else on the computer: half, to begin with, and
+*Tools > Settings > Memory* chooses a quarter, three quarters or nine tenths instead. A change
+starts the instrument again. Where the history chosen would take more, the run keeps as much
+as fits and the Event Log says how much that is: "Keeping the last 2.5 s of each channel, not
+10 s". History itself is left as it was, for the next run. Only where not even a tenth of a
+second fits is the instrument not started. On macOS, which does not say how much is free, the
+history is always what was chosen.
+
+The right of the status bar says how much the histories take and how much is free now --
+*Memory: 577 MB held, 9.4 GB free* -- and, held over, what a run started now may take.
+Pressed, it is the same Memory menu.
 
 **Clear history** throws away what is held and counts time from zero again. The status bar
 says how many seconds are held.

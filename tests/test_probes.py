@@ -129,7 +129,7 @@ def test_a_picoscope_reads_amps_through_a_current_probe():
     # Ten amps a division through 100 mV/A is the scope's ±5 V range: fifty amps full scale.
     assert reading.settings.ranges["A"] == "5V"
     library.waiting.append({0: [32512, -16256]})
-    assert reading.poll().data["A"].tolist() == pytest.approx([50.0, -25.0])
+    assert reading.poll().values("A").tolist() == pytest.approx([50.0, -25.0])
 
 
 def test_a_picoscope_offset_through_a_current_probe_is_amps():
@@ -141,7 +141,7 @@ def test_a_picoscope_offset_through_a_current_probe_is_amps():
     # Two amps through 100 mV/A is a fifth of a volt at the scope's input.
     assert library.offsets[0] == pytest.approx(-0.2)
     library.waiting.append({0: [0], 1: [0]})
-    assert reading.poll().data["A"][0] == pytest.approx(2.0)
+    assert reading.poll().values("A")[0] == pytest.approx(2.0)
     assert reading.offset_at_tip("A") == pytest.approx(-2.0)
 
 
@@ -154,7 +154,7 @@ def test_the_rigol_reads_amps_through_a_current_probe(monkeypatch):
     try:
         scope = opened(fake, scale_1=0.5, probe_1=CURRENT, sensitivity_1=0.1)
         scope.start(scope.settings, rigol.Trigger())
-        samples = sweep_of(scope).data["CH1"]
+        samples = sweep_of(scope).values("CH1")
         # Four divisions down at half an amp a division.
         assert fake.state[":CHAN1:SCAL"] == "0.05" and fake.state[":CHAN1:PROB"] == "1"
         assert samples[0] == pytest.approx(-2.0)

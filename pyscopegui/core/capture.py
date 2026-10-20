@@ -15,7 +15,7 @@ from dataclasses import replace
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
-from pyscopegui.backends.base import ANALOG, Block, Channel
+from pyscopegui.backends.base import ANALOG, DIGITAL, LOST, Block, Channel, Scale, unpacked
 from pyscopegui.core.decoding import Decoding, Setup, decoding_for
 from pyscopegui.core.maths import Maths, Worker
 
@@ -34,8 +34,11 @@ LEAST_S = 0.1
 
 
 def _dtype(channel: Channel) -> type:
-    """What a channel's samples are held as: a number, or a logic level."""
-    return np.float32 if channel.kind == ANALOG else np.uint8
+    """What a channel's samples are held as: a number, the instrument's own
+    counts of one, or a logic level."""
+    if channel.kind != ANALOG:
+        return np.uint8
+    return np.int16 if channel.counts else np.float32
 
 
 class Record:
@@ -46,6 +49,10 @@ class Record:
     start. So what is held is always one slice, never two to be joined, and
     the copy is paid once per half a capacity of samples rather than once per
     block.
+
+    A channel sent as counts is held as counts, with the scale each stretch
+    of them came with -- the range can change while it runs -- and is turned
+    into its unit only where it is looked at: see ``values`` and ``drawn``.
     """
 
     def __init__(self, channel: Channel, rate: float, capacity: int) -> None:
@@ -59,6 +66,13 @@ class Record:
         #: Samples ever written, which is the number of the next one.
         self.total = 0
         self.count = 0
+        #: Held as counts, and if so (the number of the first sample it is
+        #: for, its scale), oldest first; the first is taken for the oldest held.
+        self.counts = self._buffer.dtype == np.int16
+        self._scales: list[tuple[int, Scale]] = []
+        #: For a port: the last stretch cut down to be drawn, kept for the next
+        #: of its inputs to ask for the same.
+        self._packed_drawn: tuple | None = None
 
     @property
     def memory_bytes(self) -> int:
@@ -69,7 +83,18 @@ class Record:
         """The number of the oldest sample still held."""
         return self.total - self.count
 
-    def append(self, samples: np.ndarray) -> None:
+    def append(self, samples: np.ndarray, scale: Scale | None = None) -> None:
+        """Samples on the end: in the channel's unit, or counts with their scale."""
+        if self.counts:
+            if scale is None:
+                raise ValueError(f"{self.channel.key} is held as counts: it needs their scale")
+            if not self._scales or self._scales[-1][1] != scale:
+                self._scales.append((self.total, scale))
+        self._write(samples)
+        while len(self._scales) > 1 and self._scales[1][0] <= self.first:
+            del self._scales[0]
+
+    def _write(self, samples: np.ndarray) -> None:
         new = len(samples)
         self.total += new
         if new >= self.capacity:
@@ -87,25 +112,128 @@ class Record:
     def empty(self) -> None:
         """Hold nothing, and count from nought again."""
         self._end = self.total = self.count = 0
+        self._scales = []
 
     def skip(self, missing: int) -> None:
         """Samples that never arrived: held as a gap, so later ones keep their time."""
-        blank = np.nan if self._buffer.dtype.kind == "f" else 0
-        self.append(np.full(min(missing, self.capacity), blank, dtype=self._buffer.dtype))
+        blank = np.nan if self._buffer.dtype.kind == "f" else LOST if self.counts else 0
+        self._write(np.full(min(missing, self.capacity), blank, dtype=self._buffer.dtype))
         self.total += missing - min(missing, self.capacity)
 
-    def view(self) -> np.ndarray:
-        """Everything held, oldest first. A view: copy it to keep it."""
-        return self._buffer[self._end - self.count : self._end]
+    def _held(self, start: int, stop: int) -> np.ndarray:
+        """Samples start to stop, by number, as they are held: a view."""
+        base = self._end - self.count - self.first
+        return self._buffer[base + start : base + stop]
 
-    def between(self, t_from: float, t_to: float) -> tuple[int, np.ndarray]:
-        """The samples in this stretch of time, and the number of the first of them."""
+    def values(self, start: int | None = None, stop: int | None = None) -> np.ndarray:
+        """Samples start to stop, by number -- everything held, by default --
+        in the channel's unit. A view where it can be: copy it to keep it."""
+        start = self.first if start is None else max(start, self.first)
+        stop = max(start, self.total if stop is None else min(stop, self.total))
+        held = self._held(start, stop)
+        if not self.counts:
+            return held
+        out = np.empty(len(held), dtype=np.float32)
+        for begin, end, scale in self._stretches(start, stop):
+            part = slice(begin - start, end - start)
+            scale.apply(held[part], out=out[part])
+        return out
+
+    def view(self) -> np.ndarray:
+        """Everything held, oldest first, in the channel's unit: see ``values``."""
+        return self.values()
+
+    def _stretches(self, start: int, stop: int):
+        """(from, to, scale) for each part of samples start to stop with a scale of its own."""
+        scales = self._scales
+        for index, (begin, scale) in enumerate(scales):
+            end = scales[index + 1][0] if index + 1 < len(scales) else stop
+            begin, end = max(start if index == 0 else begin, start), min(end, stop)
+            if begin < end:
+                yield begin, end, scale
+
+    def numbers(self, t_from: float, t_to: float) -> tuple[int, int]:
+        """The numbers of the samples held in this stretch of time: from, and to."""
         start = max(self.first, int(np.floor(t_from * self.rate)))
         stop = min(self.total, int(np.ceil(t_to * self.rate)) + 1)
-        if stop <= start:
-            return start, self._buffer[:0]
-        held = self.view()
-        return start, held[start - self.first : stop - self.first]
+        return start, max(start, stop)
+
+    def between(self, t_from: float, t_to: float) -> tuple[int, np.ndarray]:
+        """The samples in this stretch of time, in the channel's unit, and the
+        number of the first of them."""
+        start, stop = self.numbers(t_from, t_to)
+        return start, self.values(start, stop)
+
+    def drawn(self, t_from: float, t_to: float, columns: int) -> tuple[int, np.ndarray, np.ndarray]:
+        """This stretch of time cut down to be drawn this many columns wide:
+        see ``min_max``. The number of its first sample, positions from it,
+        and the values there in the channel's unit -- worked out from counts
+        only for the few that are drawn."""
+        start, stop = self.numbers(t_from, t_to)
+        positions, picked = min_max(self._held(start, stop), columns)
+        if not self.counts:
+            return start, positions, picked
+        values = np.empty(len(picked), dtype=np.float32)
+        numbers = start + positions
+        for begin, end, scale in self._stretches(start, stop):
+            inside = (numbers >= begin) & (numbers < end)
+            values[inside] = scale.apply(picked[inside])
+        return start, positions, values
+
+    def drawn_packed(
+        self, t_from: float, t_to: float, columns: int
+    ) -> tuple[int, np.ndarray, np.ndarray]:
+        """For a port of packed logic inputs: as ``drawn``, but cut down bit by
+        bit, so that each input read out of it is its own lowest and highest.
+        Worked out once for all eight, as the plot asks for each in turn."""
+        start, stop = self.numbers(t_from, t_to)
+        asked = (start, stop, columns)
+        if self._packed_drawn is None or self._packed_drawn[0] != asked:
+            positions, values = min_max_packed(self._held(start, stop), columns)
+            self._packed_drawn = (asked, positions, values)
+        _asked, positions, values = self._packed_drawn
+        return start, positions, values
+
+
+class Bit:
+    """One logic input of a port held packed: everything a Record says, with
+    its samples read out of the port's where they are looked at."""
+
+    counts = False
+    #: The port's record holds the memory.
+    memory_bytes = 0
+
+    def __init__(self, channel: Channel, port: Record) -> None:
+        self.channel = channel
+        self.port = port
+
+    @property
+    def bit(self) -> int:
+        return self.channel.bit
+
+    # What is held is the port's.
+    rate = property(lambda self: self.port.rate)
+    capacity = property(lambda self: self.port.capacity)
+    total = property(lambda self: self.port.total)
+    count = property(lambda self: self.port.count)
+    first = property(lambda self: self.port.first)
+
+    def values(self, start: int | None = None, stop: int | None = None) -> np.ndarray:
+        return unpacked(self.port.values(start, stop), self.bit)
+
+    def view(self) -> np.ndarray:
+        return self.values()
+
+    def numbers(self, t_from: float, t_to: float) -> tuple[int, int]:
+        return self.port.numbers(t_from, t_to)
+
+    def between(self, t_from: float, t_to: float) -> tuple[int, np.ndarray]:
+        start, packed = self.port.between(t_from, t_to)
+        return start, unpacked(packed, self.bit)
+
+    def drawn(self, t_from: float, t_to: float, columns: int) -> tuple[int, np.ndarray, np.ndarray]:
+        start, positions, packed = self.port.drawn_packed(t_from, t_to, columns)
+        return start, positions, unpacked(packed, self.bit)
 
 
 class Capture(QObject):
@@ -123,7 +251,10 @@ class Capture(QObject):
     def __init__(self, history_s: float = HISTORY_S, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.history_s = history_s
-        self.records: dict[str, Record] = {}
+        self.records: dict[str, Record | Bit] = {}
+        #: Ports of logic inputs sent packed, by the key they arrive under:
+        #: what the records of their inputs read out of. See Channel.port.
+        self.ports: dict[str, Record] = {}
         #: Maths channels of this instrument's: worked out as blocks arrive,
         #: and held as channels of their own. See pyscopegui.core.maths.
         self.maths: list[Maths] = []
@@ -152,7 +283,7 @@ class Capture(QObject):
         is. MemoryError if that is less than LEAST_S, or if the memory is not
         there; what was held before is gone either way.
         """
-        self.records = {}
+        self.records, self.ports = {}, {}
         for decoding in self.decodings:
             decoding.reset()
         if capacity is None:
@@ -164,19 +295,30 @@ class Capture(QObject):
                     raise MemoryError(f"room for {fits} samples a channel")
                 capacity = fits
         try:
-            self.records = {c.key: Record(c, rate, capacity) for c in channels}
+            for channel in channels:
+                if channel.port and channel.port not in self.ports:
+                    self.ports[channel.port] = Record(_port(channel.port), rate, capacity)
+            self.records = {c.key: self._record(c, rate, capacity) for c in channels}
             self._workers = {}  # a new run: nothing came before
             for maths, channel in self._maths_channels():
                 self.records[maths.key] = Record(channel, rate, capacity)
         finally:
             self.channels_changed.emit()
 
+    def _record(self, channel: Channel, rate: float, capacity: int) -> Record | Bit:
+        """What holds a channel: a record of its own, or its bit of its port's."""
+        if channel.port:
+            return Bit(channel, self.ports[channel.port])
+        return Record(channel, rate, capacity)
+
     def _each(self, channels: list[Channel]) -> float:
         """Bytes a sample of every one of these channels takes, held: with its
-        maths channels, and the slack a record has on top."""
+        maths channels, a byte for each port of packed inputs, and the slack a
+        record has on top."""
         analog = {c.key for c in channels if c.kind == ANALOG}
         maths = sum(1 for m in self.maths if all(key in analog for key in m.sources))
-        each = sum(np.dtype(_dtype(c)).itemsize for c in channels)
+        each = sum(np.dtype(_dtype(c)).itemsize for c in channels if not c.port)
+        each += len({c.port for c in channels if c.port})
         each += maths * np.dtype(np.float32).itemsize
         return max(each, 1) * (1 + SLACK)
 
@@ -214,9 +356,7 @@ class Capture(QObject):
             record.total = first  # numbered as the samples it is worked out from
             worker = self._workers[maths.key] = Worker(maths, a.rate)
             if last > first:
-                record.append(
-                    worker.take(*(r.view()[first - r.first : last - r.first] for r in sources))
-                )
+                record.append(worker.take(*(r.values(first, last) for r in sources)))
             self.records[maths.key] = record
         self.channels_changed.emit()
 
@@ -235,7 +375,8 @@ class Capture(QObject):
             if block.sweep or block.first != record.total:
                 # Complete in itself, or after a gap: nothing to carry on from.
                 worker.reset()
-            data[maths.key] = worker.take(*(data[key] for key in maths.sources), rate=block.rate)
+            sources = (block.values(key) for key in maths.sources)
+            data[maths.key] = worker.take(*sources, rate=block.rate)
         return replace(block, data=data)
 
     def update_channels(self, channels: list[Channel]) -> None:
@@ -252,12 +393,15 @@ class Capture(QObject):
 
     def memory_bytes(self) -> int:
         """What the records take when they are full."""
-        return sum(record.memory_bytes for record in self.records.values())
+        held = [*self.records.values(), *self.ports.values()]
+        return sum(record.memory_bytes for record in held)
 
     def clear(self) -> None:
         """Throw away what is held, and count samples from zero again."""
+        for key, port in list(self.ports.items()):
+            self.ports[key] = Record(port.channel, port.rate, port.capacity)
         for key, record in list(self.records.items()):
-            self.records[key] = Record(record.channel, record.rate, record.capacity)
+            self.records[key] = self._record(record.channel, record.rate, record.capacity)
         for worker in self._workers.values():
             worker.reset()
         for decoding in self.decodings:
@@ -286,14 +430,14 @@ class Capture(QObject):
         last = min(record.total for record in records)
         if last <= first:
             return None
-        data = {
-            key: record.view()[first - record.first : last - record.first]
-            for key, record in zip(keys, records, strict=True)
-        }
+        data = {key: record.values(first, last) for key, record in zip(keys, records, strict=True)}
         return Block(first, records[0].rate, data, sweep=True)
 
     def _decode(self, block: Block) -> None:
         """Each decoded bus's share of a block: its channels, read on from the last."""
+        if any(not decoding.paused for decoding in self.decodings):
+            wanted = {key for d in self.decodings for key in d.setup.channels()}
+            block = block.in_units(wanted)
         for decoding in self.decodings:
             if decoding.paused:
                 continue
@@ -312,12 +456,12 @@ class Capture(QObject):
             return
         missing = 0
         for key, samples in block.data.items():
-            if (record := self.records.get(key)) is None:
+            if (record := self.records.get(key) or self.ports.get(key)) is None:
                 continue
             if block.first > record.total:
                 missing = block.first - record.total
                 record.skip(missing)
-            record.append(samples)
+            record.append(samples, block.scales.get(key))
         self._decode(block)
         # A pause the instrument took on purpose is a gap on the plot and
         # nothing to warn about.
@@ -327,6 +471,17 @@ class Capture(QObject):
     def _take_sweep(self, block: Block) -> None:
         """Hold this sweep in place of whatever was held, at its own rate and length."""
         for key, samples in block.data.items():
+            if key in self.ports:
+                port = self.ports[key]
+                if port.rate != block.rate or port.capacity != len(samples):
+                    port = self.ports[key] = Record(port.channel, block.rate, len(samples))
+                    for bit in self.records.values():
+                        if isinstance(bit, Bit) and bit.channel.port == key:
+                            bit.port = port
+                else:
+                    port.empty()
+                port.append(samples)
+                continue
             if (record := self.records.get(key)) is None:
                 continue
             if record.rate != block.rate or record.capacity != len(samples):
@@ -334,7 +489,7 @@ class Capture(QObject):
                 self.records[key] = record
             else:
                 record.empty()
-            record.append(samples)
+            record.append(samples, block.scales.get(key))
 
     def newest(self) -> float | None:
         """The time of the latest sample held, in seconds, or None if there are none."""
@@ -373,9 +528,49 @@ def min_max(samples: np.ndarray, columns: int) -> tuple[np.ndarray, np.ndarray]:
         rest = samples[whole * per :]
         low = np.append(low, np.fmin.reduce(rest))
         high = np.append(high, np.fmax.reduce(rest))
+    if samples.dtype == np.int16:
+        _pass_over_lost(samples, per, low, high)
     values = np.empty(2 * len(low), dtype=samples.dtype)
     values[0::2], values[1::2] = low, high
     positions = np.repeat(np.arange(len(low)) * per, 2)
     positions[1::2] += per - 1
     positions[-1] = count - 1
     return positions, values
+
+
+def min_max_packed(samples: np.ndarray, columns: int) -> tuple[np.ndarray, np.ndarray]:
+    """``min_max`` for a port of packed logic inputs: each column's bits that
+    are all 1 in it, and those that are 1 anywhere in it -- every input's
+    lowest and highest at once."""
+    count = len(samples)
+    if columns < 1 or count <= 2 * columns:
+        return np.arange(count), samples
+    per = -(-count // columns)
+    whole = count // per
+    bins = samples[: whole * per].reshape(whole, per)
+    low = np.bitwise_and.reduce(bins, axis=1)
+    high = np.bitwise_or.reduce(bins, axis=1)
+    if whole * per < count:
+        rest = samples[whole * per :]
+        low = np.append(low, np.bitwise_and.reduce(rest))
+        high = np.append(high, np.bitwise_or.reduce(rest))
+    values = np.empty(2 * len(low), dtype=samples.dtype)
+    values[0::2], values[1::2] = low, high
+    positions = np.repeat(np.arange(len(low)) * per, 2)
+    positions[1::2] += per - 1
+    positions[-1] = count - 1
+    return positions, values
+
+
+def _port(key: str) -> Channel:
+    """What a port's own record is said to hold: eight logic inputs, packed."""
+    return Channel(key, key, DIGITAL, "")
+
+
+def _pass_over_lost(samples: np.ndarray, per: int, low: np.ndarray, high: np.ndarray) -> None:
+    """Counts have no NaN to pass over, and LOST is the least of them: a column
+    whose least is LOST is looked at again for the least reading in it. One
+    with nothing but LOST stays LOST, a gap. Rare, so done column by column."""
+    for column in np.flatnonzero((low == LOST) & (high != LOST)):
+        values = samples[column * per : (column + 1) * per]
+        low[column] = values[values != LOST].min()

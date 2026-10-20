@@ -29,6 +29,8 @@ import numpy as np
 
 from pyscopegui.backends.base import ANALOG, DIGITAL, Channel
 
+#: What a Channel says about how it is held, and not about what it is.
+HELD_AS = ("counts", "port", "bit")
 #: What a file of pyscopegui's own says it is, so another .npz is not taken for one.
 FORMAT = "pyscopegui capture"
 VERSION = 1
@@ -69,7 +71,12 @@ def save(path: Path, loaded: Loaded, instrument: str = "") -> None:
         "instrument": instrument,
         "rate": loaded.rate,
         "zero": loaded.zero,
-        "channels": [asdict(channel) for channel in loaded.channels],
+        # Written in their units and on their own, never as counts or packed:
+        # what says so is left out, for an older pyscopegui to read the file too.
+        "channels": [
+            {key: value for key, value in asdict(channel).items() if key not in HELD_AS}
+            for channel in loaded.channels
+        ],
     }
     arrays = {f"channel{index}": loaded.data[c.key] for index, c in enumerate(loaded.channels)}
     path.parent.mkdir(parents=True, exist_ok=True)

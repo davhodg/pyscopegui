@@ -82,33 +82,27 @@ def write_csv(
     if not held:
         raise ValueError("there are no samples to write")
     rate = held[0].rate
-    pieces = {
-        name: record.between(t_from + origin, t_to + origin)
-        for name, record in records.items()
-        if record.count
-    }
+    spans = [record.numbers(t_from + origin, t_to + origin) for record in held]
     # The stretch every channel has: they arrive together, and are the same
     # to within the block that was arriving as this was asked for.
-    first = max(start for start, _samples in pieces.values())
-    last = min(start + len(samples) for start, samples in pieces.values())
+    first = max(start for start, _stop in spans)
+    last = min(stop for _start, stop in spans)
     if last <= first:
         raise ValueError("there are no samples in the stretch of time shown")
-    columns = [
-        (heading(records[name], name), samples[first - start : last - start], records[name])
-        for name, (start, samples) in pieces.items()
-    ]
+    columns = [(heading(record, name), record) for name, record in records.items() if record.count]
     formats = [time_format(rate)] + [
         ANALOG_FORMAT if record.channel.kind == ANALOG else DIGITAL_FORMAT
-        for _heading, _samples, record in columns
+        for _heading, record in columns
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as file:
-        file.write(",".join(["time (s)"] + [said for said, _samples, _record in columns]) + "\n")
+        file.write(",".join(["time (s)"] + [said for said, _record in columns]) + "\n")
         for start in range(first, last, CHUNK):
             stop = min(start + CHUNK, last)
             rows = np.empty((stop - start, len(columns) + 1), dtype=np.float64)
             rows[:, 0] = np.arange(start, stop) / rate - origin
-            for index, (_said, samples, _record) in enumerate(columns, start=1):
-                rows[:, index] = samples[start - first : stop - first]
+            # A chunk at a time, so that counts become units a chunk at a time.
+            for index, (_said, record) in enumerate(columns, start=1):
+                rows[:, index] = record.values(start, stop)
             np.savetxt(file, rows, fmt=formats, delimiter=",")
     return Written(path, last - first, len(columns))

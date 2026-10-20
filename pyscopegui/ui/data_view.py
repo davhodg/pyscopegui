@@ -152,7 +152,7 @@ class Samples(QAbstractTableModel):
         record = self.columns[column - TIME - 1].record
         if not record.first <= number < record.total:
             return ""  # let go of since, or not arrived yet
-        value = record.view()[number - record.first]
+        value = record.values(number, number + 1)[0]
         if record.channel.kind != ANALOG:
             return str(int(value))
         return "" if math.isnan(value) else ANALOG_FORMAT % value

@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from pyscopegui.backends import picoscope2000 as pico
-from pyscopegui.backends.base import DIGITAL, Block, Channel, Setting
+from pyscopegui.backends.base import DIGITAL, LOST, Block, Channel, Scale, Setting
 from pyscopegui.backends.picoscope2000 import (
     BLOCKS,
     RANGES,
@@ -76,8 +76,9 @@ RATIO_NONE = 0
 #: Full scale, unless the scope says otherwise when it is opened: these are
 #: 8-bit scopes, and the driver leaves the bottom byte of its 16 bits empty.
 MAX_VALUE = 32512
-#: Written in place of a sample the driver lost to a full buffer.
-LOST_DATA = -32768
+#: Written in place of a sample the driver lost to a full buffer: what a
+#: channel sent as counts holds a gap as, so kept as it is.
+LOST_DATA = LOST
 #: A logic threshold is given in these: full scale is five volts.
 THRESHOLD_VOLTS, THRESHOLD_COUNTS = 5.0, 32767
 DEFAULT_THRESHOLD = 1.5
@@ -334,6 +335,11 @@ def has_digital(model: str | None) -> bool:
 
 def digital_key(port: int, bit: int) -> str:
     return f"D{port * PORT_BITS + bit}"
+
+
+def port_key(port: int) -> str:
+    """What a port's eight inputs, packed, arrive under in a block."""
+    return f"port{port}"
 
 
 def port_label(port: int) -> str:
@@ -1149,23 +1155,26 @@ class Stream(pico.Stream):
         buffers, self._buffers = self._buffers, {}
         if status != OK or count.value == 0:
             return None
-        data = self._in_units(
+        data, scales, bits = self._as_sent(
             {code: np.ctypeslib.as_array(buffer)[: count.value] for code, buffer in buffers.items()}
         )
+        block = Block(0, self._block_rate, data, sweep=True, scales=scales, bits=bits)
         trigger = self.trigger
         pattern = self._advanced and trigger.condition.kind == PATTERN
         keys = [key for key, _level in trigger.condition.pattern] if pattern else [trigger.source]
-        if any(key not in data for key in keys):
-            return Block(0, self._block_rate, data, sweep=True)
+        if any(key not in data and key not in bits for key in keys):
+            return block
         at = min(self._before_trigger, count.value - 1)
+        # Looked at in volts, which only the channels triggered on are worked out in.
+        looked_at = {key: block.values(key) for key in keys}
         if self._advanced:
             # Waited for in Normal; in Auto, there if it is found where it should be.
-            triggered = not trigger.auto or self._met_near(keys, data, at)
+            triggered = not trigger.auto or self._met_near(keys, looked_at, at)
         else:
             # A logic input is 0 or 1, and an edge goes through the half between.
             level = trigger.level if trigger.source in self.settings.keys() else 0.5
-            triggered = crossed(data[trigger.source], at, level, trigger.rising)
-        return Block(0, self._block_rate, data, sweep=True, trigger=at, triggered=triggered)
+            triggered = crossed(looked_at[trigger.source], at, level, trigger.rising)
+        return replace(block, trigger=at, triggered=triggered)
 
     def _met_near(self, keys: list[str], data: dict[str, np.ndarray], at: int) -> bool:
         """Whether what was waited for is in the block where the trigger is:
@@ -1176,25 +1185,29 @@ class Stream(pico.Stream):
         level = trigger.level if first in ANALOG or trigger.condition.kind == PATTERN else 0.5
         return pico.met_near(trigger.condition, data, keys, at, level, margin, self._block_rate)
 
-    def _in_units(self, raw: dict[int, np.ndarray]) -> dict[str, np.ndarray]:
-        """What the driver filled, as volts for a channel and as 0 or 1 for each
-        logic input of a port."""
-        data = {}
+    def _as_sent(
+        self, raw: dict[int, np.ndarray]
+    ) -> tuple[dict[str, np.ndarray], dict[str, Scale], dict[str, tuple[str, int]]]:
+        """What the driver filled, as it is sent on: a channel as its counts,
+        with how they become volts, and a port as its eight logic inputs
+        packed in a byte, with which bit each input is."""
+        data, scales, bits = {}, {}, {}
         for code, what in self._sources():
             if code not in raw:
                 continue
             counts = raw[code]
             if isinstance(what, str):
+                data[what] = counts
+                # The offset was added before it was measured: taken off again.
                 volts = self.settings.volts(what)
-                scaled = counts.astype(np.float32) * np.float32(volts / self._max)
-                if offset := self.offset_at_tip(what):
-                    scaled -= np.float32(offset)  # it was added before it was measured
-                scaled[counts == LOST_DATA] = np.nan
-                data[what] = scaled
+                scales[what] = Scale(volts / self._max, self.offset_at_tip(what))
                 continue
+            # As the driver gave it: the inputs are its low byte, which is what
+            # is held of it, the driver leaving the high one empty.
+            data[port_key(what)] = counts
             for bit in range(PORT_BITS):
-                data[digital_key(what, bit)] = ((counts >> bit) & 1).astype(np.uint8)
-        return data
+                bits[digital_key(what, bit)] = (port_key(what), bit)
+        return data, scales, bits
 
     def set_generator(self, generator: tuple) -> None:
         """Set the signal generator output: a fixed frequency, no sweep, and at
@@ -1287,8 +1300,10 @@ class Stream(pico.Stream):
             return None
         raw = {code: np.concatenate(parts) for code, parts in self._arrived.items()}
         count = min(len(values) for values in raw.values())
-        data = self._in_units({code: values[:count] for code, values in raw.items()})
-        block = Block(self._sent, self._rate, data, after_pause=self._paused)
+        data, scales, bits = self._as_sent({code: values[:count] for code, values in raw.items()})
+        block = Block(
+            self._sent, self._rate, data, after_pause=self._paused, scales=scales, bits=bits
+        )
         self._paused = False
         self._sent += count
         # Marked as lost by the driver in an analog channel: a logic port has
@@ -1382,6 +1397,8 @@ class PicoScope2000A(pico.PicoScope2000):
                 DIGITAL,
                 "",
                 detail=f"above {settings.threshold[port]:g} V",
+                port=port_key(port),
+                bit=bit,
             )
             for port in settings.ports_on()
             for bit in range(PORT_BITS)

@@ -266,7 +266,7 @@ class Scripting:
         timing = scope._timings.get(unit.name)
         origin = timing.origin if timing is not None else 0.0
         times = (record.first + np.arange(record.count)) / record.rate - origin
-        return times, record.view().copy()
+        return times, record.values().copy()
 
     def measure(self, channel: str) -> dict:
         """What a channel measures, as the Measurements pane has it: between the two

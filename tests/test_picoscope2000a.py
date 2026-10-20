@@ -416,15 +416,15 @@ def test_a_four_channel_scope_has_all_four_set_and_reads_those_that_are_on():
     library.waiting.append({0: [0, 32512], 3: [16256, 0]})
     block = reading.poll()
     assert list(block.data) == ["A", "D"]
-    assert block.data["A"].tolist() == pytest.approx([0.0, 5.0])
-    assert block.data["D"].tolist() == pytest.approx([0.5, 0.0])
+    assert block.values("A").tolist() == pytest.approx([0.0, 5.0])
+    assert block.values("D").tolist() == pytest.approx([0.5, 0.0])
 
 
 def test_counts_become_volts_through_the_probe():
     library = FakeLibrary()
     reading = started(library, {"scale_a": 2.0, "probe_a": 10, "enabled_b": False})
     library.waiting.append({0: [32512, -16256]})
-    assert reading.poll().data["A"].tolist() == pytest.approx([10.0, -5.0])
+    assert reading.poll().values("A").tolist() == pytest.approx([10.0, -5.0])
 
 
 def test_blocks_of_a_stream_are_numbered_from_the_samples_before_them():
@@ -433,15 +433,27 @@ def test_blocks_of_a_stream_are_numbered_from_the_samples_before_them():
     library.waiting += [{0: [1] * 10}, {0: [2] * 4}]
     first, second = reading.poll(), reading.poll()
     assert (first.first, len(first)) == (0, 10) and (second.first, len(second)) == (10, 4)
-    assert second.data["A"][0] == pytest.approx(2 * 5.0 / 32512), "from where the driver put them"
+    assert second.values("A")[0] == pytest.approx(2 * 5.0 / 32512), "from where the driver put them"
     assert reading.poll() is None
+
+
+def test_a_stream_is_sent_on_as_the_drivers_counts_with_their_scale():
+    """Nothing worked out per sample: half the memory of volts, and no time spent."""
+    library = FakeLibrary()
+    reading = started(library, {"scale_a": 2.0, "enabled_b": False})
+    library.waiting.append({0: [32512, -16256, pico.LOST_DATA]})
+    block = reading.poll()
+    assert block.data["A"].dtype == np.int16
+    assert block.data["A"].tolist() == [32512, -16256, pico.LOST_DATA]
+    assert block.scales["A"].per_count == pytest.approx(reading.settings.volts("A") / 32512)
+    assert block.values("A")[0] == pytest.approx(10.0), "full scale of the ±10 V range"
 
 
 def test_a_sample_the_driver_lost_is_a_gap_and_not_minus_full_scale():
     library = FakeLibrary()
     reading = started(library, {"enabled_b": False})
     library.waiting.append({0: [100, pico.LOST_DATA, 100]})
-    assert np.isnan(reading.poll().data["A"]).tolist() == [False, True, False]
+    assert np.isnan(reading.poll().values("A")).tolist() == [False, True, False]
 
 
 def test_the_rate_is_the_one_the_driver_says_it_is_streaming_at():
@@ -543,7 +555,7 @@ def test_a_range_change_while_running_stops_the_stream_sets_it_and_starts_again(
     library.waiting.append({0: [32512]})
     block = reading.poll()
     assert [call[0] for call in library.calls] == ["stop", "channel", "channel", "stream"]
-    assert block.after_pause and block.data["A"].tolist() == pytest.approx([1.0])
+    assert block.after_pause and block.values("A").tolist() == pytest.approx([1.0])
 
 
 def test_closing_stops_and_lets_go_and_does_nothing_if_it_never_opened():
@@ -563,10 +575,12 @@ def test_a_port_is_switched_on_with_its_threshold_and_read_as_eight_inputs():
     assert ("port", PORT1, False, round(1.5 / 5 * 32767)) in library.calls
     library.waiting.append({0: [0, 0, 0], PORT0: [0b0000_0001, 0b1000_0010, 0b0000_0011]})
     block = reading.poll()
-    assert list(block.data) == ["A"] + [f"D{bit}" for bit in range(8)]
-    assert block.data["D0"].tolist() == [1, 0, 1] and block.data["D0"].dtype == np.uint8
-    assert block.data["D1"].tolist() == [0, 1, 1]
-    assert block.data["D7"].tolist() == [0, 1, 0]
+    assert list(block.data) == ["A", "port0"], "the port as the driver gave it"
+    assert block.data["port0"].dtype == np.int16
+    assert list(block.bits) == [f"D{bit}" for bit in range(8)]
+    assert block.values("D0").tolist() == [1, 0, 1] and block.values("D0").dtype == np.uint8
+    assert block.values("D1").tolist() == [0, 1, 1]
+    assert block.values("D7").tolist() == [0, 1, 0]
 
 
 def test_the_second_port_is_inputs_eight_to_fifteen():
@@ -575,8 +589,9 @@ def test_the_second_port_is_inputs_eight_to_fifteen():
     reading = started(library, options)
     library.waiting.append({PORT1: [0b0000_0001, 0b1000_0000]})
     block = reading.poll()
-    assert list(block.data) == [f"D{bit}" for bit in range(8, 16)]
-    assert block.data["D8"].tolist() == [1, 0] and block.data["D15"].tolist() == [0, 1]
+    assert list(block.data) == ["port1"]
+    assert block.bits["D8"] == ("port1", 0) and block.bits["D15"] == ("port1", 7)
+    assert block.values("D8").tolist() == [1, 0] and block.values("D15").tolist() == [0, 1]
 
 
 def test_logic_inputs_alone_are_something_to_read():
@@ -650,7 +665,7 @@ def test_the_first_poll_asks_for_a_block_and_the_next_brings_it_in():
     block = reading.poll()
     assert block.sweep and block.first == 0 and len(block) == 5000
     assert (block.trigger, block.triggered) == (1250, True)
-    assert block.data["A"][0] == pytest.approx(-16000 * 5.0 / 32512)
+    assert block.values("A")[0] == pytest.approx(-16000 * 5.0 / 32512)
 
 
 def test_a_block_that_is_not_in_yet_is_waited_for():
@@ -704,8 +719,8 @@ def test_a_logic_input_is_triggered_on_by_its_edge():
         ("auto", 100),
     ]
     block = reading.poll()
-    assert block.triggered and block.data["D2"].dtype == np.uint8
-    assert block.data["D1"].max() == 0, "which the wave leaves low"
+    assert block.triggered and block.values("D2").dtype == np.uint8
+    assert block.values("D1").max() == 0, "which the wave leaves low"
 
 
 def test_going_back_to_an_analog_trigger_clears_the_logic_one():
@@ -727,7 +742,7 @@ def test_a_range_change_between_blocks_is_taken_up_without_opening_again():
     reading.wanted = pico.Settings({"mode": "block", "enabled_b": False, "scale_a": 0.2})
     reading.poll()
     block = reading.poll()
-    assert block.data["A"][-1] == pytest.approx(16000 * 1.0 / 32512)
+    assert block.values("A")[-1] == pytest.approx(16000 * 1.0 / 32512)
     assert library.calls.count(("open",)) == 1
 
 
@@ -828,6 +843,7 @@ def test_the_instrument_streams_on_its_thread_and_offers_what_the_scope_has(app,
         ("D0", "above 1.5 V"),
     ]
     assert len(channels) == 9 and all(c.kind == DIGITAL for c in channels[1:])
+    assert channels[0].counts and not channels[1].counts, "the channel held as counts"
     offered = {setting.key: setting for setting in instrument.settings_offered()}
     assert "digital_1" in offered and "enabled_c" not in offered
     assert offered["scale_a"].choices[0][0] == 0.01, "which is ±50 mV: it has no ±20 mV"
@@ -896,7 +912,7 @@ def test_the_offset_is_given_to_the_scope_and_taken_off_what_is_read():
     assert library.offsets[0] == pytest.approx(-2.0)
     library.waiting.append({0: [0, 32512]})
     # Nought counts is the offset taken off again: 2 V. Full scale is 2 V more.
-    assert reading.poll().data["A"].tolist() == pytest.approx([2.0, 4.0])
+    assert reading.poll().values("A").tolist() == pytest.approx([2.0, 4.0])
 
 
 def test_an_offset_is_at_the_probes_tip():
@@ -904,7 +920,7 @@ def test_an_offset_is_at_the_probes_tip():
     reading = started(library, {"scale_a": 5.0, "probe_a": 10, "offset_a": -20.0})
     assert library.offsets[0] == pytest.approx(-2.0), "the scope is given a tenth of it"
     library.waiting.append({0: [0], 1: [0]})
-    assert reading.poll().data["A"][0] == pytest.approx(20.0)
+    assert reading.poll().values("A")[0] == pytest.approx(20.0)
 
 
 def test_more_offset_than_the_range_takes_is_as_much_as_it_does_and_says_so():
@@ -917,7 +933,7 @@ def test_more_offset_than_the_range_takes_is_as_much_as_it_does_and_says_so():
         "-3.5 V was asked for. A larger scale allows more."
     ]
     library.waiting.append({0: [0]})
-    assert reading.poll().data["A"][0] == pytest.approx(2.5), "read with what it was given"
+    assert reading.poll().values("A")[0] == pytest.approx(2.5), "read with what it was given"
 
 
 def test_a_scope_without_one_reads_with_none_and_says_so():
@@ -945,7 +961,7 @@ def test_an_offset_is_taken_up_as_it_runs():
     library.waiting.append({0: [0]})
     block = reading.poll()
     assert library.offsets[0] == pytest.approx(-1.5)
-    assert block.data["A"][0] == pytest.approx(1.5)
+    assert block.values("A")[0] == pytest.approx(1.5)
 
 
 def test_the_instrument_offers_an_offset_only_on_a_scope_that_has_one(app, monkeypatch):
@@ -1146,3 +1162,41 @@ def test_off_is_off_whatever_it_was_to_wait_for():
 def test_the_start_and_the_cycles_are_offered_with_the_generator():
     keys = [setting.key for setting in pico.SETTINGS]
     assert keys.index("gen_offset") < keys.index("gen_start") < keys.index("gen_cycles")
+
+
+def test_a_mixed_signal_run_in_the_window_holds_its_ports_packed(
+    window, app, monkeypatch, tmp_path
+):
+    """Drawn, triggered on, written out and saved, each logic input read out of its port."""
+    from pyscopegui.core import capture_file
+
+    library = FakeLibrary(MSO)
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    window.ctx.settings.set("instrument.picoscope2000a", {"digital_0": True, "enabled_b": False})
+    window.choose("picoscope2000a")
+    window.instrument_view.open.click()
+    run_for(app, window.instrument, lambda: window.instrument.is_open)
+    square = [0b0000_0001] * 50 + [0b0000_0010] * 50
+    library.waiting += [{0: [1000] * 100, PORT0: square} for _ in range(5)]
+    window.set_mode("auto")
+    capture = window.capture
+    run_for(
+        app,
+        window.instrument,
+        lambda: capture.records.get("D0") is not None and capture.records["D0"].total >= 500,
+    )
+    assert list(capture.ports) == ["port0"]
+    assert capture.ports["port0"].memory_bytes < capture.records["A"].memory_bytes
+    assert capture.records["D0"].values(0, 100).tolist() == [1] * 50 + [0] * 50
+    assert capture.records["D1"].values(0, 100).tolist() == [0] * 50 + [1] * 50
+    window.scope.redraw()
+    window.set_mode("stop")
+    written = window.scope.export_csv(tmp_path / "run.csv")
+    assert written and written[0].rows >= 500
+    saved = window.scope.save_captures(tmp_path / "run.npz")
+    loaded = capture_file.load(saved[0])
+    keys = [channel.key for channel in loaded.channels]
+    assert "D0" in keys and "port0" not in keys
+    assert loaded.data["D1"][:100].tolist() == [0] * 50 + [1] * 50
+    assert all(not channel.port and not channel.counts for channel in loaded.channels)
+    window.close_instrument()

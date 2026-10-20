@@ -32,14 +32,14 @@ import queue
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends import probes
-from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.backends.base import LOST, Block, Channel, Instrument, Scale, Setting
 from pyscopegui.core.acquire import HYSTERESIS
 from pyscopegui.core.traffic import RECEIVED, traced_library, traffic
 from pyscopegui.core.triggers import (
@@ -67,8 +67,9 @@ CHANNEL_A, CHANNEL_B, NO_TRIGGER = 0, 1, 5
 TIME_UNITS_NS = 2
 #: Full scale, whichever range is set: the driver scales every reading to 16 bits.
 MAX_VALUE = 32767
-#: Written in place of a sample the driver lost to a full buffer.
-LOST_DATA = -32768
+#: Written in place of a sample the driver lost to a full buffer: what a
+#: channel sent as counts holds a gap as, so kept as it is.
+LOST_DATA = LOST
 INFO_VARIANT, INFO_SERIAL, INFO_ERROR = 3, 4, 6
 #: Range name -> the driver's code and full scale in volts. A scope supports
 #: only some of them, and refuses the rest when it is set up.
@@ -1078,29 +1079,31 @@ class Stream:
         )
         if count <= 0:
             return None
-        data = {}
+        data, scales = {}, {}
         for key, buffer in buffers.items():
             if buffer is None:
                 continue
-            volts = settings.volts(key)
-            raw = np.ctypeslib.as_array(buffer)[:count]
-            data[key] = raw.astype(np.float32) * np.float32(volts / MAX_VALUE)
+            data[key] = np.ctypeslib.as_array(buffer)[:count]
+            scales[key] = Scale(settings.volts(key) / MAX_VALUE)
+        block = Block(0, self._block_rate, data, sweep=True, scales=scales)
         trigger = self.trigger
         condition = trigger.condition
         pattern = self._advanced and condition.kind == PATTERN
         keys = [key for key, _level in condition.pattern] if pattern else [trigger.source]
         if any(key not in data for key in keys):
-            return Block(0, self._block_rate, data, sweep=True)
+            return block
         at = min(round(trigger.position * samples), count - 1)
+        # Looked at in volts, which only the channels triggered on are worked out in.
+        looked_at = {key: block.values(key) for key in keys}
         if self._advanced:
             # Waited for in Normal; in Auto, there if it is found where it should be.
             margin = HYSTERESIS * settings.volts(keys[0])
             triggered = not trigger.auto or met_near(
-                condition, data, keys, at, trigger.level, margin, self._block_rate
+                condition, looked_at, keys, at, trigger.level, margin, self._block_rate
             )
         else:
-            triggered = crossed(data[trigger.source], at, trigger.level, trigger.rising)
-        return Block(0, self._block_rate, data, sweep=True, trigger=at, triggered=triggered)
+            triggered = crossed(looked_at[trigger.source], at, trigger.level, trigger.rising)
+        return replace(block, trigger=at, triggered=triggered)
 
     def _take_up(self, wanted: Settings) -> None:
         """Change a range, the coupling or the generator while streaming.
@@ -1194,16 +1197,14 @@ class Stream:
             return None
         arrived = {key: np.concatenate(batches) for key, batches in self._arrived.items()}
         count = min(len(samples) for samples in arrived.values())
-        data = {}
+        data, scales = {}, {}
         lost = 0
         for key, raw in arrived.items():
-            volts = self.settings.volts(key)
-            scaled = raw[:count].astype(np.float32) * np.float32(volts / MAX_VALUE)
-            gone = raw[:count] == LOST_DATA
-            scaled[gone] = np.nan
-            lost = max(lost, int(np.count_nonzero(gone)))
-            data[key] = scaled
-        block = Block(self._sent, self.settings.rate, data, after_pause=self._paused)
+            # Sent on as the driver gave them, with how they become volts.
+            data[key] = raw[:count]
+            scales[key] = Scale(self.settings.volts(key) / MAX_VALUE)
+            lost = max(lost, int(np.count_nonzero(data[key] == LOST_DATA)))
+        block = Block(self._sent, self.settings.rate, data, after_pause=self._paused, scales=scales)
         self._paused = False
         self._sent += count
         self._check_lost(lost)
@@ -1473,6 +1474,7 @@ class PicoScope2000(Instrument):
             Channel(
                 key,
                 key,
+                counts=True,
                 unit=settings.probe[key].unit,
                 full_scale=settings.volts(key),
                 detail=(

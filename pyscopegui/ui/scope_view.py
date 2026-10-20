@@ -57,7 +57,7 @@ from PySide6.QtWidgets import (
 from pyscopegui.backends.base import ANALOG, DIGITAL
 from pyscopegui.core import capture_file, decoding, export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
-from pyscopegui.core.capture import Capture, min_max
+from pyscopegui.core.capture import Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.maths import Maths
@@ -1012,7 +1012,7 @@ class ScopeView(QWidget):
         at = round((seconds + origin) * record.rate)
         if not record.first <= at < record.total:
             return None
-        value = float(record.view()[at - record.first])
+        value = float(record.values(at, at + 1)[0])
         return None if np.isnan(value) else value
 
     @staticmethod
@@ -1280,8 +1280,7 @@ class ScopeView(QWidget):
             origin = origins.get(unit.name)
             if record is None or origin is None:
                 continue
-            first, samples = record.between(x_from + origin, x_to + origin)
-            positions, values = min_max(samples, columns)
+            first, positions, values = record.drawn(x_from + origin, x_to + origin, columns)
             times = (first + positions) / record.rate - origin
             if key in self._lanes:
                 values = values.astype(np.float32) * LANE_HEIGHT + self._lanes[key]
@@ -1330,9 +1329,10 @@ class ScopeView(QWidget):
             timing = self._timings.get(unit.name)
             zero = round((timing.origin if timing is not None else 0.0) * rate) - first
             loaded = capture_file.Loaded(
-                [r.channel for r in records],
+                # Written in their units, whatever they were held as.
+                [r.channel.plain() for r in records],
                 rate,
-                {r.channel.key: r.view()[first - r.first : last - r.first].copy() for r in records},
+                {r.channel.key: r.values(first, last).copy() for r in records},
                 zero if 0 <= zero < last - first else None,
             )
             where = files[unit.short or unit.name or "capture"]

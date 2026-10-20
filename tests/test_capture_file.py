@@ -56,6 +56,14 @@ def test_a_capture_comes_back_exactly_as_it_went(tmp_path):
     assert np.array_equal(back.data["D0"], data["D0"]) and back.data["D0"].dtype == np.uint8
 
 
+def test_a_channel_held_as_counts_is_written_as_volts_for_any_pyscopegui_to_read(tmp_path):
+    loaded = Loaded([Channel("A", "A")], 10.0, {"A": np.zeros(3, dtype=np.float32)})
+    capture_file.save(tmp_path / "c.npz", loaded)
+    with np.load(tmp_path / "c.npz") as file:
+        meta = json.loads(str(file["meta"]))
+    assert "counts" not in meta["channels"][0]
+
+
 def test_another_npz_is_not_taken_for_a_capture(tmp_path):
     np.savez(tmp_path / "other.npz", meta=np.array(json.dumps({"format": "something"})))
     with pytest.raises(CaptureError, match="not a capture saved by pyscopegui"):

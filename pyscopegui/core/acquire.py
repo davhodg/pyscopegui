@@ -261,7 +261,7 @@ class Acquisition(QObject):
             if self._scanned < record.first:
                 # More arrived than is held: what was dropped cannot be searched.
                 self._scanned, self._armed = record.first, False
-            samples = record.view()[self._scanned - record.first :]
+            samples = record.values(self._scanned)
             level, low = self.levels(record)
             found, self._armed = find_triggers(samples, level, low, self.rising, self._armed)
             if len(found):
@@ -289,7 +289,7 @@ class Acquisition(QObject):
             margin = HYSTERESIS * first.channel.full_scale if analog else 0.0
             self._finder = Finder(self.condition, self.level, margin, first.rate)
         data = {
-            key: record.view()[self._scanned - record.first : end - record.first]
+            key: record.values(self._scanned, end)
             for key, record in zip(keys, records, strict=True)
         }
         found = self._finder.find(data, self._scanned)

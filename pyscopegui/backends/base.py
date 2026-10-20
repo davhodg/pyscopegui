@@ -16,8 +16,8 @@ drawn as if the signal had it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 
 ANALOG = "analog"
 DIGITAL = "digital"
+#: The count that is not a reading, in a channel sent as counts: a sample the
+#: instrument lost, or a gap. PicoScope's drivers mark a lost sample with it.
+LOST = -32768
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,37 @@ class Channel:
     #: nought, or minus an offset. With a 1 V offset on a ±5 V range what is
     #: read is -6 V to 4 V, and the plot's axis is set to that.
     middle: float = 0.0
+    #: Sent as the instrument's own 16-bit counts, with a Scale in each block,
+    #: and held as they came: half the memory of volts, and nothing to work
+    #: out until a sample is looked at. An analog channel only.
+    counts: bool = False
+    #: For a logic input sent packed: the key its port's samples arrive under,
+    #: a byte a sample with eight inputs in it, and which bit of it this one
+    #: is. Held packed, and read out only where it is looked at. Empty for
+    #: a channel sent as itself.
+    port: str = ""
+    bit: int = 0
+
+    def plain(self) -> Channel:
+        """The same channel as a file holds it: in its unit, and on its own."""
+        return replace(self, counts=False, port="", bit=0)
+
+
+@dataclass(frozen=True)
+class Scale:
+    """How a channel's counts become its unit: count times ``per_count``, less
+    ``offset``. LOST is not a reading, and becomes NaN."""
+
+    per_count: float
+    offset: float = 0.0
+
+    def apply(self, counts: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
+        """These counts in the channel's unit, as 32-bit floats."""
+        values = np.multiply(counts, np.float32(self.per_count), out=out, dtype=np.float32)
+        if self.offset:
+            values -= np.float32(self.offset)
+        values[counts == LOST] = np.nan
+        return values
 
 
 @dataclass(frozen=True)
@@ -114,7 +148,8 @@ class Block:
     #: Samples per second.
     rate: float
     #: Channel key -> samples: float32 in the channel's unit for an analog
-    #: channel, uint8 holding 0 or 1 for a digital one.
+    #: channel, or int16 counts for one in ``scales``; uint8 holding 0 or 1
+    #: for a digital one.
     data: dict[str, np.ndarray]
     #: The samples before this one were not taken, on purpose: the instrument
     #: stopped reading for a moment to do something else. Drawn as a gap like
@@ -130,9 +165,40 @@ class Block:
     #: In a sweep, whether the signal crossed the level there, as opposed to
     #: the instrument giving up waiting and taking the sweep anyway.
     triggered: bool = False
+    #: Channel key -> how its counts become its unit, for a channel sent as
+    #: counts: see Channel.counts.
+    scales: dict[str, Scale] = field(default_factory=dict)
+    #: Logic input's key -> (its port's key in ``data``, its bit), for inputs
+    #: sent packed: see Channel.port.
+    bits: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))
+
+    def values(self, key: str) -> np.ndarray:
+        """A channel's samples in its unit: counts scaled, a logic input read
+        out of its port, or as they came."""
+        if (packed := self.bits.get(key)) is not None:
+            port, bit = packed
+            return unpacked(self.data[port], bit)
+        scale = self.scales.get(key)
+        samples = self.data[key]
+        return samples if scale is None else scale.apply(samples)
+
+    def in_units(self, keys: Iterable[str] | None = None) -> Block:
+        """The same block with these channels -- every one, by default -- in
+        their units and on their own: no counts, and no ports."""
+        if not self.scales and not self.bits:
+            return self
+        ports = {port for port, _bit in self.bits.values()}
+        wanted = [k for k in self.data if k not in ports] + [*self.bits] if keys is None else keys
+        data = {key: self.values(key) for key in wanted if key in self.data or key in self.bits}
+        return replace(self, data=data, scales={}, bits={})
+
+
+def unpacked(port: np.ndarray, bit: int) -> np.ndarray:
+    """One logic input, 0 or 1, out of its port's samples."""
+    return ((port >> bit) & 1).astype(np.uint8)
 
 
 class Instrument(QObject):

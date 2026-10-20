@@ -287,6 +287,9 @@ whole or not at all. Under **Logic inputs** in the Instrument pane:
 then a channel on the plot like any other, drawn as a logic trace, and can be the trigger:
 when streaming pyscopegui finds its edge, and when reading blocks the scope does.
 
+A port is held as the scope sends it, its eight inputs together in a byte a sample, and each
+input is read out of it only where it is looked at: all sixteen take two bytes a sample.
+
 A threshold is taken up as the scope runs. Switching a port on or off changes what the
 channels are, so it starts the run again.
 
@@ -302,10 +305,12 @@ when it is not kept:
 - If samples arrive slower than asked for, the Event Log says so after five seconds.
 - If the driver's buffer fills because it was not read in time, the run stops and says so.
 
-What is kept to go back over is held in memory, four bytes a sample: at 20 MS/s that is
-80 MB for every second of one channel. A run keeps no more than half the memory that is
-free, so streaming fast keeps a shorter stretch than *Tools > Settings > History* says, and
-the Event Log says how long: see [How much is kept](plot.md).
+What is kept to go back over is held in memory as the scope sends it, two bytes a sample
+for a channel and one for a port of eight logic inputs, and turned into volts only where it
+is looked at: at 20 MS/s that is 40 MB for every second of one channel. A run keeps no more of the memory that is free than *Tools > Settings >
+Memory* says -- half, to begin with -- so streaming fast keeps a shorter stretch than
+*Tools > Settings > History* says, and the Event Log says how long: see
+[How much is kept](plot.md).
 
 For a short stretch of something fast, a block is the better tool: it is taken at the
 scope's full rate, and nothing has to keep up.

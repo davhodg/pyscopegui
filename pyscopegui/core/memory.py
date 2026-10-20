@@ -16,30 +16,42 @@ import ctypes
 import os
 import sys
 
-#: How much of what is free a run's history may take. The rest is for
-#: drawing, measuring and saving it, and for everything else on the computer.
+#: How much of what is free a run's history may take, unless Tools >
+#: Settings > Memory says otherwise. The rest is for drawing, measuring and
+#: saving it, and for everything else on the computer.
 SHARE = 0.5
+#: What Memory offers.
+SHARES = (0.25, 0.5, 0.75, 0.9)
 
 
 def available() -> int | None:
     """Bytes of memory free for use now, without paging anything out to
     disk. None where the operating system will not say."""
+    return _asked(_windows, "MemAvailable:")
+
+
+def total() -> int | None:
+    """Bytes of memory the computer has in all. None where it will not say."""
+    return _asked(_windows_total, "MemTotal:")
+
+
+def _asked(windows, linux: str) -> int | None:
     try:
         if sys.platform == "win32":
-            return _windows()
+            return windows()
         if sys.platform.startswith("linux"):
-            return _linux()
+            return _linux(linux)
         # Elsewhere -- macOS has no such count -- nothing is cut down.
         return None
     except (OSError, ValueError, AttributeError):
         return None
 
 
-def room() -> int | None:
-    """Bytes a run's history may take: a share of what is free. None where
+def room(share: float = SHARE) -> int | None:
+    """Bytes a run's history may take: this share of what is free. None where
     that cannot be told, and the history is then as long as it was asked to be."""
     free = available()
-    return None if free is None else int(free * SHARE)
+    return None if free is None else int(free * share)
 
 
 class _MemoryStatus(ctypes.Structure):
@@ -56,19 +68,30 @@ class _MemoryStatus(ctypes.Structure):
     ]
 
 
-def _windows() -> int | None:
+def _status() -> _MemoryStatus | None:
     status = _MemoryStatus()
     status.dwLength = ctypes.sizeof(_MemoryStatus)
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
         return None
-    return int(status.ullAvailPhys)
+    return status
 
 
-def _linux() -> int | None:
-    # What the kernel says could be had without swapping, page cache and all;
-    # the pages that are simply unused are far fewer.
+def _windows() -> int | None:
+    status = _status()
+    return None if status is None else int(status.ullAvailPhys)
+
+
+def _windows_total() -> int | None:
+    status = _status()
+    return None if status is None else int(status.ullTotalPhys)
+
+
+def _linux(line_of: str) -> int | None:
+    # Available is what the kernel says could be had without swapping, page
+    # cache and all; the pages that are simply unused are far fewer.
     with open("/proc/meminfo", encoding="ascii") as info:
         for line in info:
-            if line.startswith("MemAvailable:"):
+            if line.startswith(line_of):
                 return int(line.split()[1]) * 1024
-    return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    pages = "SC_AVPHYS_PAGES" if line_of == "MemAvailable:" else "SC_PHYS_PAGES"
+    return os.sysconf(pages) * os.sysconf("SC_PAGE_SIZE")

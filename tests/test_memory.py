@@ -25,8 +25,17 @@ def test_what_is_free_is_read_from_the_operating_system():
 def test_a_run_may_take_a_share_of_what_is_free(monkeypatch):
     monkeypatch.setattr(memory, "available", lambda: 1000)
     assert memory.room() == 1000 * memory.SHARE
+    assert memory.room(0.25) == 250
     monkeypatch.setattr(memory, "available", lambda: None)
     assert memory.room() is None
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith(("win32", "linux")), reason="only these say what there is"
+)
+def test_what_there_is_in_all_is_more_than_what_is_free():
+    whole = memory.total()
+    assert isinstance(whole, int) and whole >= memory.available()
 
 
 def test_a_history_that_fits_is_kept_whole():
@@ -83,7 +92,7 @@ def test_a_run_short_of_memory_keeps_less_and_says_so(window, monkeypatch):
 
     # The demo's two analog channels, and four logic ones and a CAN bus: with
     # the slack, 19.5 bytes a sample, held.
-    monkeypatch.setattr(memory, "room", lambda: int(demo.RATE * 5 * 19.5))
+    monkeypatch.setattr(memory, "room", lambda share: int(demo.RATE * 5 * 19.5))
     window.set_mode("auto")
     assert window.instrument.running
     assert window.capture.held_s() == pytest.approx(5.0)
@@ -94,7 +103,54 @@ def test_a_run_short_of_memory_keeps_less_and_says_so(window, monkeypatch):
 
 
 def test_a_run_with_no_memory_to_speak_of_is_not_started(window, monkeypatch):
-    monkeypatch.setattr(memory, "room", lambda: 100)
+    monkeypatch.setattr(memory, "room", lambda share: 100)
     window.set_mode("auto")
     assert not window.instrument.running
     assert "not enough memory" in window.log.toPlainText()
+
+
+def memory_actions(window):
+    return {action.text(): action for action in window.memory_menu.actions()}
+
+
+def test_the_memory_menu_offers_shares_of_what_is_free_with_half_ticked(window):
+    actions = memory_actions(window)
+    assert list(actions) == [
+        "25% of what is free",
+        "50% of what is free",
+        "75% of what is free",
+        "90% of what is free",
+    ]
+    assert [text for text, a in actions.items() if a.isChecked()] == ["50% of what is free"]
+
+
+def test_the_share_chosen_is_what_a_run_may_take_and_is_remembered(window, monkeypatch):
+    from pyscopegui.ui.main_window import MainWindow
+
+    asked = []
+    monkeypatch.setattr(memory, "room", lambda share: asked.append(share) or None)
+    memory_actions(window)["25% of what is free"].trigger()
+    window.set_mode("auto")
+    assert asked and set(asked) == {0.25}
+    window.set_mode("stop")
+    window.close()
+    again = MainWindow()
+    try:
+        assert again.memory_share == 0.25
+        assert memory_actions(again)["25% of what is free"].isChecked()
+    finally:
+        again.close()
+
+
+def test_the_status_bar_says_what_is_held_and_free_and_offers_the_menu(window, monkeypatch):
+    monkeypatch.setattr(memory, "available", lambda: 8_000_000_000)
+    monkeypatch.setattr(memory, "total", lambda: 16_000_000_000)
+    window.set_mode("auto")
+    window._update_status()
+    held = window.capture.memory_bytes()
+    button = window.memory_button
+    assert held > 0
+    assert button.text().startswith("Memory: ") and "8 GB free" in button.text()
+    assert "of 16 GB in all" in button.toolTip() and "4 GB" in button.toolTip()
+    assert button.menu() is window.memory_menu
+    window.set_mode("stop")

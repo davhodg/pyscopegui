@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QStatusBar,
+    QToolButton,
 )
 
 from pyscopegui import APP_NAME, __version__, backends
@@ -81,6 +82,8 @@ STATUS_MS = 500
 #: this machine, where a shortcut is made.
 SHORTCUT_TOLD_KEY = "shortcut/told"
 HISTORY_KEY = "capture.history_s"
+#: The share of what is free a run's history may take: Tools > Settings > Memory.
+MEMORY_KEY = "capture.memory_share"
 #: Where the last capture was opened from or saved to.
 CAPTURE_FOLDER = "capture.folder"
 #: The instruments in the Instrument pane, by name, and the one chosen.
@@ -113,9 +116,16 @@ WIDTHS_MANUAL_TIP = (
 HISTORY_TIP = (
     "How much of each channel is kept, for the plot to go back over. Past it the\n"
     "oldest samples are dropped. It is all held in memory: four bytes a sample\n"
-    "for an analog channel and one for a digital one, and half as much again,\n"
-    "so ten minutes of two channels at 1 MS/s is about 7 GB.\n"
-    "A change starts the instrument again."
+    "for an analog channel -- two from a PicoScope -- and one for a digital one,\n"
+    "and half as much again, so ten minutes of two channels at 1 MS/s is about\n"
+    "7 GB, or 3.6 GB from a PicoScope. Tools > Settings > Memory says how much\n"
+    "of it a run may take. A change starts the instrument again."
+)
+MEMORY_TIP = (
+    "How much of the memory that is free when a run starts its history may take.\n"
+    "The rest is for drawing, measuring and saving it, and for everything else on\n"
+    "the computer. Where History would take more, the run keeps as much as fits,\n"
+    "and the Event Log says how much. A change starts the instrument again."
 )
 
 
@@ -192,6 +202,8 @@ class MainWindow(QMainWindow):
         #: one that pane, Open and the trigger toolbar are about; Stop,
         #: Single, Normal and Auto are for all that are open.
         self.session = Session(history_s=self._saved_history(), parent=self)
+        #: How much of what is free a run's history may take.
+        self.memory_share = self._saved_share()
         #: Sends decoded CAN frames on, to pycangui and any other python-can program.
         self.sharer = Sharer(
             lambda said, problem: (self.events.warning if problem else self.events.information)(
@@ -243,6 +255,10 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.status = QLabel()
         self.statusBar().addWidget(self.status, 1)
+        # What the histories take and what is free: pressed, it is the Memory menu.
+        self.memory_button = QToolButton(autoRaise=True)
+        self.memory_button.setPopupMode(QToolButton.InstantPopup)
+        self.statusBar().addPermanentWidget(self.memory_button)
         self._status_timer = QTimer(self, interval=STATUS_MS, timeout=self._update_status)
         self._status_timer.start()
         self._update_status()
@@ -303,6 +319,9 @@ class MainWindow(QMainWindow):
         settings_menu.addMenu(self.theme_menu)
         self.history_menu = self._history_menu()
         settings_menu.addMenu(self.history_menu)
+        self.memory_menu = self._memory_menu()
+        settings_menu.addMenu(self.memory_menu)
+        self.memory_button.setMenu(self.memory_menu)
         self.widths_menu = self._widths_menu()
         settings_menu.addMenu(self.widths_menu)
         self.udp_network_action = settings_menu.addAction(
@@ -745,7 +764,7 @@ class MainWindow(QMainWindow):
                 # One sweep at a time, whatever its length turns out to be.
                 capacity=1 if instrument.sweeps else None,
                 # No more of the history than there is memory for.
-                room=memory.room,
+                room=lambda: memory.room(self.memory_share),
             )
         except MemoryError:
             self.events.error(
@@ -768,8 +787,9 @@ class MainWindow(QMainWindow):
                 self.events.warning(
                     f"Keeping the last {short_time(held)} of each channel, not "
                     f"{short_time(wanted)}: at {short_rate(unit.instrument.rate)} that is all "
-                    f"there is memory for ({short_bytes(capture.memory_bytes())}, half of "
-                    "what was free). A lower sample rate, or fewer channels, keeps more."
+                    f"there is memory for ({short_bytes(capture.memory_bytes())}, "
+                    f"{self.memory_share:.0%} of what was free: Tools > Settings > Memory). "
+                    "A lower sample rate, or fewer channels, keeps more."
                 )
             else:
                 self.events.information(
@@ -1006,6 +1026,7 @@ class MainWindow(QMainWindow):
         )
 
     def _update_status(self) -> None:
+        self._update_memory()
         units = self._in_use()
         if not self._added:
             self.status.setText(
@@ -1030,6 +1051,28 @@ class MainWindow(QMainWindow):
             title = backends.title(unit.name) if len(units) == 1 else unit.short
             said.append(f"{title}: {doing}, {short_rate(instrument.rate)}, {short_time(held)} held")
         self.status.setText("    |    ".join(said))
+
+    def _update_memory(self) -> None:
+        """What the histories take, set aside as each run started, and what is free now."""
+        held = sum(unit.capture.memory_bytes() for unit in self.session.units.values())
+        free, whole = memory.available(), memory.total()
+        text = f"Memory: {short_bytes(held)} held"
+        tip = [f"The channels' histories take {short_bytes(held)}, set aside as each run started."]
+        if free is not None:
+            text += f", {short_bytes(free)} free"
+            tip.append(
+                f"{short_bytes(free)} is free now"
+                + (f", of {short_bytes(whole)} in all." if whole else ".")
+            )
+            tip.append(
+                f"A run started now may take {self.memory_share:.0%} of that: "
+                f"{short_bytes(int(free * self.memory_share))}."
+            )
+        else:
+            tip.append("This computer does not say how much is free: a run keeps all of History.")
+        tip.append("Pressed: how much of what is free a run may take.")
+        self.memory_button.setText(text)
+        self.memory_button.setToolTip("\n".join(tip))
 
     # --- panes ---------------------------------------------------------------------------
     def _register_panes(self) -> None:
@@ -1312,6 +1355,39 @@ class MainWindow(QMainWindow):
         """The history chosen, or the default for anything that is not one of the choices."""
         saved = self.ctx.settings.get(HISTORY_KEY, HISTORY_S)
         return float(saved) if saved in HISTORIES else HISTORY_S
+
+    def _saved_share(self) -> float:
+        """The share of what is free chosen, or the default for anything else."""
+        saved = self.ctx.settings.get(MEMORY_KEY, memory.SHARE)
+        return float(saved) if saved in memory.SHARES else memory.SHARE
+
+    def _memory_menu(self) -> QMenu:
+        """*Tools > Settings > Memory*: how much of what is free a run's history may take."""
+        menu = QMenu("Memory", self)
+        menu.setToolTipsVisible(True)
+        menu.menuAction().setToolTip(MEMORY_TIP)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for share in memory.SHARES:
+            action = QAction(f"{share:.0%} of what is free", menu, checkable=True)
+            action.setChecked(share == self.memory_share)
+            action.setToolTip(MEMORY_TIP)
+            action.triggered.connect(lambda _on=False, s=share: self.set_memory_share(s))
+            group.addAction(action)
+            menu.addAction(action)
+        return menu
+
+    def set_memory_share(self, share: float) -> None:
+        """Let a run's history take this share of what is free, from now on: an
+        instrument that is running is started again, to be made at that size."""
+        if share == self.memory_share:
+            return
+        self.memory_share = share
+        self.ctx.settings.set(MEMORY_KEY, share)
+        self._update_memory()
+        for unit in self._in_use():
+            if unit.running:
+                self._restart(unit)
 
     def _widths_menu(self) -> QMenu:
         """*Tools > Settings > Column widths*: fitted, or fitted until dragged."""

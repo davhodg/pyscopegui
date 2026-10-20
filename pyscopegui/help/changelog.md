@@ -107,8 +107,16 @@ since the last version, and comes out in the next one.
 - **Auto Y** is now a choice of three, as Time is: **Auto**, **Range** -- the axis the
   channels are set to -- and **Manual**, which holds the axis where it is. Zooming or dragging
   the voltage axis chooses Manual. Auto Y unticked before comes back as Range.
-- A run keeps no more history than half the memory that is free when it starts: where the
-  history chosen would take more, it keeps what fits and the Event Log says how much.
+- A run keeps no more history than a share of the memory that is free when it starts --
+  half, unless *Tools > Settings > Memory* says a quarter, three quarters or nine tenths:
+  where the history chosen would take more, it keeps what fits and the Event Log says how
+  much. The status bar says what the histories take and what is free, and pressed, offers
+  the same choice.
+- A PicoScope's channels are held as the scope sends them, two bytes a sample rather than
+  four, and turned into volts only where they are looked at: twice the history in the same
+  memory, and no time spent on every sample as it arrives. A mixed-signal scope's logic
+  inputs are held as the scope sends them too, eight to a byte, and read out only where they
+  are looked at: all sixteen take two bytes a sample rather than sixteen.
 - The last instrument can be taken out of the Instrument pane too: the pane then says there
   is none, and stays empty the next time until one is added.
 - **Add instrument** takes the place of the list of instruments on the toolbar. Each
@@ -126,6 +134,10 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- In **Normal**, a span as long as the history -- 10 s of a 1 kHz signal, say -- drew once
+  and then went blank: the trigger it needed, half the span back, had been forgotten.
+- A newer PicoScope's samples were checked against the rate asked for, not the nearest one
+  the scope gave, so a rate it rounds -- 20 MS/s, say -- could be said to be arriving slowly.
 - The launchers notice a `.venv` whose Python has been uninstalled or replaced, and offer
   to make it again: before, Windows opened nothing and Linux took it for a first run. On
   Windows, `.venv` is made from Python 3.15, 3.14, 3.13 or 3.12, newest first, through the

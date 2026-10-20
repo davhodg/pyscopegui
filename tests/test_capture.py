@@ -3,9 +3,11 @@
 """The samples held, and how they are cut down to be drawn."""
 
 import numpy as np
+import pytest
 
-from pyscopegui.backends.base import DIGITAL, Block, Channel
+from pyscopegui.backends.base import DIGITAL, LOST, Block, Channel, Scale
 from pyscopegui.core.capture import Capture, Record, min_max
+from pyscopegui.core.maths import Maths
 
 
 def record(capacity=10, kind="analog"):
@@ -145,3 +147,159 @@ def test_logic_levels_are_cut_down_too():
     _positions, values = min_max(samples, columns=20)
     assert values.dtype == np.uint8
     assert values[0::2].tolist() == [0] * 20 and values[1::2].tolist() == [1] * 20
+
+
+# --- held as counts ----------------------------------------------------------------------------
+def counted(capacity=10):
+    return Record(Channel("A", "A", counts=True), rate=10.0, capacity=capacity)
+
+
+def test_counts_take_half_the_memory_of_volts():
+    capture = Capture(history_s=1.0)
+    capture.set_channels([Channel("A", "A", counts=True)], rate=1000.0)
+    assert capture.records["A"].counts
+    assert capture.memory_bytes() == 1500 * 2
+
+
+def test_counts_are_held_as_they_came_and_read_in_volts():
+    r = counted()
+    r.append(np.array([100, -200, 300], dtype=np.int16), Scale(0.01, 0.5))
+    assert r._held(0, 3).tolist() == [100, -200, 300], "held as sent"
+    assert r.values().dtype == np.float32
+    assert r.values().tolist() == pytest.approx([0.5, -2.5, 2.5])
+    assert r.values(1, 2).tolist() == pytest.approx([-2.5])
+
+
+def test_each_stretch_of_counts_is_read_at_the_scale_it_came_with():
+    """A range changed while running: the samples before it keep their volts."""
+    r = counted(capacity=10)
+    r.append(np.full(4, 1000, dtype=np.int16), Scale(0.001))
+    r.append(np.full(4, 1000, dtype=np.int16), Scale(0.01))
+    assert r.values().tolist() == pytest.approx([1.0] * 4 + [10.0] * 4)
+    assert r.values(3, 5).tolist() == pytest.approx([1.0, 10.0])
+    r.append(np.full(6, 1000, dtype=np.int16), Scale(0.01))
+    assert r.values().tolist() == pytest.approx([10.0] * 10)
+    assert len(r._scales) == 1, "what is no longer held is let go of"
+
+
+def test_a_lost_count_and_a_gap_are_read_as_nothing():
+    r = counted(capacity=20)
+    r.append(np.array([10, LOST, 30], dtype=np.int16), Scale(0.1))
+    r.skip(2)
+    r.append(np.array([50], dtype=np.int16), Scale(0.1))
+    got = r.values()
+    assert np.isnan(got).tolist() == [False, True, False, True, True, False]
+    assert got[[0, 2, 5]].tolist() == pytest.approx([1.0, 3.0, 5.0])
+
+
+def test_counts_with_no_scale_are_refused():
+    with pytest.raises(ValueError, match="needs their scale"):
+        counted().append(np.zeros(2, dtype=np.int16))
+
+
+def test_counts_are_drawn_as_volts_and_only_those_drawn_are_worked_out():
+    r = Record(Channel("A", "A", counts=True), rate=1.0, capacity=10_000)
+    counts = np.zeros(10_000, dtype=np.int16)
+    counts[1234], counts[5678] = 20_000, -10_000
+    counts[100:110] = LOST
+    r.append(counts, Scale(1e-4, 1.0))
+    first, _positions, values = r.drawn(0.0, 10_000.0, columns=50)
+    assert first == 0 and len(values) <= 2 * 50 + 2
+    assert values.max() == pytest.approx(1.0) and values.min() == pytest.approx(-2.0)
+    assert not np.isnan(values).any(), "a lost count does not blank its column"
+    _first, as_volts = r.between(0.0, 10_000.0)
+    _positions, expected = min_max(as_volts, 50)
+    assert values.tolist() == pytest.approx(expected.tolist())
+
+
+def test_a_column_of_nothing_but_lost_counts_is_a_gap():
+    r = Record(Channel("A", "A", counts=True), rate=1.0, capacity=1000)
+    counts = np.ones(1000, dtype=np.int16)
+    counts[:100] = LOST
+    r.append(counts, Scale(1.0))
+    _first, _positions, values = r.drawn(0.0, 1000.0, columns=10)
+    assert np.isnan(values[:2]).all() and not np.isnan(values[2:]).any()
+
+
+def test_a_block_of_counts_is_held_and_decoded_and_worked_out_in_volts():
+    capture = Capture(history_s=1.0)
+    capture.set_channels([Channel("A", "A", counts=True)], rate=10.0)
+    capture.set_maths([Maths("A", "neg")])
+    capture.add(Block(0, 10.0, {"A": np.array([10, 20], dtype=np.int16)}, scales={"A": Scale(0.1)}))
+    assert capture.records["A"].values().tolist() == pytest.approx([1.0, 2.0])
+    assert capture.records[Maths("A", "neg").key].values().tolist() == pytest.approx([-1.0, -2.0])
+
+
+# --- logic inputs held packed ------------------------------------------------------------------
+def inputs(port="port0", first=0):
+    return [
+        Channel(f"D{first + bit}", f"D{first + bit}", DIGITAL, "", port=port, bit=bit)
+        for bit in range(8)
+    ]
+
+
+def packed_block(first, port_samples, port="port0"):
+    data = {port: np.asarray(port_samples, dtype=np.int16)}
+    bits = {f"D{bit}": (port, bit) for bit in range(8)}
+    return Block(first, 10.0, data, bits=bits)
+
+
+def test_a_port_of_eight_inputs_takes_a_byte_a_sample():
+    capture = Capture(history_s=1.0)
+    capture.set_channels([Channel("A", "A", counts=True), *inputs()], rate=1000.0)
+    assert list(capture.records) == ["A"] + [f"D{bit}" for bit in range(8)]
+    assert list(capture.ports) == ["port0"]
+    assert capture.memory_bytes() == 1500 * 2 + 1500 * 1
+
+
+def test_each_input_is_read_out_of_its_port_where_it_is_looked_at():
+    capture = Capture(history_s=1.0)
+    capture.set_channels(inputs(), rate=10.0)
+    capture.add(packed_block(0, [0b0000_0001, 0b1000_0010, 0b1000_0011]))
+    assert capture.ports["port0"].values().tolist() == [1, 130, 131], "held as sent"
+    assert capture.records["D0"].values().tolist() == [1, 0, 1]
+    assert capture.records["D1"].values().tolist() == [0, 1, 1]
+    assert capture.records["D7"].values(1, 3).tolist() == [1, 1]
+    assert capture.records["D7"].values().dtype == np.uint8
+    d0 = capture.records["D0"]
+    assert (d0.first, d0.total, d0.count, d0.rate) == (0, 3, 3, 10.0)
+
+
+def test_every_input_of_a_port_is_drawn_from_one_pass_over_it():
+    rng = np.random.default_rng(1)
+    port = rng.integers(0, 256, 10_000).astype(np.int16)
+    port[5000:6000] = 0b0000_0100  # a stretch of D2 alone
+    capture = Capture(history_s=1000.0)
+    capture.set_channels(inputs(), rate=10.0)
+    capture.add(packed_block(0, port))
+    for bit in range(8):
+        record = capture.records[f"D{bit}"]
+        first, positions, values = record.drawn(0.0, 1000.0, columns=50)
+        _positions, expected = min_max(((port >> bit) & 1).astype(np.uint8), 50)
+        assert values.tolist() == expected.tolist(), f"D{bit}"
+        assert first == 0 and len(positions) == len(values)
+
+
+def test_a_port_s_sweep_and_a_clear_keep_its_inputs_reading_it():
+    capture = Capture(history_s=1.0)
+    capture.set_channels(inputs(), rate=10.0, capacity=1)
+    sweep = packed_block(0, [1, 0, 1, 1])
+    capture.add(Block(0, 20.0, sweep.data, sweep=True, bits=sweep.bits))
+    assert capture.records["D0"].values().tolist() == [1, 0, 1, 1]
+    assert capture.records["D0"].rate == 20.0
+    capture.clear()
+    capture.add(packed_block(0, [2]))
+    assert capture.records["D1"].values().tolist() == [1]
+
+
+def test_a_decoding_and_a_trigger_read_inputs_out_of_a_port():
+    block = packed_block(0, [0b10, 0b01])
+    assert block.values("D1").tolist() == [1, 0]
+    alone = block.in_units(["D0"])
+    assert list(alone.data) == ["D0"] and alone.data["D0"].tolist() == [0, 1]
+    assert not alone.bits
+
+
+def test_a_packed_input_is_written_to_a_file_on_its_own():
+    channel = inputs()[3]
+    assert channel.plain() == Channel("D3", "D3", DIGITAL, "")

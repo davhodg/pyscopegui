@@ -218,7 +218,7 @@ def test_channel_b_alone_is_read_and_a_is_told_to_be_off():
     library.waiting.append((None, [pico.MAX_VALUE, 0]))
     block = reading.poll()
     assert set(block.data) == {"B"}
-    assert block.data["B"].tolist() == pytest.approx([1.0, 0.0])
+    assert block.values("B").tolist() == pytest.approx([1.0, 0.0])
 
 
 def test_both_channels_off_is_said_without_setting_anything_up():
@@ -311,9 +311,9 @@ def test_counts_become_volts_at_the_range_each_channel_is_on():
     library.waiting.append(([pico.MAX_VALUE, 0, -pico.MAX_VALUE], [pico.MAX_VALUE, 0, 0]))
     block = reading.poll()
     assert block.first == 0 and block.rate == pico.DEFAULT_RATE
-    assert block.data["A"].dtype == np.float32
-    assert block.data["A"].tolist() == pytest.approx([5.0, 0.0, -5.0])
-    assert block.data["B"].tolist() == pytest.approx([0.2, 0.0, 0.0])
+    assert block.values("A").dtype == np.float32
+    assert block.values("A").tolist() == pytest.approx([5.0, 0.0, -5.0])
+    assert block.values("B").tolist() == pytest.approx([0.2, 0.0, 0.0])
 
 
 def test_blocks_are_numbered_from_the_samples_before_them():
@@ -340,7 +340,7 @@ def test_a_sample_the_driver_lost_is_a_gap_and_not_minus_full_scale():
     reading.open()
     reading.start()
     library.waiting.append(([100, pico.LOST_DATA, 100], [0, 0, 0]))
-    samples = reading.poll().data["A"]
+    samples = reading.poll().values("A")
     assert np.isnan(samples[1]) and not np.isnan(samples[[0, 2]]).any()
 
 
@@ -363,7 +363,7 @@ def test_the_samples_are_copied_out_of_the_drivers_buffer():
     library.waiting.append((theirs, theirs))
     block = reading.poll()
     theirs[:] = 0
-    assert block.data["A"][0] != 0
+    assert block.values("A")[0] != 0
 
 
 def test_every_batch_the_driver_hands_over_in_one_poll_is_kept():
@@ -383,7 +383,7 @@ def test_every_batch_the_driver_hands_over_in_one_poll_is_kept():
     library.waiting += [([1] * 10, [2] * 10), ([3] * 5, [4] * 5)]
     block = reading.poll()
     assert len(block) == 15, "both batches, in order"
-    assert block.data["A"].tolist() == pytest.approx([1 * 5 / 32767] * 10 + [3 * 5 / 32767] * 5)
+    assert block.values("A").tolist() == pytest.approx([1 * 5 / 32767] * 10 + [3 * 5 / 32767] * 5)
     library.waiting.append(([5] * 2, [6] * 2))
     assert reading.poll().first == 15, "and the next starts where they ended"
 
@@ -576,7 +576,7 @@ def test_a_range_change_while_running_stops_the_stream_sets_it_and_starts_again(
         STREAM,
     ]
     assert ("open",) not in library.calls, "the scope is not opened again for it"
-    assert block.after_pause and block.data["A"].tolist() == pytest.approx([1.0])
+    assert block.after_pause and block.values("A").tolist() == pytest.approx([1.0])
 
 
 def test_a_range_the_scope_refuses_while_running_leaves_it_as_it_was_and_says_so():
@@ -591,7 +591,7 @@ def test_a_range_the_scope_refuses_while_running_leaves_it_as_it_was_and_says_so
     block = reading.poll()
     assert reading.streaming
     assert reading.settings.ranges["A"] == "5V"
-    assert block.data["A"].tolist() == pytest.approx([5.0])
+    assert block.values("A").tolist() == pytest.approx([5.0])
     warnings = [text for text, is_warning in reading.notes if is_warning]
     assert len(warnings) == 1 and "It is still set as it was." in warnings[0]
 
@@ -730,8 +730,8 @@ def test_the_first_poll_asks_for_a_block_and_the_next_brings_it_in():
     assert block.sweep and block.first == 0 and len(block) == 3125
     assert block.rate == pytest.approx(3_125_000)
     assert block.trigger == 1562 and block.triggered
-    assert block.data["A"][0] == pytest.approx(-16000 * 5 / pico.MAX_VALUE)
-    assert block.data["A"].dtype == np.float32
+    assert block.values("A")[0] == pytest.approx(-16000 * 5 / pico.MAX_VALUE)
+    assert block.values("A").dtype == np.float32
     # ...and the poll after that asks for the next one.
     assert reading.poll() is None
     assert library.calls[-1] == ("block", 3125, 5)
@@ -827,7 +827,7 @@ def test_a_range_change_between_blocks_is_taken_up_without_opening_again():
     assert ("trigger", pico.CHANNEL_A, round(pico.MAX_VALUE / 2), pico.RISING, -50, 100) in (
         library.calls
     )
-    assert reading.poll().data["A"][-1] == pytest.approx(16000 * 2 / pico.MAX_VALUE)
+    assert reading.poll().values("A")[-1] == pytest.approx(16000 * 2 / pico.MAX_VALUE)
 
 
 def test_a_scope_that_was_unplugged_while_a_block_was_waited_for_is_said():
@@ -914,8 +914,8 @@ def test_a_probe_multiplies_what_is_read_and_divides_the_trigger_level():
     reading = stream(library, {"scale_a": 10.0, "probe_a": 10, "scale_b": 1.0})
     assert reading.settings.ranges == {"A": "5V", "B": "5V"}
     block = reading.poll()
-    assert block.data["A"][0] == pytest.approx(25.0, rel=1e-3)
-    assert block.data["B"][0] == pytest.approx(2.5, rel=1e-3)
+    assert block.values("A")[0] == pytest.approx(25.0, rel=1e-3)
+    assert block.values("B")[0] == pytest.approx(2.5, rel=1e-3)
     assert reading.settings.volts("A") == 50.0 and reading.settings.scale("A") == 10.0
     reading.close()
     library = FakeLibrary()
