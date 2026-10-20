@@ -131,6 +131,11 @@ since the last version, and comes out in the next one.
   part of its name.
 - The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
   driver and not only the 2204A.
+- **Measurements** are exact once the instrument stops, worked out once and kept until the
+  stretch changes; while it runs, a long stretch is measured from a share of it and said to
+  be close, so that measuring a span of seconds at megasamples a second takes no longer than
+  a short one. Edges are found only where the signal gets clear of the band, and a long
+  stretch is measured a piece at a time, in no more memory than a piece.
 
 ### Fixed
 

@@ -7,6 +7,7 @@ import pytest
 
 from pyscopegui.backends import demo
 from pyscopegui.backends.base import Block
+from pyscopegui.core import measure as measure_module
 from pyscopegui.core.measure import measure
 
 
@@ -51,6 +52,74 @@ def test_gaps_are_left_out_and_too_little_is_nothing():
     samples = np.array([1.0, np.nan, 3.0])
     assert measure(samples, 1000).mean == 2.0
     assert measure(np.array([np.nan, 1.0]), 1000) is None
+
+
+def old_way(samples, rate):
+    """How the frequency and duty were found before: a state for every sample."""
+    values = samples[~np.isnan(samples)].astype(np.float64)
+    low, high = values.min(), values.max()
+    middle, band = (low + high) / 2, (high - low) * measure_module.BAND
+    state = np.full(len(values), -1, dtype=np.int8)
+    state[values > middle + band] = 1
+    state[values < middle - band] = 0
+    known = np.where(state >= 0, np.arange(len(state)), 0)
+    np.maximum.accumulate(known, out=known)
+    held = state[known]
+    edges = np.flatnonzero((held[1:] == 1) & (held[:-1] == 0)) + 1
+    first, last = edges[0], edges[-1]
+    return (len(edges) - 1) * rate / (last - first), np.count_nonzero(held[first:last] == 1) / (
+        last - first
+    )
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_edges_found_where_it_gets_clear_are_those_a_state_for_every_sample_found(
+    seed, monkeypatch
+):
+    """And the same again measured in pieces, an edge falling across where one ends."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(200_000) / 100_000.0
+    samples = np.sin(2 * np.pi * rng.uniform(5, 500) * t) + rng.normal(0, 0.3, t.size)
+    samples = samples.astype(np.float32)
+    expected = old_way(samples, 100_000.0)
+    whole = measure(samples, 100_000.0)
+    assert (whole.frequency, whole.duty) == pytest.approx(expected, rel=1e-9)
+    monkeypatch.setattr(measure_module, "PIECE", 997)
+    pieces = measure(samples, 100_000.0)
+    assert (pieces.frequency, pieces.duty) == pytest.approx(expected, rel=1e-9)
+    assert pieces.mean == pytest.approx(whole.mean) and pieces.rms == pytest.approx(whole.rms)
+    assert (pieces.minimum, pieces.maximum) == (whole.minimum, whole.maximum)
+
+
+def test_a_long_stretch_while_running_is_close_from_a_share_of_it():
+    samples, rate = sine(hz=50.0, rate=100_000.0, seconds=60.0)  # six million
+    samples[1_234_567] = 9.0  # a spike the spread misses
+    looked_at = []
+
+    def values(a, b, step):
+        looked_at.append(len(range(a, b, step)))
+        return samples[a:b:step]
+
+    close = measure_module.measure_held(values, 0, len(samples), rate, exact=False)
+    assert not close.exact and max(looked_at) <= measure_module.LOOKED_AT
+    assert close.frequency == pytest.approx(50.0, rel=1e-3)
+    assert close.rms == pytest.approx(2.0 / np.sqrt(2), rel=1e-2)
+    assert close.samples == pytest.approx(len(samples), rel=1e-3)
+    seen = measure_module.measure_held(
+        values, 0, len(samples), rate, exact=False, extremes=(-2.0, 9.0)
+    )
+    assert seen.maximum == 9.0, "the plot's highest stands in for the spread's"
+    exact = measure_module.measure_held(values, 0, len(samples), rate)
+    assert exact.exact and exact.maximum == 9.0
+
+
+def test_a_slow_signal_while_running_has_its_frequency_from_the_spread():
+    samples, rate = sine(hz=1.0, rate=100_000.0, seconds=30.0)  # far slower than the newest
+    close = measure_module.measure_held(
+        lambda a, b, step: samples[a:b:step], 0, len(samples), rate, exact=False
+    )
+    assert close.frequency == pytest.approx(1.0, rel=1e-2)
+    assert close.duty == pytest.approx(0.5, abs=0.02)
 
 
 # --- in the pane --------------------------------------------------------------------------------
@@ -117,3 +186,39 @@ def test_the_console_gets_the_same_numbers(held):
     assert numbers["frequency"] == pytest.approx(50.0, rel=1e-3)
     assert numbers["peak_to_peak"] == pytest.approx(4.0, abs=0.01)
     assert held.console.namespace["measure"]("D0")["duty"] == pytest.approx(0.5, abs=0.01)
+
+
+def test_while_running_a_long_span_is_close_and_said_to_be(window, monkeypatch):
+    monkeypatch.setattr(measure_module, "LOOKED_AT", 1000)  # far less than the demo sends
+    window.set_mode("auto")
+    feed(window, 0.5)
+    window.scope.time.setCurrentText("Manual")
+    window.scope.analog.setXRange(0.0, 0.4, padding=0)
+    window.scope.redraw()
+    window.panes.show("measurements")
+    view = window.measurements
+    view.refresh()
+    assert view.over.text().endswith(", close while it runs")
+    assert view.row("A: sine")["Frequency"].endswith("Hz")
+    window.set_mode("stop")
+    view.refresh()
+    assert not view.over.text().endswith(", close while it runs"), "exact once it stops"
+    assert view.row("A: sine")["Frequency"] == "50 Hz"
+
+
+def test_what_has_stopped_is_measured_once_until_the_span_moves(held, monkeypatch):
+    from pyscopegui.ui import scope_view
+
+    calls = []
+    real = scope_view.measure_held
+    monkeypatch.setattr(
+        scope_view, "measure_held", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    held.measurements.refresh()
+    first = len(calls)
+    assert first
+    held.measurements.refresh()
+    assert len(calls) == first, "nothing has changed: what was measured stands"
+    held.scope.analog.setXRange(0.0, 0.3, padding=0)
+    held.measurements.refresh()
+    assert len(calls) == 2 * first

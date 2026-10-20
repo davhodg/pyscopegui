@@ -13,6 +13,8 @@ period and duty cycle are what is said of it.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
@@ -22,14 +24,20 @@ from pyscopegui.ui import fonts
 from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.scope_view import ScopeView, frequency_text, reading_width, time_text
 
-#: How often the numbers are measured again while nothing is moved.
+#: How often the numbers are measured again while nothing is moved, at the most,
+#: and less often where measuring takes long, so that it never takes more than
+#: a share of the time.
 MEASURE_MS = 250
+#: Measuring takes no more than one part in this of the time between.
+MEASURE_SHARE = 5
 HEADINGS = ("Channel", "Min", "Max", "Peak to peak", "Mean", "RMS", "Frequency", "Period", "Duty")
 NONE = "\u2014"
 MEASURES_TIP = (
     "Each channel shown on the plot, measured between its two cursors -- or,\n"
     "with fewer, over what is in view. Frequency is found where the signal\n"
-    "rises through the middle of its range, and needs two rising edges."
+    "rises through the middle of its range, and needs two rising edges.\n"
+    "While it runs, a long stretch is measured from a share of its samples, and\n"
+    "the numbers are close; stopped, they are exact."
 )
 
 
@@ -91,12 +99,12 @@ class MeasurementsView(QWidget):
         """Measure every channel shown again, if the pane is to be seen."""
         if not self.isVisible():
             return
+        began = time.perf_counter()
         scope = self.scope
         t_from, t_to, cursors = scope.span()
         width = time_text(t_to - t_from)
-        self.over.setText(
-            f"Between the cursors: {width}" if cursors else f"Over what is in view: {width}"
-        )
+        over = f"Between the cursors: {width}" if cursors else f"Over what is in view: {width}"
+        close = False
         shown = scope.shown_channels()
         if self.table.topLevelItemCount() != len(shown):
             self.table.clear()
@@ -112,11 +120,16 @@ class MeasurementsView(QWidget):
             record = unit.capture.records.get(own)
             channel = record.channel if record is not None else None
             analog = channel is None or channel.kind == ANALOG
+            measured = scope.measure(key)
+            close = close or (measured is not None and not measured.exact)
             for column, text in enumerate(
-                [name, *texts(scope.measure(key), channel.unit if channel else "", analog)]
+                [name, *texts(measured, channel.unit if channel else "", analog)]
             ):
                 if item.text(column) != text:
                     item.setText(column, text)
+        self.over.setText(f"{over}, close while it runs" if close else over)
+        took_ms = (time.perf_counter() - began) * 1000
+        self._timer.setInterval(max(MEASURE_MS, round(MEASURE_SHARE * took_ms)))
 
     def row(self, name: str) -> dict[str, str]:
         """What the table says of a channel, by heading: for reading it back."""

@@ -73,6 +73,12 @@ class Record:
         #: For a port: the last stretch cut down to be drawn, kept for the next
         #: of its inputs to ask for the same.
         self._packed_drawn: tuple | None = None
+        #: What was last drawn of it: (from, to, its lowest, its highest), for a
+        #: measurement over the same stretch while it runs. See ``drawn``.
+        self.last_drawn: tuple[int, int, float, float] | None = None
+        #: Goes up with every change to what is held: what was measured of it
+        #: stands while it does not.
+        self.changes = 0
 
     @property
     def memory_bytes(self) -> int:
@@ -95,6 +101,7 @@ class Record:
             del self._scales[0]
 
     def _write(self, samples: np.ndarray) -> None:
+        self.changes += 1
         new = len(samples)
         self.total += new
         if new >= self.capacity:
@@ -113,6 +120,7 @@ class Record:
         """Hold nothing, and count from nought again."""
         self._end = self.total = self.count = 0
         self._scales = []
+        self.changes += 1
 
     def skip(self, missing: int) -> None:
         """Samples that never arrived: held as a gap, so later ones keep their time."""
@@ -125,17 +133,21 @@ class Record:
         base = self._end - self.count - self.first
         return self._buffer[base + start : base + stop]
 
-    def values(self, start: int | None = None, stop: int | None = None) -> np.ndarray:
+    def values(
+        self, start: int | None = None, stop: int | None = None, step: int = 1
+    ) -> np.ndarray:
         """Samples start to stop, by number -- everything held, by default --
-        in the channel's unit. A view where it can be: copy it to keep it."""
+        every ``step``'th, in the channel's unit. A view where it can be: copy
+        it to keep it. Counts are worked out only for those asked for."""
         start = self.first if start is None else max(start, self.first)
         stop = max(start, self.total if stop is None else min(stop, self.total))
-        held = self._held(start, stop)
+        held = self._held(start, stop)[::step]
         if not self.counts:
             return held
         out = np.empty(len(held), dtype=np.float32)
         for begin, end, scale in self._stretches(start, stop):
-            part = slice(begin - start, end - start)
+            # The first and the last of those asked for in this stretch.
+            part = slice(-(-(begin - start) // step), -(-(end - start) // step))
             scale.apply(held[part], out=out[part])
         return out
 
@@ -171,14 +183,15 @@ class Record:
         only for the few that are drawn."""
         start, stop = self.numbers(t_from, t_to)
         positions, picked = min_max(self._held(start, stop), columns)
-        if not self.counts:
-            return start, positions, picked
-        values = np.empty(len(picked), dtype=np.float32)
-        numbers = start + positions
-        for begin, end, scale in self._stretches(start, stop):
-            inside = (numbers >= begin) & (numbers < end)
-            values[inside] = scale.apply(picked[inside])
-        return start, positions, values
+        if self.counts:
+            values = np.empty(len(picked), dtype=np.float32)
+            numbers = start + positions
+            for begin, end, scale in self._stretches(start, stop):
+                inside = (numbers >= begin) & (numbers < end)
+                values[inside] = scale.apply(picked[inside])
+            picked = values
+        self.last_drawn = _extremes(start, stop, picked)
+        return start, positions, picked
 
     def drawn_packed(
         self, t_from: float, t_to: float, columns: int
@@ -206,6 +219,7 @@ class Bit:
     def __init__(self, channel: Channel, port: Record) -> None:
         self.channel = channel
         self.port = port
+        self.last_drawn: tuple[int, int, float, float] | None = None
 
     @property
     def bit(self) -> int:
@@ -217,9 +231,12 @@ class Bit:
     total = property(lambda self: self.port.total)
     count = property(lambda self: self.port.count)
     first = property(lambda self: self.port.first)
+    changes = property(lambda self: self.port.changes)
 
-    def values(self, start: int | None = None, stop: int | None = None) -> np.ndarray:
-        return unpacked(self.port.values(start, stop), self.bit)
+    def values(
+        self, start: int | None = None, stop: int | None = None, step: int = 1
+    ) -> np.ndarray:
+        return unpacked(self.port.values(start, stop, step), self.bit)
 
     def view(self) -> np.ndarray:
         return self.values()
@@ -233,7 +250,11 @@ class Bit:
 
     def drawn(self, t_from: float, t_to: float, columns: int) -> tuple[int, np.ndarray, np.ndarray]:
         start, positions, packed = self.port.drawn_packed(t_from, t_to, columns)
-        return start, positions, unpacked(packed, self.bit)
+        values = unpacked(packed, self.bit)
+        self.last_drawn = _extremes(
+            start, start + (positions[-1] + 1 if len(positions) else 0), values
+        )
+        return start, positions, values
 
 
 class Capture(QObject):
@@ -560,6 +581,13 @@ def min_max_packed(samples: np.ndarray, columns: int) -> tuple[np.ndarray, np.nd
     positions[1::2] += per - 1
     positions[-1] = count - 1
     return positions, values
+
+
+def _extremes(start: int, stop: int, drawn: np.ndarray) -> tuple[int, int, float, float] | None:
+    """What a stretch drawn says of it: from, to, its lowest and its highest."""
+    if not len(drawn) or (drawn.dtype.kind == "f" and np.isnan(drawn).all()):
+        return None
+    return start, stop, float(np.nanmin(drawn)), float(np.nanmax(drawn))
 
 
 def _port(key: str) -> Channel:

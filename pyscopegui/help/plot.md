@@ -163,6 +163,21 @@ A logic channel is 0 or 1, so only its frequency, period and duty cycle are said
 samples that were lost -- are left out. In the [Python Console](console.md), `measure()`
 gives the same numbers to a script.
 
+Once the instrument has stopped, every number is exact: every sample in the stretch is
+measured, once, and the numbers stand until the stretch or what is held changes. While it
+runs, a long stretch -- more than 65,536 samples -- is measured from a share of it, so that
+measuring takes the same short time however long the stretch, and the line above the table
+says *close while it runs*:
+
+- Mean and RMS are of samples spread evenly over the stretch.
+- Min and max are the plot's own lowest and highest, where it is showing the same stretch, so
+  a spike narrower than the spacing is still caught.
+- Frequency, period and duty are of the newest 65,536 samples, or of the spread for a signal
+  too slow to rise twice in those.
+
+Measuring is done a few times a second, and less often where it takes long, so that it never
+takes more than a fifth of the time.
+
 ## Data
 
 The **Data** pane, from the **View** menu, is the samples themselves, a row for each: the

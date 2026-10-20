@@ -61,7 +61,7 @@ from pyscopegui.core.capture import Capture
 from pyscopegui.core.context import Context
 from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.maths import Maths
-from pyscopegui.core.measure import Measured, measure
+from pyscopegui.core.measure import Measured, measure_held
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.core.triggers import PROTOCOL, RUNT, WINDOW
 from pyscopegui.ui import fonts
@@ -358,6 +358,9 @@ class ScopeView(QWidget):
         self.session = source if isinstance(source, Session) else Session.of(source, acquisition)
         #: Instrument name -> where its time is measured from here.
         self._timings: dict[str, _Timing] = {}
+        #: Exact measurements of what has stopped changing, by channel: what
+        #: they were of, and what they came to. Kept until that changes.
+        self._measured: dict[str, tuple[tuple, Measured | None]] = {}
         #: Where time is measured from on the axis now, in seconds, for the
         #: first instrument there is: a trigger, or zero with none.
         self._origin = 0.0
@@ -979,26 +982,37 @@ class ScopeView(QWidget):
         timing = self._timings.get(name)
         return timing.origin if timing is not None else 0.0
 
-    def samples_between(self, key: str, t_from: float, t_to: float):
-        """A channel's samples in this stretch of the time axis, the record they are
-        of, and the rate. None for a channel with nothing there."""
+    def measure(self, key: str) -> Measured | None:
+        """What a channel measures over the span: see ``span``.
+
+        While its instrument runs, close, from a share of a long span; once it
+        has stopped, exact, worked out once and kept until the span or what
+        is held changes.
+        """
+        t_from, t_to, _cursors = self.span()
         unit, channel = self._owners[key]
         record = unit.capture.records.get(channel)
         if record is None or not record.count:
             return None
-        timing = self._timings.get(unit.name)
-        origin = timing.origin if timing is not None else 0.0
-        _first, samples = record.between(t_from + origin, t_to + origin)
-        return samples, record
-
-    def measure(self, key: str) -> Measured | None:
-        """What a channel measures over the span: see ``span``."""
-        t_from, t_to, _cursors = self.span()
-        found = self.samples_between(key, t_from, t_to)
-        if found is None:
-            return None
-        samples, record = found
-        return measure(samples, record.rate)
+        origin = self.origin_of(unit.name)
+        start, stop = record.numbers(t_from + origin, t_to + origin)
+        if unit.instrument is not None and unit.instrument.running:
+            drawn = record.last_drawn
+            extremes = None
+            # The plot's own lowest and highest, if it drew near enough the same stretch.
+            if drawn is not None and min(drawn[1], stop) - max(drawn[0], start) >= 0.9 * (
+                stop - start
+            ):
+                extremes = drawn[2:]
+            return measure_held(record.values, start, stop, record.rate, False, extremes)
+        asked = (id(record), record.changes, start, stop)
+        kept = self._measured.get(key)
+        if kept is None or kept[0] != asked:
+            kept = self._measured[key] = (
+                asked,
+                measure_held(record.values, start, stop, record.rate),
+            )
+        return kept[1]
 
     def _reading(self, key: str, seconds: float) -> float | None:
         """What a channel read at this time on the axis: the sample nearest to
