@@ -358,8 +358,9 @@ class ScopeView(QWidget):
         self.session = source if isinstance(source, Session) else Session.of(source, acquisition)
         #: Instrument name -> where its time is measured from here.
         self._timings: dict[str, _Timing] = {}
-        #: Exact measurements of what has stopped changing, by channel: what
-        #: they were of, and what they came to. Kept until that changes.
+        #: What each channel last measured, by channel: of which samples, and
+        #: what they came to. A sample once held never changes, so it stands
+        #: until the stretch does.
         self._measured: dict[str, tuple[tuple, Measured | None]] = {}
         #: Where time is measured from on the axis now, in seconds, for the
         #: first instrument there is: a trigger, or zero with none.
@@ -986,8 +987,8 @@ class ScopeView(QWidget):
         """What a channel measures over the span: see ``span``.
 
         While its instrument runs, close, from a share of a long span; once it
-        has stopped, exact, worked out once and kept until the span or what
-        is held changes.
+        has stopped, exact. Either way, worked out again only when the stretch
+        measured is not the one that was: held on a trigger, once a trigger.
         """
         t_from, t_to, _cursors = self.span()
         unit, channel = self._owners[key]
@@ -996,23 +997,20 @@ class ScopeView(QWidget):
             return None
         origin = self.origin_of(unit.name)
         start, stop = record.numbers(t_from + origin, t_to + origin)
-        if unit.instrument is not None and unit.instrument.running:
-            drawn = record.last_drawn
-            extremes = None
-            # The plot's own lowest and highest, if it drew near enough the same stretch.
-            if drawn is not None and min(drawn[1], stop) - max(drawn[0], start) >= 0.9 * (
-                stop - start
-            ):
-                extremes = drawn[2:]
-            return measure_held(record.values, start, stop, record.rate, False, extremes)
-        asked = (id(record), record.changes, start, stop)
+        exact = unit.instrument is None or not unit.instrument.running
+        asked = (record.identity, start, stop, exact)
         kept = self._measured.get(key)
-        if kept is None or kept[0] != asked:
-            kept = self._measured[key] = (
-                asked,
-                measure_held(record.values, start, stop, record.rate),
-            )
-        return kept[1]
+        if kept is not None and kept[0] == asked:
+            return kept[1]
+        extremes = None
+        drawn = record.last_drawn
+        # The plot's own lowest and highest, if it drew near enough the same stretch.
+        if not exact and drawn is not None:
+            if min(drawn[1], stop) - max(drawn[0], start) >= 0.9 * (stop - start):
+                extremes = drawn[2:]
+        measured = measure_held(record.values, start, stop, record.rate, exact, extremes)
+        self._measured[key] = (asked, measured)
+        return measured
 
     def _reading(self, key: str, seconds: float) -> float | None:
         """What a channel read at this time on the axis: the sample nearest to

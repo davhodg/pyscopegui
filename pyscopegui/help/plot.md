@@ -175,8 +175,10 @@ says *close while it runs*:
 - Frequency, period and duty are of the newest 65,536 samples, or of the spread for a signal
   too slow to rise twice in those.
 
-Measuring is done a few times a second, and less often where it takes long, so that it never
-takes more than a fifth of the time.
+A channel is measured again only when the stretch has moved: held on a trigger, once for each
+trigger shown, and when stopped, once. Samples once held never change, so what arrives after
+the stretch changes nothing in it. It is looked at a few times a second, and less often where
+measuring takes long, so that it never takes more than a fifth of the time.
 
 ## Data
 

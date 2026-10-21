@@ -222,3 +222,32 @@ def test_what_has_stopped_is_measured_once_until_the_span_moves(held, monkeypatc
     held.scope.analog.setXRange(0.0, 0.3, padding=0)
     held.measurements.refresh()
     assert len(calls) == 2 * first
+
+
+def test_while_running_a_stretch_that_has_not_moved_is_not_measured_again(window, monkeypatch):
+    """Held on a trigger, or on a fixed stretch: what arrives after it changes nothing."""
+    from pyscopegui.ui import scope_view
+
+    window.set_mode("auto")
+    feed(window, 0.5)
+    window.scope.time.setCurrentText("Manual")
+    window.scope.analog.setXRange(0.0, 0.4, padding=0)
+    window.scope.redraw()
+    window.panes.show("measurements")
+    calls = []
+    real = scope_view.measure_held
+    monkeypatch.setattr(
+        scope_view, "measure_held", lambda *a, **k: calls.append(a[1:3]) or real(*a, **k)
+    )
+    window.measurements.refresh()
+    first = len(calls)
+    assert first
+    feed(window, 0.3)  # more, all of it after the stretch measured
+    window.measurements.refresh()
+    assert len(calls) == first
+    record = window.capture.records["A"]
+    record.empty()  # held thrown away for something else, as a new sweep is
+    record.append(np.zeros(100, dtype=np.float32))
+    window.measurements.refresh()
+    assert len(calls) > first
+    window.set_mode("stop")

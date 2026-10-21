@@ -76,9 +76,10 @@ class Record:
         #: What was last drawn of it: (from, to, its lowest, its highest), for a
         #: measurement over the same stretch while it runs. See ``drawn``.
         self.last_drawn: tuple[int, int, float, float] | None = None
-        #: Goes up with every change to what is held: what was measured of it
-        #: stands while it does not.
-        self.changes = 0
+        #: Goes up each time what is held is thrown away for something else, as
+        #: a new sweep is. Otherwise a sample, once held, never changes, so what
+        #: was worked out from a stretch of them stands while the stretch does.
+        self.resets = 0
 
     @property
     def memory_bytes(self) -> int:
@@ -101,7 +102,6 @@ class Record:
             del self._scales[0]
 
     def _write(self, samples: np.ndarray) -> None:
-        self.changes += 1
         new = len(samples)
         self.total += new
         if new >= self.capacity:
@@ -120,7 +120,7 @@ class Record:
         """Hold nothing, and count from nought again."""
         self._end = self.total = self.count = 0
         self._scales = []
-        self.changes += 1
+        self.resets += 1
 
     def skip(self, missing: int) -> None:
         """Samples that never arrived: held as a gap, so later ones keep their time."""
@@ -163,6 +163,11 @@ class Record:
             begin, end = max(start if index == 0 else begin, start), min(end, stop)
             if begin < end:
                 yield begin, end, scale
+
+    @property
+    def identity(self) -> tuple:
+        """Which samples these are: the same, for as long as it says the same."""
+        return id(self), self.resets
 
     def numbers(self, t_from: float, t_to: float) -> tuple[int, int]:
         """The numbers of the samples held in this stretch of time: from, and to."""
@@ -231,7 +236,10 @@ class Bit:
     total = property(lambda self: self.port.total)
     count = property(lambda self: self.port.count)
     first = property(lambda self: self.port.first)
-    changes = property(lambda self: self.port.changes)
+
+    @property
+    def identity(self) -> tuple:
+        return (*self.port.identity, self.bit)
 
     def values(
         self, start: int | None = None, stop: int | None = None, step: int = 1
