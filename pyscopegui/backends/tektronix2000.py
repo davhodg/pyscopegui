@@ -353,6 +353,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
                 step=0.1,
                 group=group,
                 live=True,
+                beside=f"scale_{number}",
                 needs=("read", SET_UP),
                 tip=(
                     "Added to the signal before it is drawn: it moves nought volts up the screen."
@@ -374,6 +375,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
                 False,
                 group=group,
                 live=True,
+                beside=f"coupling_{number}",
                 needs=("read", SET_UP),
                 tip="Leave out what is above 20 MHz, which for a slow signal is noise.",
             ),

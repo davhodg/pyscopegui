@@ -655,15 +655,14 @@ def test_an_instrument_saved_that_there_is_no_longer_is_left_out(window):
         again.deleteLater()
 
 
-def test_open_is_under_connection_below_how_the_instrument_is_reached(both, app):
+def test_open_is_on_the_line_of_instruments_and_connection_only_where_it_says_something(both, app):
     window = both
     view = window.instrument_view
-    form = view._forms["Connection"]
-    assert form.getWidgetPosition(view.open)[0] == form.rowCount() - 1, "the last row of it"
-    assert form.getWidgetPosition(view.controls["address"])[0] < form.rowCount() - 1
+    top = view.layout().itemAt(0).layout()
+    assert top.indexOf(view.instruments) == 0 and top.indexOf(view.open) == top.count() - 1
+    assert view._forms["Connection"].getWidgetPosition(view.controls["address"])[0] >= 0
     choose(window, "demo")  # which has nothing to say about how it is reached
-    form = view._forms["Connection"]
-    assert form.rowCount() == 1 and form.getWidgetPosition(view.open)[0] == 0
+    assert "Connection" not in view._forms
     app.processEvents()  # new controls are shown when the event loop gets to them
     assert view.open.isVisibleTo(view)
     choose(window, RIGOL)

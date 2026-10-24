@@ -93,9 +93,8 @@ def test_an_instrument_with_nothing_to_set_says_so(app):
     view.show_settings(SETTINGS, {})
     view.show_settings((), {})
     assert view.controls == {}
-    # Under Connection, which has Open in it whatever the instrument.
-    assert view._layout.itemAt(0).widget().title() == "Connection"
-    assert view._layout.itemAt(1).widget().text() == NOTHING
+    # And still Open, on the line of instruments' tabs.
+    assert view._layout.itemAt(0).widget().text() == NOTHING
     assert view.open.isVisibleTo(view)
 
 
@@ -367,3 +366,75 @@ def test_a_setting_is_greyed_out_while_the_one_it_needs_is_at_something_else(app
     assert not rate.isEnabled() and length.isEnabled()
     view.show_settings(pico.SETTINGS, {"mode": pico.BLOCKS})
     assert not view.controls["rate"].isEnabled(), "as it was saved"
+
+
+# --- no more than has a say --------------------------------------------------------------------
+def shown(view, key):
+    """Whether a setting is on screen: its own line, or beside another's."""
+    if key in view._rows:
+        form, field = view._rows[key]
+        return form.isRowVisible(field)
+    return not view.controls[key].isHidden()
+
+
+def test_what_has_no_say_is_not_shown_until_it_has(app):
+    from pyscopegui.backends import picoscope2000a as pa
+
+    view = InstrumentView()
+    view.show_settings(pa.make_settings(2, True), {})
+    assert shown(view, "rate") and not shown(view, "block_ms"), "streaming to start with"
+    choose(view, "mode", pa.BLOCKS)
+    assert not shown(view, "rate") and shown(view, "block_ms")
+    # A generator that is off has nothing else to set.
+    generator = ("gen_frequency", "gen_amplitude", "gen_offset", "gen_start")
+    assert not any(shown(view, key) for key in generator) and shown(view, "gen_wave")
+    choose(view, "gen_wave", "sine")
+    assert all(shown(view, key) for key in generator)
+    assert not shown(view, "gen_cycles"), "cycles only on the scope's trigger"
+    choose(view, "gen_start", pa.ON_TRIGGER)
+    assert shown(view, "gen_cycles")
+    choose(view, "gen_wave", "off")
+    assert not shown(view, "gen_cycles"), "and nothing that needs what is not shown"
+
+
+def test_a_port_and_its_threshold_share_a_line_and_line_up(app):
+    from pyscopegui.backends import picoscope2000a as pa
+
+    view = InstrumentView()
+    view.show_settings(pa.make_settings(2, True), {"digital_0": True})
+    form, field = view._rows["digital_0"]
+    assert view.controls["threshold_0"].parent() is field, "on the port's line"
+    assert "threshold_0" not in view._rows and form.rowCount() == 2
+    assert shown(view, "threshold_0") and not shown(view, "threshold_1"), "D8 to D15 is off"
+    first, second = (view.controls[key] for key in ("digital_0", "digital_1"))
+    assert first.minimumWidth() == second.minimumWidth() > 0, "so the thresholds line up"
+
+
+def test_each_channels_enabled_is_on_the_line_with_the_channels_tabs(app):
+    from pyscopegui.backends import rigol1000z as rigol
+
+    view = InstrumentView()
+    view.show_settings(rigol.SETTINGS, {})
+    assert "enabled_1" not in view._rows
+    assert view._ticks.currentWidget() is view.controls["enabled_1"]
+    view.tabs.setCurrentIndex(2)
+    assert view._ticks.currentWidget() is view.controls["enabled_3"]
+    # The offset beside the scale, and the 20 MHz limit beside the coupling, lined up.
+    _form, field = view._rows["coupling_3"]
+    assert view.controls["limit_3"].parent() is field
+    _form, field = view._rows["scale_3"]
+    assert view.controls["offset_3"].parent() is field
+    assert view.controls["scale_3"].minimumWidth() == view.controls["coupling_3"].minimumWidth()
+
+
+def test_a_current_probes_sensitivity_is_beside_it_said_by_its_unit(app):
+    from pyscopegui.backends import rigol1000z as rigol
+
+    view = InstrumentView()
+    view.show_settings(rigol.SETTINGS, {"probe_1": "current"})
+    _form, field = view._rows["probe_1"]
+    assert view.controls["sensitivity_1"].parent() is field
+    assert view._beside["sensitivity_1"] is None, "no name: V/A says what it is"
+    assert shown(view, "sensitivity_1") and not shown(view, "sensitivity_2"), "a 10x probe"
+    view.show()
+    assert view.minimumSizeHint().width() <= 340, "and the pane is no wider for it"

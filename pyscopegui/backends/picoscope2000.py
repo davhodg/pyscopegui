@@ -426,6 +426,7 @@ def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
             minimum=1.0,
             maximum=most_hz,
             unit="Hz",
+            unless=("gen_wave", "off"),
             **_GENERATOR,
         ),
         Setting(
@@ -437,6 +438,7 @@ def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
             step=0.1,
             unit="V",
             tip="From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V.",
+            unless=("gen_wave", "off"),
             **_GENERATOR,
         ),
         Setting(
@@ -448,6 +450,7 @@ def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
             decimals=2,
             step=0.1,
             unit="V",
+            unless=("gen_wave", "off"),
             **_GENERATOR,
         ),
     ]

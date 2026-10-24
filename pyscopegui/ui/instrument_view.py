@@ -15,10 +15,15 @@ all at once; clicking one there brings its settings up here.
 
 There is a tab for each instrument across the top: the one chosen is the one
 the settings, Open and the trigger toolbar are about, and the cross on a tab
-removes its instrument. Open is under Connection, below whatever says how
-the instrument is reached, since that is what it uses; while the instrument
+removes its instrument. Open is at the end of that row; while the instrument
 is open the same button closes it, and what says how it is reached is greyed
 out until it does.
+
+A pane is narrow, so it shows no more than has a say: a setting that has
+none while another is as it is -- a block's length while streaming, a
+generator's frequency while it is off -- is not shown until it does. Two
+that go together share a line: a port of logic inputs and its threshold.
+Each channel's Enabled is on the line with the channels' tabs.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -51,6 +57,8 @@ PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
 RESTARTS = "A change starts a run again, from an empty plot."
 #: What a group's heading starts with when it is one channel's settings.
 CHANNEL = "Channel "
+#: A channel's tick for whether it is read, shown on the line with its tab.
+ENABLED = "Enabled"
 #: The group that says how an instrument is reached, where Open is.
 CONNECTION = "Connection"
 OPEN_TIP = "Connect to this instrument, ready to be run."
@@ -141,11 +149,15 @@ class InstrumentView(QWidget):
         )
         self.instruments.currentChanged.connect(self._on_instrument)
         self.instruments.tabCloseRequested.connect(self._on_removed)
-        outer.addWidget(self.instruments)
-        #: Opens the instrument chosen, and closes it while it is open. Kept
-        #: when the settings are shown again, and put back under Connection.
+        #: Opens the instrument chosen, and closes it while it is open: at the
+        #: end of the line of instruments' tabs.
         self.open = QPushButton()
         self.open.clicked.connect(self._on_open_pressed)
+        top = QHBoxLayout()
+        top.addWidget(self.instruments)
+        top.addStretch()
+        top.addWidget(self.open)
+        outer.addLayout(top)
         inner = QWidget()
         outer.addWidget(inner, 1)
         #: What is shown of the instrument chosen, rebuilt when another is.
@@ -155,9 +167,18 @@ class InstrumentView(QWidget):
         self.controls: dict[str, QCheckBox | QComboBox | QDoubleSpinBox | QLineEdit] = {}
         self._settings: tuple[Setting, ...] = ()
         self._forms: dict[str, QFormLayout] = {}
-        #: The tabs, one for each channel, and the settings under them.
+        #: Setting key -> (its form, what is in the field of its line), for a
+        #: setting with a line of its own: shown, or not, a line at a time.
+        self._rows: dict[str, tuple[QFormLayout, QWidget]] = {}
+        #: A setting shown beside another -> what says what it is, if anything;
+        #: and the lines with one whose name is not shown, not lined up.
+        self._beside: dict[str, QLabel | None] = {}
+        self._unnamed: list[QWidget] = []
+        #: The tabs, one for each channel, the settings under them, and each
+        #: channel's Enabled, beside the tabs.
         self.tabs: QTabBar | None = None
         self._pages: QStackedWidget | None = None
+        self._ticks: QStackedWidget | None = None
         #: Channel group -> which tab is its.
         self._tab_of: dict[str, int] = {}
         #: The channel last looked at, kept when the settings are shown again.
@@ -207,57 +228,117 @@ class InstrumentView(QWidget):
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
         """Show these settings, at the values saved for them or their defaults."""
         self._clear(settings)
+        self.open.show()
+        self._show_open()
         forms = self._forms
-        # First, whatever the instrument: it is connected to before it is set up.
-        forms[CONNECTION] = self._form(CONNECTION)
         if not settings:
-            self._put_open()
             self._layout.addWidget(QLabel(NOTHING))
             self._layout.addStretch()
             return
+        # How it is reached first, if there is anything to say: it is
+        # connected to before it is set up.
+        if any(setting.group == CONNECTION for setting in settings):
+            forms[CONNECTION] = self._form(CONNECTION)
+        partners = {setting.beside: setting for setting in settings if setting.beside}
         for setting in settings:
+            if setting.beside:
+                continue  # made with the one it is beside
             if setting.group not in forms:
                 forms[setting.group] = self._form(setting.group)
-            control = self._control(setting, values.get(setting.key, setting.default))
-            tip = setting.tip
-            if not setting.live and not isinstance(control, QLineEdit | Picker):
-                tip = f"{tip}\n{RESTARTS}" if tip else RESTARTS
-            control.setToolTip(tip)
-            self.controls[setting.key] = control
+            control = self._made(setting, values)
+            form = forms[setting.group]
+            partner = partners.get(setting.key)
+            if partner is None and self._on_tab_line(setting, control):
+                continue
+            field = control
+            if partner is not None:
+                field = self._side_by_side(control, partner, values)
             if isinstance(control, QCheckBox):
-                forms[setting.group].addRow(control)  # it carries its own label
+                form.addRow(field)  # it carries its own label
             else:
-                forms[setting.group].addRow(setting.label + ":", control)
-        self._put_open()
+                form.addRow(setting.label + ":", field)
+            self._rows[setting.key] = (form, field)
+        self._line_up()
         self._layout.addStretch()
         self.select_group(self._group)
         self._show_needed()
 
+    def _line_up(self) -> None:
+        """In each box, the first of each pair of settings sharing a line as
+        wide as the widest of them, so that what is beside them lines up. Not
+        where what is beside one has no name to line up: its unit says it."""
+        firsts: dict[int, list[QWidget]] = {}
+        for form, field in self._rows.values():
+            if field not in self.controls.values() and field not in self._unnamed:
+                firsts.setdefault(id(form), []).append(field.layout().itemAt(0).widget())
+        for widgets in firsts.values():
+            widest = max(widget.sizeHint().width() for widget in widgets)
+            for widget in widgets:
+                widget.setMinimumWidth(widest)
+
+    def _made(self, setting: Setting, values: dict):
+        """The control for a setting, at the value saved for it, with its tip."""
+        control = self._control(setting, values.get(setting.key, setting.default))
+        tip = setting.tip
+        if not setting.live and not isinstance(control, QLineEdit | Picker):
+            tip = f"{tip}\n{RESTARTS}" if tip else RESTARTS
+        control.setToolTip(tip)
+        self.controls[setting.key] = control
+        return control
+
+    def _side_by_side(self, control: QWidget, partner: Setting, values: dict) -> QWidget:
+        """A setting and the one shown beside it, on one line."""
+        field = QWidget()
+        line = QHBoxLayout(field)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.addWidget(control)
+        other = self._made(partner, values)
+        label = None
+        if partner.named and not isinstance(other, QCheckBox):
+            label = QLabel(partner.label + ":")
+            line.addWidget(label)
+        elif not partner.named:
+            self._unnamed.append(field)
+        line.addWidget(other, 1)
+        self._beside[partner.key] = label
+        return field
+
+    def _on_tab_line(self, setting: Setting, control: QWidget) -> bool:
+        """Put a channel's Enabled on the line with the channels' tabs, if this
+        is it: whether it was."""
+        if not (
+            setting.group.startswith(CHANNEL)
+            and setting.label == ENABLED
+            and isinstance(control, QCheckBox)
+            and self._ticks is not None
+        ):
+            return False
+        index = self._tab_of[setting.group]
+        placeholder = self._ticks.widget(index)
+        self._ticks.insertWidget(index, control)
+        self._ticks.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self._ticks.setCurrentIndex(self.tabs.currentIndex())
+        return True
+
     def show_none(self) -> None:
         """Say there is no instrument, with nothing to set and nothing to open."""
         self._clear(())
+        self.open.hide()
         self._layout.addWidget(QLabel(NONE_ADDED))
         self._layout.addStretch()
 
     def _clear(self, settings: tuple[Setting, ...]) -> None:
         """Throw away what is shown, ready for these settings."""
-        # Out of what is about to be thrown away: it is put back after.
-        self.open.setParent(self)
-        self.open.hide()
         while (item := self._layout.takeAt(0)) is not None:
             if (widget := item.widget()) is not None:
                 # Out of sight now: it is not deleted until the event loop gets to it.
                 widget.setParent(None)
                 widget.deleteLater()
         self.controls = {}
-        self._settings, self._forms = settings, {}
-        self.tabs, self._pages, self._tab_of = None, None, {}
-
-    def _put_open(self) -> None:
-        """Open, under whatever says how the instrument is reached."""
-        self._forms[CONNECTION].addRow(self.open)
-        self.open.show()
-        self._show_open()
+        self._settings, self._forms, self._rows, self._beside = settings, {}, {}, {}
+        self._unnamed = []
+        self.tabs, self._pages, self._ticks, self._tab_of = None, None, None, {}
 
     def _form(self, group: str) -> QFormLayout:
         """Somewhere to list a group's settings: a box of its own, or for a
@@ -277,19 +358,26 @@ class InstrumentView(QWidget):
                 "in the plot's channel list: click one there to bring it up here."
             )
             self._pages = QStackedWidget()
+            self._ticks = QStackedWidget()
             self.tabs.currentChanged.connect(self._on_tab)
-            column.addWidget(self.tabs)
+            line = QHBoxLayout()
+            line.addWidget(self.tabs)
+            line.addStretch()
+            line.addWidget(self._ticks)
+            column.addLayout(line)
             column.addWidget(self._pages)
             self._layout.addWidget(box)
         page = QWidget()
         form = QFormLayout(page)
         form.setContentsMargins(0, 6, 0, 0)
         self._pages.addWidget(page)
+        self._ticks.addWidget(QWidget())  # until its Enabled, if it has one
         self._tab_of[group] = self.tabs.addTab(group[len(CHANNEL) :])
         return form
 
     def _on_tab(self, index: int) -> None:
         self._pages.setCurrentIndex(index)
+        self._ticks.setCurrentIndex(index)
         self._group = next((g for g, i in self._tab_of.items() if i == index), self._group)
 
     def select_group(self, group: str) -> None:
@@ -345,24 +433,31 @@ class InstrumentView(QWidget):
         self._show_open()
 
     def _show_needed(self, *_changed) -> None:
-        """Grey out what has no say: while another setting is as it is, or
-        while the instrument is open and this is how it was reached. One that
-        needs a setting that is greyed out is greyed out too."""
-        greyed: set[str] = set()
+        """Show only what has a say: not what has none while another setting is
+        as it is, nor what needs a setting that is not shown. What says how
+        the instrument is reached is greyed out while it is open."""
+        hidden: set[str] = set()
         for setting in self._settings:
-            needed = setting.needs is not None and setting.needs[0] in self.controls
-            if not needed and not setting.closed:
-                continue
+            shown = True
+            for rule, wanted in ((setting.needs, True), (setting.unless, False)):
+                if rule is not None and rule[0] in self.controls:
+                    key, value = rule
+                    shown = shown and (self.value(key) == value) == wanted and key not in hidden
+            if not shown:
+                hidden.add(setting.key)
             control = self.controls[setting.key]
-            on = not (setting.closed and self._open)
-            if needed:
-                key, value = setting.needs
-                on = on and self.value(key) == value and key not in greyed
-            if not on:
-                greyed.add(setting.key)
+            on = shown and not (setting.closed and self._open)
             control.setEnabled(on)
-            if (label := self._forms[setting.group].labelForField(control)) is not None:
-                label.setEnabled(on)
+            if setting.key in self._rows:
+                form, field = self._rows[setting.key]
+                form.setRowVisible(field, shown)
+                if (label := form.labelForField(field)) is not None:
+                    label.setEnabled(on)
+            elif setting.key in self._beside:
+                control.setVisible(shown)
+                if (label := self._beside[setting.key]) is not None:
+                    label.setVisible(shown)
+                    label.setEnabled(on)
 
     def _control(
         self, setting: Setting, value

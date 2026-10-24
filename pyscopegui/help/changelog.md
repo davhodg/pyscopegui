@@ -117,6 +117,11 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **A more compact Instrument pane**: what has no say is not shown until it has -- a block's
+  length while streaming, a generator's details while it is off -- in place of being greyed
+  out; a logic port's threshold is on its line, a channel's offset beside its scale, its
+  20 MHz limit beside its coupling and a current probe's volts an amp beside the probe,
+  its **Enabled** beside the channels' tabs, and **Open** beside the instruments'.
 - The **Instrument traffic** pane comes back as it was left, open or put away, rather than put
   away every time pyscopegui starts. It still records only while it is on screen.
 - **Auto Y** is now a choice of three, as Time is: **Auto**, **Range** -- the axis the

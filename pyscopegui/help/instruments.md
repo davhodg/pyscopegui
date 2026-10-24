@@ -13,13 +13,13 @@ triggering: the four run buttons a scope has, and the trigger.
 |----|---------|
 | Add an instrument | **Add instrument**, and pick its kind |
 | Choose which one the pane and the trigger are about | Click its tab |
-| Connect to it | **Open**, under **Connection** in the pane |
+| Connect to it | **Open**, at the end of the line of tabs in the pane |
 | Let it go, so that another program can have it | **Close**, which is what the same button reads while it is open |
 | Take it out of the pane | The cross on its tab, which closes it first |
 
-**Open** is under **Connection**, below whatever says how the instrument is reached -- an
-address, a port -- because that is what it uses. It connects and leaves the instrument
-stopped: for a scope this is the slow part, done once. While the instrument is open the
+**Open** is at the end of the line of instruments' tabs, and what says how the instrument
+is reached -- an address, a port -- is under **Connection**, first in the pane, for an
+instrument that has any. Open connects and leaves the instrument stopped: for a scope this is the slow part, done once. While the instrument is open the
 button reads **Close**, and a dot on the tab says it is open. Pressing one of the run
 buttons opens the instrument chosen for you if it is not open.
 
@@ -184,12 +184,18 @@ are remembered.
 
 ## The Instrument pane
 
-Across the top is a tab for each instrument. Under it, **Connection** has whatever says how
-the instrument chosen is reached, and **Open**; the rest is what that instrument lets you
-set, which for the demo is nothing.
+Across the top is a tab for each instrument, and **Open** at the end. Under it,
+**Connection** has whatever says how the instrument chosen is reached; the rest is what that
+instrument lets you set, which for the demo is nothing.
+
+The pane shows no more than has a say. A setting that has none while another is as it is
+is not shown until it does: **Block length** while streaming, a generator's frequency while
+its output is off, a probe's sensitivity unless it is a current probe. Two that go together
+share a line: a channel's scale and its offset, its coupling and its 20 MHz limit, a current
+probe and its volts an amp, and a port of logic inputs and its threshold.
 
 A scope's channels all have the same settings, so they are shown one channel at a time,
-under a row of tabs: **1 2 3 4**. How every channel is set can be read at once in the
+under a row of tabs: **1 2 3 4**, with the channel's **Enabled** at the end of the row. How every channel is set can be read at once in the
 [plot's channel list](plot.md), and clicking a channel there brings its settings up here,
 whichever instrument it belongs to.
 

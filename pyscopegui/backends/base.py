@@ -127,8 +127,17 @@ class Setting:
     #: while it is empty, and offered first in its list.
     empty: str = ""
     #: (key, value) of another setting this one depends on: it has a say only
-    #: while that one is at that value, and is greyed out otherwise.
+    #: while that one is at that value, and is not shown otherwise.
     needs: tuple[str, object] | None = None
+    #: (key, value) of another setting at which this one has no say, and is
+    #: not shown: a generator's frequency while its output is off, say.
+    unless: tuple[str, object] | None = None
+    #: The key of the setting this one is shown beside, on the same line:
+    #: a logic port's threshold beside the tick that reads it, say.
+    beside: str = ""
+    #: Shown beside another, whether its name is too: not where its unit
+    #: says what it is, as a current probe's volts an amp do.
+    named: bool = True
     #: Says how the instrument is reached -- an address, a port -- so it is
     #: used when the instrument is opened, and greyed out while it is open.
     closed: bool = False

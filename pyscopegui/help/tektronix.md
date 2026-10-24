@@ -19,7 +19,7 @@ Tektronix's own TekVISA, or National Instruments' or Keysight's -- whichever is 
 ## Connecting
 
 **Connection**, at the top of the Instrument pane, says which: **Serial port** to begin
-with, or **USB**. What is not for the one chosen is greyed out.
+with, or **USB**. What is not for the one chosen is not shown.
 
 ### On USB
 
@@ -128,7 +128,7 @@ trigger.
 | Probe | What is on the end of the channel: a voltage probe, 1x to 1000x, or a current probe. See [Probes](instruments.md) |
 | Sensitivity | For a current probe: volts it gives an amp. The channel is then in amps |
 
-Everything from **Time** down is used when the scope is set up from here, and greyed out
+Everything from **Time** down is used when the scope is set up from here, and not shown
 when it is read as it is. **Reading** and **Enabled** start the run again; the rest are
 taken up between two sweeps.
 

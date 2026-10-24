@@ -74,6 +74,8 @@ def settings(
             group=group,
             needs=(f"probe_{suffix}", CURRENT),
             live=live,
+            beside=f"probe_{suffix}",
+            named=False,
             tip=SENSITIVITY_TIP + tip,
         ),
     ]

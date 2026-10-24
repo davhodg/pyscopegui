@@ -261,6 +261,7 @@ def make_settings() -> tuple[Setting, ...]:
                 step=0.1,
                 group=group,
                 live=True,
+                beside=f"scale_{number}",
                 tip="Added to the signal before it is drawn: it moves nought volts up the screen.",
             ),
             Setting(
@@ -272,6 +273,7 @@ def make_settings() -> tuple[Setting, ...]:
                 False,
                 group=group,
                 live=True,
+                beside=f"coupling_{number}",
                 tip=(
                     "Leave out what is above 20 MHz, which for a slow signal is\n"
                     "noise. Off, the channel has the scope's full bandwidth."

@@ -373,6 +373,7 @@ def offset_setting(key: str) -> Setting:
         step=0.1,
         group=f"Channel {key}",
         live=True,
+        beside=f"scale_{key.lower()}",
         tip=OFFSET_TIP,
     )
 
@@ -465,7 +466,7 @@ def make_settings(
                 ),
                 Setting(
                     f"threshold_{port}",
-                    f"Threshold, {label}",
+                    "Threshold",
                     DEFAULT_THRESHOLD,
                     minimum=-THRESHOLD_VOLTS,
                     maximum=THRESHOLD_VOLTS,
@@ -474,8 +475,10 @@ def make_settings(
                     unit="V",
                     group="Logic inputs",
                     live=True,
+                    beside=f"digital_{port}",
+                    needs=(f"digital_{port}", True),
                     tip=(
-                        "The voltage above which these inputs read 1. 1.5 V suits 5 V and\n"
+                        f"The voltage above which {label} read 1. 1.5 V suits 5 V and\n"
                         "3.3 V logic; half the supply suits anything else."
                     ),
                 ),
@@ -496,6 +499,7 @@ def make_settings(
             ),
             group="Signal generator",
             live=True,
+            unless=("gen_wave", "off"),
         ),
         Setting(
             "gen_cycles",
@@ -507,6 +511,8 @@ def make_settings(
             tip="How many cycles it puts out at each trigger: 0 starts it and leaves it running.",
             group="Signal generator",
             live=True,
+            needs=("gen_start", ON_TRIGGER),
+            unless=("gen_wave", "off"),
         ),
     ]
     return tuple(made)
