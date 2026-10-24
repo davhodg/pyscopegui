@@ -309,11 +309,6 @@ def test_a_decoding_and_a_trigger_read_inputs_out_of_a_port():
     assert not alone.bits
 
 
-def test_a_packed_input_is_written_to_a_file_on_its_own():
-    channel = inputs()[3]
-    assert channel.plain() == Channel("D3", "D3", DIGITAL, "")
-
-
 # --- held round in a ring ---------------------------------------------------------------------
 def wrapped(capacity=1000, written=2600, counts=False):
     """A record that has gone round its array a few times, a block at a time:

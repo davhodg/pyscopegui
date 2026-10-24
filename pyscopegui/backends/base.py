@@ -69,10 +69,6 @@ class Channel:
     port: str = ""
     bit: int = 0
 
-    def plain(self) -> Channel:
-        """The same channel as a file holds it: in its unit, and on its own."""
-        return replace(self, counts=False, port="", bit=0)
-
 
 @dataclass(frozen=True)
 class Scale:

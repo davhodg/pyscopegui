@@ -1356,17 +1356,8 @@ class ScopeView(QWidget):
             rate = records[0].rate
             timing = self._timings.get(unit.name)
             zero = round((timing.origin if timing is not None else 0.0) * rate) - first
-            ports: dict = {}
-            loaded = capture_file.Loaded(
-                # Written in their units, whatever they were held as.
-                [r.channel.plain() for r in records],
-                rate,
-                {
-                    r.channel.key: _Samples(_copied(r, first, last, ports), first, last)
-                    for r in records
-                },
-                zero if 0 <= zero < last - first else None,
-            )
+            loaded = _as_held(records, first, last, rate)
+            loaded.zero = zero if 0 <= zero < last - first else None
             where = files[unit.short or unit.name or "capture"]
             jobs.append((unit, where, loaded))
         if not units:
@@ -1537,17 +1528,37 @@ def _copied(record: Record | Bit, start: int, stop: int, ports: dict) -> Record 
     return record.copied(start, stop)
 
 
-class _Samples:
-    """A channel's samples start to stop, read out in its unit a piece at a
+def _as_held(records: list, first: int, last: int, rate: float) -> capture_file.Loaded:
+    """Samples first to last of one instrument's channels, to be saved as they
+    are held: counts with their scales, logic inputs in their ports. Copied
+    as they are, for a thread to write out while the instrument goes on."""
+    ports: dict = {}
+    loaded = capture_file.Loaded([r.channel for r in records], rate, {})
+    for record in records:
+        copy = _copied(record, first, last, ports)
+        if isinstance(record, Bit):
+            loaded.bits[record.channel.key] = (record.channel.port, record.bit)
+            loaded.data.setdefault(record.channel.port, _Held(copy.port, first, last))
+            continue
+        loaded.data[record.channel.key] = _Held(copy, first, last)
+        if record.counts:
+            loaded.scales[record.channel.key] = [
+                (begin - first, scale) for begin, _end, scale in copy._stretches(first, last)
+            ]
+    return loaded
+
+
+class _Held:
+    """A record's samples start to stop, as they are held, read a piece at a
     time as a file is written: what capture_file.save takes for an array."""
 
-    def __init__(self, record: Record | Bit, start: int, stop: int) -> None:
+    def __init__(self, record: Record, start: int, stop: int) -> None:
         self._record, self._start, self._count = record, start, max(0, stop - start)
-        self.dtype = np.dtype(np.float32 if record.channel.kind == ANALOG else np.uint8)
+        self.dtype = record._buffer.dtype
 
     def __len__(self) -> int:
         return self._count
 
     def __getitem__(self, piece: slice) -> np.ndarray:
         begin, end, _step = piece.indices(self._count)
-        return self._record.values(self._start + begin, self._start + end)
+        return self._record._held(self._start + begin, self._start + end)

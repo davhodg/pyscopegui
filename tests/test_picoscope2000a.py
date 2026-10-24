@@ -17,7 +17,7 @@ import pytest
 
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000a as pico
-from pyscopegui.backends.base import DIGITAL
+from pyscopegui.backends.base import DIGITAL, unpacked
 from pyscopegui.backends.picoscope2000 import CHECK_AFTER_S
 from pyscopegui.core.triggers import (
     BETWEEN,
@@ -1213,6 +1213,16 @@ def test_a_mixed_signal_run_in_the_window_holds_its_ports_packed(
     loaded = capture_file.load(saved[0])
     keys = [channel.key for channel in loaded.channels]
     assert "D0" in keys and "port0" not in keys
-    assert loaded.data["D1"][:100].tolist() == [0] * 50 + [1] * 50
-    assert all(not channel.port and not channel.counts for channel in loaded.channels)
+    # Saved as held: the inputs packed in their port, and A as counts.
+    assert loaded.bits["D1"] == ("port0", 1) and "D1" not in loaded.data
+    assert unpacked(loaded.data["port0"][:100], 1).tolist() == [0] * 50 + [1] * 50
+    assert loaded.data["A"].dtype == np.int16 and "A" in loaded.scales
+    # Opened again, it is held as the scope sent it, and reads the same.
+    window.set_mode("stop")
+    name = window.open_capture(saved[0])
+    app.processEvents()
+    opened = window.session.units[name].capture
+    assert opened.records["A"].counts and list(opened.ports) == ["port0"]
+    assert opened.records["D1"].values(0, 100).tolist() == [0] * 50 + [1] * 50
+    assert opened.records["A"].values(0, 3).tolist() == capture.records["A"].values(0, 3).tolist()
     window.close_instrument()

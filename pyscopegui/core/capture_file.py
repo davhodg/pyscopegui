@@ -2,11 +2,16 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """Captures in files: pyscopegui's own, and CSV.
 
-pyscopegui's own is a numpy ``.npz``: each channel's samples as they were held
--- volts as 32-bit floats, a logic level as a byte -- and one line of JSON
-saying what they are: names, units, colours, the rate, and which sample the
-plot measured time from. It comes back exactly as it went, and anything that
-reads numpy can read it.
+pyscopegui's own is a numpy ``.npz``: each channel's samples as they were held,
+and one line of JSON saying what they are: names, units, colours, the rate,
+and which sample the plot measured time from. A PicoScope's channels are the
+scope's own 16-bit counts, with what each stretch of them is in volts -- the
+range may have changed part way -- and a mixed-signal scope's logic inputs
+are packed eight to a byte in their port, as the scope sent them: half the
+size of volts, and an eighth of a byte each. Anything else is volts as 32-bit
+floats, or a logic level as a byte. It comes back exactly as it went, and
+anything that reads numpy can read it. A file of the first version, all
+volts and bytes, still opens.
 
 A CSV is any table of numbers, with a column of time or without one: what
 pyscopegui's own Export CSV writes, or what a scope, a spreadsheet or a
@@ -24,18 +29,18 @@ import csv
 import json
 import zipfile
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
 
-from pyscopegui.backends.base import ANALOG, DIGITAL, Channel
+from pyscopegui.backends.base import ANALOG, DIGITAL, Channel, Scale
 
-#: What a Channel says about how it is held, and not about what it is.
-HELD_AS = ("counts", "port", "bit")
 #: What a file of pyscopegui's own says it is, so another .npz is not taken for one.
 FORMAT = "pyscopegui capture"
-VERSION = 1
+#: The version written; and those read, the first of them all volts and bytes.
+VERSION = 2
+READ = (1, 2)
 SUFFIX = ".npz"
 #: Samples of a channel written at a time.
 PIECE = 1 << 20
@@ -55,12 +60,18 @@ class Loaded:
 
     channels: list[Channel]
     rate: float
-    #: Channel key -> samples: float32 volts, or uint8 0 and 1.
+    #: Channel key -> samples: float32 volts, int16 counts for one in
+    #: ``scales``, or uint8 0 and 1; and a port's key -> its inputs packed.
     data: dict[str, np.ndarray]
     #: The sample the time axis is measured from -- a trigger -- or None.
     zero: int | None = None
     #: Said about the file while reading it: steps that were not even, say.
     notes: list[str] = field(default_factory=list)
+    #: A channel held as counts -> (the sample each scale is from, the scale),
+    #: oldest first, counted from the first sample.
+    scales: dict[str, list[tuple[int, Scale]]] = field(default_factory=dict)
+    #: A logic input held packed -> (its port's key in ``data``, its bit).
+    bits: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))
@@ -79,19 +90,26 @@ def save(
     how many of them have been, all channels together, after each. A
     channel's samples are an array, or anything that has a length and a
     dtype and gives an array for a slice: read a piece at a time too.
+
+    A logic input is written a bit a sample, eight samples to a byte, on its
+    own: its long runs of the same level then take next to nothing once the
+    file is compressed, where eight inputs to a byte, as a port has them,
+    would not. It is put back in its port as it is read.
     """
+    count = len(loaded)
     meta = {
         "format": FORMAT,
         "version": VERSION,
         "instrument": instrument,
         "rate": loaded.rate,
         "zero": loaded.zero,
-        # Written in their units and on their own, never as counts or packed:
-        # what says so is left out, for an older pyscopegui to read the file too.
-        "channels": [
-            {key: value for key, value in asdict(channel).items() if key not in HELD_AS}
-            for channel in loaded.channels
-        ],
+        "samples": count,
+        "channels": [asdict(channel) for channel in loaded.channels],
+        # What each stretch of counts is in its unit.
+        "scales": {
+            key: [[start, scale.per_count, scale.offset] for start, scale in stretches]
+            for key, stretches in loaded.scales.items()
+        },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     # What numpy's savez_compressed writes, written by hand so that it can
@@ -101,21 +119,46 @@ def save(
         with archive.open("meta.npy", "w") as file:
             np.lib.format.write_array(file, np.array(json.dumps(meta)), allow_pickle=False)
         for index, channel in enumerate(loaded.channels):
-            samples = loaded.data[channel.key]
-            dtype, count = np.dtype(samples.dtype), len(samples)
-            with archive.open(f"channel{index}.npy", "w", force_zip64=True) as file:
+            logic = channel.kind != ANALOG
+            samples = _levels_of(loaded, channel) if logic else loaded.data[channel.key]
+            dtype = np.dtype(np.uint8) if logic else np.dtype(samples.dtype)
+            name = f"bits{index}" if logic else f"channel{index}"
+            with archive.open(f"{name}.npy", "w", force_zip64=True) as file:
                 header = {
                     "descr": np.lib.format.dtype_to_descr(dtype),
                     "fortran_order": False,
-                    "shape": (count,),
+                    "shape": (-(-count // 8) if logic else count,),
                 }
                 np.lib.format.write_array_header_1_0(file, header)
+                # PIECE is a whole number of bytes of bits: only the last is padded.
                 for start in range(0, count, PIECE):
                     piece = np.ascontiguousarray(samples[start : start + PIECE], dtype=dtype)
-                    file.write(piece.data)
+                    file.write((np.packbits(piece) if logic else piece).data)
                     written += len(piece)
                     if progress is not None:
                         progress(written)
+
+
+class _Levels:
+    """A logic input's 0s and 1s, read out of its port a piece at a time."""
+
+    def __init__(self, port, bit: int) -> None:
+        self._port, self._bit = port, bit
+        self.dtype = np.dtype(np.uint8)
+
+    def __len__(self) -> int:
+        return len(self._port)
+
+    def __getitem__(self, piece: slice) -> np.ndarray:
+        return (np.asarray(self._port[piece]) >> self._bit) & 1
+
+
+def _levels_of(loaded: Loaded, channel: Channel):
+    """A logic channel's 0s and 1s: its own, or read out of its port."""
+    if channel.key in loaded.bits:
+        port, bit = loaded.bits[channel.key]
+        return _Levels(loaded.data[port], bit)
+    return loaded.data[channel.key]
 
 
 def load(path: Path) -> Loaded:
@@ -125,17 +168,68 @@ def load(path: Path) -> Loaded:
             meta = json.loads(str(held["meta"]))
             if meta.get("format") != FORMAT:
                 raise CaptureError(f"{path.name} is not a capture saved by pyscopegui.")
-            channels = [Channel(**c) for c in meta["channels"]]
-            data = {c.key: np.array(held[f"channel{i}"]) for i, c in enumerate(channels)}
-            rate = float(meta["rate"])
+            version = meta.get("version", 1)
+            if version not in READ:
+                raise CaptureError(
+                    f"{path.name} was saved by a newer pyscopegui, as version {version} of "
+                    f"its captures: this one reads up to {VERSION}."
+                )
+            known = set(Channel.__dataclass_fields__)
+            channels = [
+                Channel(**{k: v for k, v in c.items() if k in known}) for c in meta["channels"]
+            ]
+            loaded = Loaded(channels, float(meta["rate"]), {})
+            for index, channel in enumerate(channels):
+                if version == 1:
+                    loaded.data[channel.key] = np.array(held[f"channel{index}"])
+                elif channel.kind == ANALOG:
+                    loaded.data[channel.key] = np.array(held[f"channel{index}"])
+                else:
+                    levels = np.unpackbits(held[f"bits{index}"])[: int(meta["samples"])]
+                    _put_back(loaded, channel, levels)
+            if version > 1:
+                _scales_from(loaded, meta.get("scales") or {})
     except CaptureError:
         raise
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise CaptureError(f"{path.name} could not be read as a capture: {exc}.") from exc
-    if rate <= 0 or not data:
+    if loaded.rate <= 0 or not loaded.data:
         raise CaptureError(f"{path.name} has no samples in it.")
     zero = meta.get("zero")
-    return Loaded(channels, rate, data, zero if isinstance(zero, int) else None)
+    loaded.zero = zero if isinstance(zero, int) else None
+    return loaded
+
+
+def _put_back(loaded: Loaded, channel: Channel, levels: np.ndarray) -> None:
+    """A logic input as it was held: on its own, or in its port, packed."""
+    if not channel.port:
+        loaded.data[channel.key] = levels
+        return
+    port = loaded.data.setdefault(channel.port, np.zeros(len(levels), dtype=np.uint8))
+    port |= levels << np.uint8(channel.bit)
+    loaded.bits[channel.key] = (channel.port, channel.bit)
+
+
+def _scales_from(loaded: Loaded, saved: dict) -> None:
+    """Each channel of counts with what it is in its unit. One whose range
+    changed part way is turned into its unit as it is read: a capture is
+    taken in at one scale a channel."""
+    for index, channel in enumerate(loaded.channels):
+        if not channel.counts:
+            continue
+        stretches = [
+            (int(start), Scale(float(per), float(off))) for start, per, off in saved[channel.key]
+        ]
+        if len(stretches) == 1:
+            loaded.scales[channel.key] = stretches
+            continue
+        counts = loaded.data[channel.key]
+        volts = np.empty(len(counts), dtype=np.float32)
+        ends = [start for start, _scale in stretches[1:]] + [len(counts)]
+        for (start, scale), end in zip(stretches, ends, strict=True):
+            scale.apply(counts[start:end], out=volts[start:end])
+        loaded.data[channel.key] = volts
+        loaded.channels[index] = replace(channel, counts=False)
 
 
 # --- CSV ----------------------------------------------------------------------------------------

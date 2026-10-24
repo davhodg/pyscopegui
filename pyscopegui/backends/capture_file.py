@@ -175,6 +175,9 @@ class CaptureFile(Instrument):
                 sweep=True,
                 trigger=loaded.zero,
                 triggered=loaded.zero is not None,
+                # Held as they were saved: counts with their scale, inputs packed.
+                scales={key: stretches[0][1] for key, stretches in loaded.scales.items()},
+                bits=dict(loaded.bits),
             )
         )
         self.stop()

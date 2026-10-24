@@ -155,6 +155,10 @@ since the last version, and comes out in the next one.
   not yet taken in is left out and shown as a gap, and the Event Log says so, rather than its
   falling further behind and its memory growing. A newer PicoScope's driver has room for a
   second between two reads, not a quarter, for a computer that is busy for a moment.
+- **Captures are saved as they are held**: a PicoScope's channels as the scope's own counts,
+  a third smaller than volts, and every logic input a bit a sample, a tenth the size or less.
+  A mixed-signal scope's inputs open again packed in their ports. A capture saved before
+  still opens; one from a newer pyscopegui says so.
 - **A third less memory for the same history**, or half as much history again in the same:
   each channel's samples are held round in a ring, the newest over the oldest, where before
   half as much again was kept spare to copy them back into. Taking them in is quicker too.

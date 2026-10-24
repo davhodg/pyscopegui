@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from pyscopegui import backends
-from pyscopegui.backends.base import ANALOG, DIGITAL, Channel
+from pyscopegui.backends.base import ANALOG, DIGITAL, LOST, Channel, Scale
 from pyscopegui.core import capture_file
 from pyscopegui.core.capture_file import (
     ANALOG_ROLE,
@@ -56,12 +56,73 @@ def test_a_capture_comes_back_exactly_as_it_went(tmp_path):
     assert np.array_equal(back.data["D0"], data["D0"]) and back.data["D0"].dtype == np.uint8
 
 
-def test_a_channel_held_as_counts_is_written_as_volts_for_any_pyscopegui_to_read(tmp_path):
-    loaded = Loaded([Channel("A", "A")], 10.0, {"A": np.zeros(3, dtype=np.float32)})
+def test_counts_are_saved_as_counts_with_what_they_are_in_volts(tmp_path):
+    counts = np.array([100, -200, LOST, 300], dtype=np.int16)
+    channel = Channel("A", "A", counts=True)
+    loaded = Loaded([channel], 10.0, {"A": counts}, scales={"A": [(0, Scale(0.01, 0.5))]})
+    capture_file.save(tmp_path / "c.npz", loaded)
+    again = capture_file.load(tmp_path / "c.npz")
+    assert again.data["A"].dtype == np.int16 and again.data["A"].tolist() == counts.tolist()
+    assert again.scales == {"A": [(0, Scale(0.01, 0.5))]} and again.channels[0].counts
+
+
+def test_counts_whose_range_changed_part_way_come_back_in_volts(tmp_path):
+    counts = np.array([100, 100, 100, 100], dtype=np.int16)
+    stretches = [(0, Scale(0.01)), (2, Scale(0.1))]
+    loaded = Loaded([Channel("A", "A", counts=True)], 10.0, {"A": counts}, scales={"A": stretches})
+    capture_file.save(tmp_path / "c.npz", loaded)
+    again = capture_file.load(tmp_path / "c.npz")
+    assert again.data["A"].tolist() == pytest.approx([1.0, 1.0, 10.0, 10.0])
+    assert not again.channels[0].counts and again.scales == {}
+
+
+def test_logic_inputs_are_saved_a_bit_a_sample_and_put_back_in_their_port(tmp_path):
+    inputs = [Channel(f"D{bit}", f"D{bit}", DIGITAL, "", port="port0", bit=bit) for bit in (0, 1)]
+    port = np.array([0b01, 0b10, 0b11] * 7, dtype=np.uint8)  # 21: not a whole byte of bits
+    loaded = Loaded(inputs, 10.0, {"port0": port}, bits={"D0": ("port0", 0), "D1": ("port0", 1)})
     capture_file.save(tmp_path / "c.npz", loaded)
     with np.load(tmp_path / "c.npz") as file:
-        meta = json.loads(str(file["meta"]))
-    assert "counts" not in meta["channels"][0]
+        assert sorted(file.files) == ["bits0", "bits1", "meta"]
+        assert len(file["bits0"]) == 3, "21 samples in three bytes"
+    again = capture_file.load(tmp_path / "c.npz")
+    assert again.bits == loaded.bits and again.data["port0"].tolist() == port.tolist()
+
+
+def test_a_logic_channel_of_its_own_comes_back_on_its_own(tmp_path):
+    levels = np.array([0, 1, 1, 0, 1], dtype=np.uint8)
+    loaded = Loaded([Channel("D0", "D0", DIGITAL, "")], 10.0, {"D0": levels})
+    capture_file.save(tmp_path / "c.npz", loaded)
+    again = capture_file.load(tmp_path / "c.npz")
+    assert again.data["D0"].tolist() == levels.tolist() and not again.bits
+
+
+def test_a_file_of_the_first_version_still_opens(tmp_path):
+    meta = {"format": capture_file.FORMAT, "version": 1, "rate": 10.0, "zero": 1,
+            "channels": [{"key": "A", "name": "A"}]}  # fmt: skip
+    volts = np.array([0.5, 1.5], dtype=np.float32)
+    np.savez_compressed(tmp_path / "old.npz", meta=np.array(json.dumps(meta)), channel0=volts)
+    old = capture_file.load(tmp_path / "old.npz")
+    assert old.data["A"].tolist() == [0.5, 1.5] and old.zero == 1 and not old.scales
+
+
+def test_a_file_from_a_newer_pyscopegui_says_so(tmp_path):
+    meta = {"format": capture_file.FORMAT, "version": 9, "rate": 10.0, "channels": []}
+    np.savez(tmp_path / "new.npz", meta=np.array(json.dumps(meta)))
+    with pytest.raises(CaptureError, match="saved by a newer pyscopegui"):
+        capture_file.load(tmp_path / "new.npz")
+
+
+def test_counts_take_less_room_than_volts(tmp_path):
+    # A sine with a little noise on it, as a channel reads.
+    rng = np.random.default_rng(0)
+    samples = np.sin(np.arange(200_000) * 2 * np.pi / 1000) * 20000 + rng.normal(0, 40, 200_000)
+    counts = samples.astype(np.int16)
+    scale = Scale(5 / 32512)
+    held = Loaded([Channel("A", "A", counts=True)], 1e6, {"A": counts}, scales={"A": [(0, scale)]})
+    volts = Loaded([Channel("A", "A")], 1e6, {"A": scale.apply(counts)})
+    capture_file.save(tmp_path / "counts.npz", held)
+    capture_file.save(tmp_path / "volts.npz", volts)
+    assert (tmp_path / "counts.npz").stat().st_size < 0.7 * (tmp_path / "volts.npz").stat().st_size
 
 
 def test_another_npz_is_not_taken_for_a_capture(tmp_path):

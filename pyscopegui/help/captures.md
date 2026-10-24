@@ -11,6 +11,13 @@ is a file for each, named for it -- `capture-Rigol.npz`, `capture-Pico.npz` -- a
 [Export CSV](plot.md) does. A large one is written while the instruments go on running,
 with a bar showing how far it has got, and **Cancel**.
 
+Each channel is saved as it is held. A PicoScope's channels are the scope's own 16-bit
+counts, with what they are in volts -- a third smaller than volts once compressed -- and
+every logic input is a bit a sample, which its long runs at one level make next to nothing:
+a tenth of what it took before, or less. Opened again, a mixed-signal scope's inputs are back
+in their ports, eight to a byte, as the scope sent them. A file saved by an earlier
+pyscopegui, all volts and bytes, still opens.
+
 The file is a numpy `.npz`, so a script can read it too:
 
 ```python
@@ -18,8 +25,16 @@ import json, numpy as np
 
 held = np.load("capture.npz")
 meta = json.loads(str(held["meta"]))
-volts = held["channel0"]  # the first channel, in meta["channels"][0]
-seconds = np.arange(len(volts)) / meta["rate"]
+first = meta["channels"][0]
+if first["kind"] == "analog":
+    samples = held["channel0"].astype(np.float64)
+    if first["counts"]:  # the scope's counts: into volts, a stretch at a time
+        scales = meta["scales"][first["key"]]
+        for (start, per_count, offset), after in zip(scales, scales[1:] + [[len(samples)]]):
+            samples[start : after[0]] = samples[start : after[0]] * per_count - offset
+else:  # a logic input, a bit a sample
+    samples = np.unpackbits(held["bits0"])[: meta["samples"]]
+seconds = np.arange(len(samples)) / meta["rate"]
 ```
 
 ## Opening
