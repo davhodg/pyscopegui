@@ -45,7 +45,9 @@ settings: a pane left on a second monitor is still there next time.
 [**Channels and Plot**](plot.md), numbered after the first. Each has settings of its own --
 which channels it shows, its own stretch of time, its own voltage axis -- all remembered
 separately. The whole capture in one and a few milliseconds of it in the other is what this
-is for.
+is for. Closing a plot only puts it away: asked for again, the one put away comes back, as
+it was, and a new one opens only once they are all on screen. *View > Remove pane* is for
+one you are finished with for good.
 
 A pane you open arrives **in its own window**, in front of the main one, rather than
 squeezing into the space the panes already on screen were using. Drag it into the main window

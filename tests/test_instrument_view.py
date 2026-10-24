@@ -442,3 +442,15 @@ def test_a_current_probes_sensitivity_is_beside_it_said_by_its_unit(app):
     view.show()
     plain.show()
     assert view.minimumSizeHint().width() <= plain.minimumSizeHint().width()
+
+
+def test_every_instruments_tab_is_on_screen_where_there_is_room_for_them(app):
+    """None behind the tab bar's scroll arrows: the tabs have their line to themselves."""
+    view = InstrumentView()
+    named = [(f"x{n}", name, name, False) for n, name in enumerate(("Pico", "Pico 2", "Rigol"))]
+    view.set_instruments(named, "x0")
+    view.show_settings(SETTINGS, {})
+    view.resize(view.instruments.sizeHint().width() + 20, 400)
+    view.show()
+    app.processEvents()
+    assert view.instruments.width() >= view.instruments.sizeHint().width()

@@ -1209,12 +1209,13 @@ class MainWindow(QMainWindow):
             if not kind.several or kind.named:
                 continue
             action = standard.addAction(
-                f"Additional {kind.title}", lambda k=kind.name: self.panes.add(k, floating=True)
+                f"Additional {kind.title}", lambda k=kind.name: self.panes.another(k)
             )
             action.setToolTip(
-                f"Open another {kind.title} pane, with settings of its own.\n"
-                "It opens in a window of its own; drag it into the main window\n"
-                "to dock it, or onto another pane to tab the two together."
+                f"Another {kind.title} pane, with settings of its own: one that was\n"
+                "put away comes back first, and a new one opens only once they are all\n"
+                "on screen. A new one opens in a window of its own; drag it into the\n"
+                "main window to dock it, or onto another pane to tab the two together."
             )
 
         rename = self.view_menu.addMenu("Rename pane")

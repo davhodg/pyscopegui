@@ -46,10 +46,18 @@ def test_each_channel_has_the_same_probes_on_every_scope():
     for offered in (rigol.SETTINGS, tek.SETTINGS, pico.SETTINGS, pico_a.SETTINGS):
         probe = next(s for s in offered if s.key.startswith("probe_"))
         values = [value for value, _label in probe.choices]
-        assert values == [1, 10, 20, 50, 100, 500, 1000, CURRENT]
+        assert values == [1, 10, 20, 50, 100, 200, 500, 1000, CURRENT]
         suffix = probe.key.partition("_")[2]
         sensitivity = next(s for s in offered if s.key == f"sensitivity_{suffix}")
         assert sensitivity.needs == (probe.key, CURRENT) and sensitivity.unit == "V/A"
+
+
+def test_a_200x_probe_is_told_to_a_rigol_and_multiplied_here_for_a_tektronix():
+    rigol_probe = rigol.Settings({"probe_1": 200}).probe["CH1"]
+    tek_probe = tek.Settings({"probe_1": 200}).probe["CH1"]
+    assert (rigol_probe.gain, rigol_probe.told) == (200, 200)
+    assert (tek_probe.gain, tek_probe.told) == (200, 1), "it has no 200x of its own"
+    assert pico.Settings({"probe_a": 200}).probe["A"].gain == 200
 
 
 # --- the settings, as they are with a probe -----------------------------------------------------

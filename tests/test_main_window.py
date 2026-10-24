@@ -134,6 +134,22 @@ def test_a_second_plot_can_be_opened_and_removed(window):
     assert name not in window.panes.names()
 
 
+def test_asking_for_another_plot_brings_back_one_that_was_put_away_first(window, app):
+    window.show()
+    second = window.panes.another("scope")
+    app.processEvents()
+    assert second == "scope 2" and window.panes.on_screen(second)
+    window.panes.docks[second].close()  # put away, as its title bar's cross does
+    app.processEvents()
+    assert window.panes.another("scope") == second, "the same one back, not a third"
+    app.processEvents()
+    assert window.panes.on_screen(second) and window.panes.instances("scope") == ["scope", second]
+    third = window.panes.another("scope")
+    assert third == "scope 3", "a new one only once they are all on screen"
+    window.panes.remove(third)
+    window.panes.remove(second)
+
+
 def test_a_back_end_that_will_not_load_is_said_and_not_raised(window, monkeypatch):
     def broken(name, parent=None, options=None):
         raise ImportError("no such library")

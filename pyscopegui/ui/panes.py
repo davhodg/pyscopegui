@@ -345,6 +345,18 @@ class Panes(QObject):
         self.changed.emit()
         return name
 
+    def another(self, kind_name: str) -> str:
+        """One more pane of a kind there can be several of, as somebody asks
+        for one: one of them that was put away, brought back where it was, if
+        there is one; a new one, in front, only once they are all on screen.
+        Otherwise every pane closed and asked for again is one more, put away
+        out of sight. Its name."""
+        for name in self.instances(kind_name):
+            if not self.on_screen(name):
+                self.show(name, floating=True)
+                return name
+        return self.add(kind_name, floating=True)
+
     def show(self, name: str, floating: bool = False) -> None:
         """Bring a pane that already exists to the front.
 

@@ -121,7 +121,8 @@ since the last version, and comes out in the next one.
   length while streaming, a generator's details while it is off -- in place of being greyed
   out; a logic port's threshold is on its line, a channel's offset beside its scale, its
   20 MHz limit beside its coupling and a current probe's volts an amp beside the probe,
-  its **Enabled** beside the channels' tabs, and **Open** beside the instruments'.
+  its **Enabled** beside the channels' tabs, and **Open** on a line of its own under the
+  instruments' tabs, which keep their line to themselves.
 - The **Instrument traffic** pane comes back as it was left, open or put away, rather than put
   away every time pyscopegui starts. It still records only while it is on screen.
 - **Auto Y** is now a choice of three, as Time is: **Auto**, **Range** -- the axis the
@@ -162,6 +163,8 @@ since the last version, and comes out in the next one.
   second between two reads, not a quarter, for a computer that is busy for a moment.
 - A run may take **three quarters** of the memory that is free when it starts, unless
   *Tools > Settings > Memory* says otherwise, rather than half.
+- A **200x** voltage probe, as some differential probes are: a Rigol is told it, and for any
+  other scope pyscopegui does the multiplying.
 - A newer PicoScope streams at **15.625 and 25 MS/s** too: a sample every 64 ns, and 40 ns.
 - **Captures are saved as they are held**: a PicoScope's channels as the scope's own counts,
   a third smaller than volts, and every logic input a bit a sample, a tenth the size or less.
@@ -180,6 +183,9 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- **Additional Channels and Plot** brings back a plot that was put away before it opens a
+  new one: each one closed and asked for again was one more, out of sight, until something
+  showed them all at once.
 - In **Normal**, a span as long as the history -- 10 s of a 1 kHz signal, say -- drew once
   and then went blank: the trigger it needed, half the span back, had been forgotten.
 - A newer PicoScope's samples were checked against the rate asked for, not the nearest one

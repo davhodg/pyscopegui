@@ -655,11 +655,12 @@ def test_an_instrument_saved_that_there_is_no_longer_is_left_out(window):
         again.deleteLater()
 
 
-def test_open_is_on_the_line_of_instruments_and_connection_only_where_it_says_something(both, app):
+def test_open_is_under_the_instruments_tabs_and_connection_only_where_it_says_something(both, app):
     window = both
     view = window.instrument_view
-    top = view.layout().itemAt(0).layout()
-    assert top.indexOf(view.instruments) == 0 and top.indexOf(view.open) == top.count() - 1
+    # The tabs have their line to themselves, and Open is on the next.
+    assert view.layout().itemAt(0).widget() is view.instruments
+    assert view.layout().itemAt(1).layout().indexOf(view.open) == 0
     assert view._forms["Connection"].getWidgetPosition(view.controls["address"])[0] >= 0
     choose(window, "demo")  # which has nothing to say about how it is reached
     assert "Connection" not in view._forms

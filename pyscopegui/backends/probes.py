@@ -25,7 +25,7 @@ from pyscopegui.backends.base import Setting
 #: The probe setting's value for a current probe.
 CURRENT = "current"
 #: What a voltage probe divides by, as the probes that are made do.
-RATIOS = (1, 10, 20, 50, 100, 500, 1000)
+RATIOS = (1, 10, 20, 50, 100, 200, 500, 1000)
 #: Volts an amp a current probe gives, to start with: a common clamp's.
 SENSITIVITY = 0.1
 LEAST_SENSITIVITY, MOST_SENSITIVITY = 1e-4, 10.0

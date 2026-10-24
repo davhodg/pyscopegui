@@ -15,9 +15,9 @@ all at once; clicking one there brings its settings up here.
 
 There is a tab for each instrument across the top: the one chosen is the one
 the settings, Open and the trigger toolbar are about, and the cross on a tab
-removes its instrument. Open is at the end of that row; while the instrument
-is open the same button closes it, and what says how it is reached is greyed
-out until it does.
+removes its instrument. Open is under them; while the instrument is open the
+same button closes it, and what says how it is reached is greyed out until
+it does.
 
 A pane is narrow, so it shows no more than has a say: a setting that has
 none while another is as it is -- a block's length while streaming, a
@@ -149,15 +149,17 @@ class InstrumentView(QWidget):
         )
         self.instruments.currentChanged.connect(self._on_instrument)
         self.instruments.tabCloseRequested.connect(self._on_removed)
-        #: Opens the instrument chosen, and closes it while it is open: at the
-        #: end of the line of instruments' tabs.
+        # The tabs have the line to themselves: beside anything else, the
+        # second and third instruments' tabs went behind its scroll arrows.
+        outer.addWidget(self.instruments)
+        #: Opens the instrument chosen, and closes it while it is open: under
+        #: the instruments' tabs.
         self.open = QPushButton()
         self.open.clicked.connect(self._on_open_pressed)
-        top = QHBoxLayout()
-        top.addWidget(self.instruments)
-        top.addStretch()
-        top.addWidget(self.open)
-        outer.addLayout(top)
+        line = QHBoxLayout()
+        line.addWidget(self.open)
+        line.addStretch()
+        outer.addLayout(line)
         inner = QWidget()
         outer.addWidget(inner, 1)
         #: What is shown of the instrument chosen, rebuilt when another is.

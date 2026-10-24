@@ -13,11 +13,11 @@ triggering: the four run buttons a scope has, and the trigger.
 |----|---------|
 | Add an instrument | **Add instrument**, and pick its kind |
 | Choose which one the pane and the trigger are about | Click its tab |
-| Connect to it | **Open**, at the end of the line of tabs in the pane |
+| Connect to it | **Open**, under the tabs in the pane |
 | Let it go, so that another program can have it | **Close**, which is what the same button reads while it is open |
 | Take it out of the pane | The cross on its tab, which closes it first |
 
-**Open** is at the end of the line of instruments' tabs, and what says how the instrument
+**Open** is under the instruments' tabs, and what says how the instrument
 is reached -- an address, a port -- is under **Connection**, first in the pane, for an
 instrument that has any. Open connects and leaves the instrument stopped: for a scope this is the slow part, done once. While the instrument is open the
 button reads **Close**, and a dot on the tab says it is open. Pressing one of the run
@@ -184,7 +184,7 @@ are remembered.
 
 ## The Instrument pane
 
-Across the top is a tab for each instrument, and **Open** at the end. Under it,
+Across the top is a tab for each instrument, and **Open** under them. Under that,
 **Connection** has whatever says how the instrument chosen is reached; the rest is what that
 instrument lets you set, which for the demo is nothing.
 
@@ -208,14 +208,14 @@ for what is on the end of the channel, and **Coupling**.
 
 | Probe | What it is |
 |-------|------------|
-| 1x, 10x, 20x, 50x, 100x, 500x, 1000x | A voltage probe, as its switch or label says. A differential probe is one of these too: 20x, 50x, 500x |
+| 1x, 10x, 20x, 50x, 100x, 200x, 500x, 1000x | A voltage probe, as its switch or label says. A differential probe is one of these too: 20x, 50x, 200x, 500x |
 | Current probe | A clamp or other current probe, which gives so many volts an amp |
 
 A voltage probe divides: through 10x, a tenth of what is at its tip reaches the scope, and
 what is read is multiplied back. The scale has the probe counted -- 10 V/div through a 10x
 probe -- so the channel says what is at the probe's tip. A Rigol is told the probe, and does
 that itself. A Tektronix is told it too, where it has that ratio; the older ones have only
-1x, 10x, 100x and 1000x, so for 20x, 50x or 500x it is told 1x and pyscopegui does the
+1x, 10x, 100x and 1000x, so for 20x, 50x, 200x or 500x it is told 1x and pyscopegui does the
 multiplying. A PicoScope has no probe setting, and pyscopegui always does it.
 
 A **Current probe** brings a second setting, **Sensitivity**: how many volts the probe gives
