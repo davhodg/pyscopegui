@@ -89,6 +89,11 @@ NOT_READY_S = 1.0
 #: off, for it to have said the last thing it has to say about that.
 QUIET_S = 1.5
 IDLE_S = 0.1
+#: How long the scope is left stopped before it is asked who it is again, to
+#: see that it is still there: while it runs, every look at whether it has
+#: triggered says so, but stopped, nothing is sent it, and a scope switched
+#: off or unplugged would not be noticed until the next Run.
+CHECK_S = 5.0
 
 
 class ScopeError(Exception):
@@ -609,6 +614,8 @@ class Scope:
         self._said_reading = False
         #: Whether the scope's beeper was on before it was silenced here.
         self._beeper_silenced = False
+        #: When it was last asked anything, stopped: see check_there.
+        self._heard = 0.0
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -627,6 +634,7 @@ class Scope:
             )
             where = f"at {self.settings.host}"
         said = self._link.ask("*IDN?")
+        self._heard = self._clock()
         parts = [part.strip() for part in said.split(",")]
         if len(parts) < 4:
             raise ScopeError(f"What answered {where} is not a scope: {said!r}.")
@@ -687,6 +695,21 @@ class Scope:
                 pass
         self._unsilence()
         self.running = False
+        self._heard = self._clock()
+
+    def check_there(self) -> None:
+        """ScopeError if it has been stopped a while and does not say who it is
+        when asked. Running, it is never asked: it is answering already."""
+        if self.running or self._link is None or self._clock() - self._heard < CHECK_S:
+            return
+        try:
+            self._link.ask("*IDN?")
+        except ScopeError as exc:
+            raise ScopeError(
+                "The Rigol stopped answering and has been closed: it may have been switched "
+                f"off or unplugged. Press Open once it is back. ({exc})"
+            ) from exc
+        self._heard = self._clock()
 
     def poll(self) -> Block | None:
         """The next sweep, if the scope has taken one."""
@@ -857,6 +880,8 @@ class _Reader(QThread):
                     command = self._asked.get(timeout=POLL_S if scope.running else IDLE_S)
                 except queue.Empty:
                     command = None
+                if command is None:
+                    scope.check_there()
                 if command is not None:
                     if command[0] == "close":
                         break

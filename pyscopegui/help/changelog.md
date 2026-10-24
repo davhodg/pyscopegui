@@ -18,6 +18,9 @@ since the last version, and comes out in the next one.
 - **A PicoScope that is unplugged is noticed**: asked whether it is still there when it has
   been quiet a while -- never while samples are arriving -- and closed, with the Event Log
   saying so, rather than seeming to take settings it never gets.
+- **A Rigol or Tektronix switched off or unplugged while stopped is noticed** too: asked
+  who it is every 5 seconds while it is stopped, and closed if it does not answer. Running,
+  it is never asked: every look at its trigger or its sweep already says it is there.
 - **An older PicoScope triggers on more than an edge itself**, reading blocks: **Either**
   edge, **Window**, **Pulse width** and a **Logic pattern** of A and B, on the models with
   Pico's advanced trigger (2202, 2204, 2204A, 2205, 2205A).

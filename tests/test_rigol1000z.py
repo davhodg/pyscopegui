@@ -167,6 +167,55 @@ def sweep_of(scope: rigol.Scope, seconds: float = 3.0) -> Block:
 
 
 # --- settings -------------------------------------------------------------------------------
+# --- a scope that has gone --------------------------------------------------------------------
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class GoneLink:
+    """The connection to a scope that has been switched off."""
+
+    def ask(self, command):
+        raise rigol.ScopeError(f"The scope did not answer {command}: timed out.")
+
+    def write(self, command):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_a_stopped_scope_is_asked_who_it_is_now_and_then_and_running_never(fake):
+    clock = Clock()
+    scope = rigol.Scope(rigol.Settings({"address": fake.address}), clock=clock)
+    scope.open()
+    clock.now = rigol.CHECK_S - 0.1
+    scope.check_there()
+    assert fake.sent("*IDN?") == 1, "not before it has been stopped a while"
+    clock.now = rigol.CHECK_S
+    scope.check_there()
+    scope.check_there()
+    assert fake.sent("*IDN?") == 2, "once in a while, not every look"
+    scope.running = True
+    clock.now = 10 * rigol.CHECK_S
+    scope.check_there()
+    assert fake.sent("*IDN?") == 2, "running, every look at its trigger says it is there"
+    scope.close()
+
+
+def test_a_scope_switched_off_while_stopped_is_an_error():
+    clock = Clock()
+    scope = rigol.Scope(rigol.Settings(), clock=clock)
+    scope._link = GoneLink()
+    clock.now = rigol.CHECK_S
+    with pytest.raises(rigol.ScopeError, match="stopped answering and has been closed"):
+        scope.check_there()
+
+
 def test_settings_from_nothing_are_the_defaults():
     for odd in (None, "x", {"time_div": "fast", "scale_1": None, "coupling_2": 3, "probe_1": "x"}):
         settings = rigol.Settings(odd)

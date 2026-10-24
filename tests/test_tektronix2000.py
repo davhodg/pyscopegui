@@ -144,6 +144,36 @@ def opened(port, **options) -> tek.Scope:
     return scope
 
 
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_a_stopped_scope_is_asked_who_it_is_now_and_then_and_one_gone_is_an_error(port):
+    clock = Clock()
+    scope = tek.Scope(tek.Settings({"port": "COM9"}), clock=clock)
+    scope.open()
+    asked = port.sent("*IDN?")
+    clock.now = tek.CHECK_S - 0.1
+    scope.check_there()
+    assert port.sent("*IDN?") == asked, "not before it has been stopped a while"
+    clock.now = tek.CHECK_S
+    scope.check_there()
+    scope.check_there()
+    assert port.sent("*IDN?") == asked + 1, "once in a while, not every look"
+    scope.running = True
+    clock.now = 10 * tek.CHECK_S
+    scope.check_there()
+    assert port.sent("*IDN?") == asked + 1, "running, every look at its sweep says it is there"
+    scope.running = False
+    port.dead = True
+    with pytest.raises(tek.ScopeError, match="stopped answering and has been closed"):
+        scope.check_there()
+
+
 def sweep_of(scope: tek.Scope, tries: int = 20):
     for _ in range(tries):
         if (block := scope.poll()) is not None:

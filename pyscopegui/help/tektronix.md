@@ -152,5 +152,10 @@ would take for one of its own.
   control, parity or end of line here is not what the scope has. With hard flagging and a cable that lacks
   those wires, nothing is ever sent: try **None**, on the scope and here.
 - *What answered ... is not this scope* --- something else is on that port.
+- *The Tektronix stopped answering and has been closed* --- while it was stopped.
+  pyscopegui asks a stopped scope who it is every 5 seconds, giving it fifteen to answer in
+  case it is still busy with a setting, so that one switched off or unplugged is noticed
+  then rather than at the next Run; running, every look at its sweep says it is there.
+  Press **Open** once it is back.
 - *None of the channels ticked here is on the scope's screen* --- reading it as it is, with
   a channel ticked that the scope is not showing.

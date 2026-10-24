@@ -146,5 +146,9 @@ if the scope has one -- stays as the scope has it.
   **Utility > IO > USB Device** is set to a printer.
 - *The scope stopped answering* --- it was unplugged or switched off, or another program
   sent it something that it is still busy with.
+- *The Rigol stopped answering and has been closed* --- while it was stopped. pyscopegui
+  asks a stopped scope who it is every 5 seconds, so that one switched off or unplugged is
+  noticed then rather than at the next Run; running, every look at its trigger says it is
+  there. Press **Open** once it is back.
 - *This was written for the DS1000Z scopes* --- something else answered. It may work, as
   far as it speaks the same commands.

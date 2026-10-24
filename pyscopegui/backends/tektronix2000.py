@@ -67,6 +67,12 @@ SAMPLE, PEAK, AVERAGE = "SAMPLE", "PEAKDETECT", "AVERAGE"
 #: two looks at whether anything has been asked while it is not running.
 POLL_S = 0.2
 IDLE_S = 0.1
+#: How long the scope is left stopped before it is asked who it is again, to
+#: see that it is still there: while it runs, every look at whether it has
+#: taken its sweep says so, but stopped, nothing is sent it, and a scope
+#: switched off or unplugged would not be noticed until the next Run. It is
+#: given as long to answer as a setting, which it may still be busy with.
+CHECK_S = 5.0
 #: How near the trigger the signal has to cross the level, in samples, for
 #: the sweep to count as triggered and not as taken because nothing came.
 NEAR_TRIGGER = 3
@@ -628,9 +634,12 @@ class Link:
 class Scope:
     """One scope, from opening its port to letting go. Used from one thread."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, clock=time.monotonic) -> None:
         self.settings = settings
         self.trigger = Trigger()
+        self._clock = clock
+        #: When it was last asked anything, stopped: see check_there.
+        self._heard = 0.0
         self._link: Link | visa.VisaLink | None = None
         #: What the scope said it is, and how many channels that has.
         self.model = ""
@@ -679,6 +688,7 @@ class Scope:
         # Answers with nothing in front of them, whatever the scope was left at.
         self._link.write("HEADER OFF")
         said = self._identify()
+        self._heard = self._clock()
         parts = [part.strip() for part in said.split(",")]
         if len(parts) < 2 or "TEK" not in parts[0].upper():
             raise ScopeError(f"What answered on {where} is not this scope: {said!r}.")
@@ -802,6 +812,21 @@ class Scope:
         self.running = False
         self._put_back()
         self.doing("")
+        self._heard = self._clock()
+
+    def check_there(self) -> None:
+        """ScopeError if it has been stopped a while and does not say who it is
+        when asked. Running, it is never asked: it is answering already."""
+        if self.running or self._link is None or self._clock() - self._heard < CHECK_S:
+            return
+        try:
+            self._link.ask("*IDN?", wait=SETTING_S)
+        except ScopeError as exc:
+            raise ScopeError(
+                "The Tektronix stopped answering and has been closed: it may have been "
+                f"switched off or unplugged. Press Open once it is back. ({exc})"
+            ) from exc
+        self._heard = self._clock()
 
     def poll(self) -> Block | None:
         """The next sweep, if the scope has one."""
@@ -948,6 +973,8 @@ class _Reader(QThread):
                     command = self._asked.get(timeout=POLL_S if scope.running else IDLE_S)
                 except queue.Empty:
                     command = None
+                if command is None:
+                    scope.check_there()
                 if command is not None:
                     if command[0] == "close":
                         break
