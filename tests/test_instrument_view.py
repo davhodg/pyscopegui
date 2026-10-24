@@ -436,5 +436,9 @@ def test_a_current_probes_sensitivity_is_beside_it_said_by_its_unit(app):
     assert view.controls["sensitivity_1"].parent() is field
     assert view._beside["sensitivity_1"] is None, "no name: V/A says what it is"
     assert shown(view, "sensitivity_1") and not shown(view, "sensitivity_2"), "a 10x probe"
+    # And the pane is no wider for it than with a 10x probe, whatever the fonts.
+    plain = InstrumentView()
+    plain.show_settings(rigol.SETTINGS, {})
     view.show()
-    assert view.minimumSizeHint().width() <= 340, "and the pane is no wider for it"
+    plain.show()
+    assert view.minimumSizeHint().width() <= plain.minimumSizeHint().width()
