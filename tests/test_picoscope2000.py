@@ -42,6 +42,12 @@ class FakeLibrary:
         self.slowest = 19
         self.block_wave = lambda n: np.where(np.arange(n) < n // 2, -16000, 16000)
         self.overrun = False
+        #: Whether it is still plugged in, as asking it says.
+        self.present = True
+
+    def ps2000PingUnit(self, handle):
+        self.calls.append(("ping",))
+        return int(self.present)
 
     def ps2000_open_unit(self):
         self.calls.append(("open",))
@@ -1159,6 +1165,59 @@ def test_a_scope_that_is_not_there_is_an_error_and_not_running(app, monkeypatch)
     run_for(app, instrument, lambda: states == [False])
     assert len(errors) == 1 and "No PicoScope was found" in errors[0]
     assert not instrument.running and not instrument.is_open
+
+
+# --- a scope that is unplugged ----------------------------------------------------------------
+def test_a_quiet_scope_is_asked_whether_it_is_there_and_one_that_is_not_is_an_error():
+    library, clock = FakeLibrary(), Clock()
+    reading = stream(library, clock=clock)
+    reading.open()
+    clock.now = pico.QUIET_S - 0.1
+    reading.check_there()
+    assert ("ping",) not in library.calls, "not before it has been quiet a while"
+    clock.now = pico.QUIET_S
+    reading.check_there()
+    reading.check_there()
+    assert library.calls.count(("ping",)) == 1, "once a quiet spell, not every look"
+    library.present = False
+    clock.now = 2 * pico.QUIET_S
+    with pytest.raises(pico.ScopeError, match="stopped answering"):
+        reading.check_there()
+
+
+def test_a_scope_that_is_streaming_samples_is_never_asked():
+    library, clock = FakeLibrary(), Clock()
+    reading = stream(library, clock=clock)
+    reading.open()
+    reading.start()
+    for step in range(1, 20):
+        clock.now = step * pico.STALLED_S / 2
+        library.waiting.append(([1] * 10, [1] * 10))
+        assert reading.poll() is not None
+        reading.heard_from()
+        reading.check_there()
+    assert ("ping",) not in library.calls
+    # Nothing arriving for a moment, though, is asked about at once.
+    clock.now += pico.STALLED_S
+    library.present = False
+    with pytest.raises(pico.ScopeError, match="stopped answering"):
+        reading.check_there()
+
+
+def test_a_scope_unplugged_while_stopped_is_closed_and_said(app, monkeypatch):
+    library = FakeLibrary()
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    monkeypatch.setattr(pico, "QUIET_S", 0.05)
+    instrument = backends.create("picoscope2000")
+    errors = []
+    instrument.error.connect(errors.append)
+    instrument.open()
+    run_for(app, instrument, lambda: instrument.is_open)
+    run_for(app, instrument, lambda: ("ping",) in library.calls)
+    library.present = False
+    run_for(app, instrument, lambda: not instrument.is_open)
+    assert len(errors) == 1 and "unplugged" in errors[0]
+    assert ("close",) in library.calls
 
 
 # --- what an older scope waits for itself, beyond an edge --------------------------------------

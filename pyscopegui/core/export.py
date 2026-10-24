@@ -14,6 +14,7 @@ where there is one.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,25 +69,35 @@ def heading(record: Record, name: str) -> str:
     return f"{name} ({unit})" if unit else name
 
 
+def numbers(records: list[Record], origin: float, t_from: float, t_to: float) -> tuple[int, int]:
+    """The samples, from and to, that every one of these channels has between
+    two times on the plot's axis: they arrive together, and are the same to
+    within the block that was arriving as this was asked for."""
+    spans = [record.numbers(t_from + origin, t_to + origin) for record in records]
+    return max(start for start, _stop in spans), min(stop for _start, stop in spans)
+
+
 def write_csv(
-    path: Path, records: dict[str, Record], origin: float, t_from: float, t_to: float
+    path: Path,
+    records: dict[str, Record],
+    origin: float,
+    t_from: float,
+    t_to: float,
+    progress: Callable[[int], None] | None = None,
 ) -> Written:
     """Write these channels of one instrument, between two times on the plot's axis.
 
     ``records`` is what to call each channel -> what is held of it; they are
     one instrument's, so they have a rate and a count of samples in common.
     ``origin`` is the time, in the instrument's own seconds, that the axis
-    calls nought.
+    calls nought. ``progress`` is told how many rows have been written, after
+    every CHUNK of them.
     """
     held = [record for record in records.values() if record.count]
     if not held:
         raise ValueError("there are no samples to write")
     rate = held[0].rate
-    spans = [record.numbers(t_from + origin, t_to + origin) for record in held]
-    # The stretch every channel has: they arrive together, and are the same
-    # to within the block that was arriving as this was asked for.
-    first = max(start for start, _stop in spans)
-    last = min(stop for _start, stop in spans)
+    first, last = numbers(held, origin, t_from, t_to)
     if last <= first:
         raise ValueError("there are no samples in the stretch of time shown")
     columns = [(heading(record, name), record) for name, record in records.items() if record.count]
@@ -105,4 +116,6 @@ def write_csv(
             for index, (_said, record) in enumerate(columns, start=1):
                 rows[:, index] = record.values(start, stop)
             np.savetxt(file, rows, fmt=formats, delimiter=",")
+            if progress is not None:
+                progress(stop - first)
     return Written(path, last - first, len(columns))

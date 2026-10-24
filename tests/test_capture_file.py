@@ -173,6 +173,22 @@ def test_saving_and_opening_puts_it_back_beside_the_instruments(held, tmp_path, 
     assert not unit.running, "it is all there, and stops"
 
 
+def test_a_save_cancelled_part_way_leaves_no_file(held, tmp_path, monkeypatch):
+    from pyscopegui.ui import scope_view
+    from pyscopegui.ui.progress import CancelledError
+
+    def cancelled_at_once(_parent, _title, _total, job):
+        def progress(_done):
+            raise CancelledError
+
+        return job(progress)
+
+    monkeypatch.setattr(scope_view, "with_progress", cancelled_at_once)
+    assert held.scope.save_captures(tmp_path / "gone.npz") == []
+    assert not (tmp_path / "gone.npz").exists()
+    assert "Saving was cancelled" in held.log.toPlainText()
+
+
 def test_the_capture_file_is_not_offered_under_add_instrument(window):
     assert "file" not in backends.names()
     assert "file" not in [a.data() for a in window.instrument_bar.kinds.actions()]

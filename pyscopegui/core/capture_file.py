@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import csv
 import json
+import zipfile
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -35,6 +37,8 @@ HELD_AS = ("counts", "port", "bit")
 FORMAT = "pyscopegui capture"
 VERSION = 1
 SUFFIX = ".npz"
+#: Samples of a channel written at a time.
+PIECE = 1 << 20
 #: Rows shown to choose columns by.
 PREVIEW_ROWS = 12
 #: How far apart time steps may be, as a share of the usual one, and still be one rate.
@@ -63,8 +67,19 @@ class Loaded:
 
 
 # --- pyscopegui's own ---------------------------------------------------------------------------
-def save(path: Path, loaded: Loaded, instrument: str = "") -> None:
-    """Write one instrument's capture as pyscopegui's own file."""
+def save(
+    path: Path,
+    loaded: Loaded,
+    instrument: str = "",
+    progress: Callable[[int], None] | None = None,
+) -> None:
+    """Write one instrument's capture as pyscopegui's own file.
+
+    Each channel is written PIECE samples at a time, and ``progress`` told
+    how many of them have been, all channels together, after each. A
+    channel's samples are an array, or anything that has a length and a
+    dtype and gives an array for a slice: read a piece at a time too.
+    """
     meta = {
         "format": FORMAT,
         "version": VERSION,
@@ -78,10 +93,29 @@ def save(path: Path, loaded: Loaded, instrument: str = "") -> None:
             for channel in loaded.channels
         ],
     }
-    arrays = {f"channel{index}": loaded.data[c.key] for index, c in enumerate(loaded.channels)}
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as file:
-        np.savez_compressed(file, meta=np.array(json.dumps(meta)), **arrays)
+    # What numpy's savez_compressed writes, written by hand so that it can
+    # be a piece at a time: a zip of one .npy file for each array.
+    written = 0
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        with archive.open("meta.npy", "w") as file:
+            np.lib.format.write_array(file, np.array(json.dumps(meta)), allow_pickle=False)
+        for index, channel in enumerate(loaded.channels):
+            samples = loaded.data[channel.key]
+            dtype, count = np.dtype(samples.dtype), len(samples)
+            with archive.open(f"channel{index}.npy", "w", force_zip64=True) as file:
+                header = {
+                    "descr": np.lib.format.dtype_to_descr(dtype),
+                    "fortran_order": False,
+                    "shape": (count,),
+                }
+                np.lib.format.write_array_header_1_0(file, header)
+                for start in range(0, count, PIECE):
+                    piece = np.ascontiguousarray(samples[start : start + PIECE], dtype=dtype)
+                    file.write(piece.data)
+                    written += len(piece)
+                    if progress is not None:
+                        progress(written)
 
 
 def load(path: Path) -> Loaded:

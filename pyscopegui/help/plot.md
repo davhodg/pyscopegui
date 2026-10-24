@@ -27,7 +27,13 @@ view is a million rows.
   the same moments and cannot share rows.
 
 To write everything that is held and not only what is in view, choose **All** beside
-**Time** first. The [Event Log](event-log.md) says how many samples went where.
+**Time** first. With two [cursors](#cursors), **Export CSV between cursors...** -- on the
+button's arrow, and under *File* -- writes only what is between them, wherever the plot has
+been moved since. The [Event Log](event-log.md) says how many samples went where.
+
+A large file is written while the instruments go on running, with a bar showing how far it
+has got and **Cancel**, which leaves no part-written file behind. Saving a capture is the
+same.
 
 ## Saving a picture
 

@@ -224,6 +224,7 @@ class PwqConditions(ctypes.Structure):
 PROTOTYPES = {
     "ps2000aOpenUnit": (_STATUS, [_P(_INT16), ctypes.c_char_p]),
     "ps2000aCloseUnit": (_STATUS, [_INT16]),
+    "ps2000aPingUnit": (_STATUS, [_INT16]),
     "ps2000aGetUnitInfo": (_STATUS, [_INT16, ctypes.c_char_p, _INT16, _P(_INT16), _UINT32]),
     "ps2000aMaximumValue": (_STATUS, [_INT16, _P(_INT16)]),
     "ps2000aGetAnalogueOffset": (_STATUS, [_INT16, _INT32, _INT32, _P(_FLOAT), _P(_FLOAT)]),
@@ -663,6 +664,7 @@ class Stream(pico.Stream):
         if status != OK:
             raise ScopeError(f"The PicoScope would not open: {why(status)}.")
         self._handle = handle.value
+        self.heard_from()
         self.model = self._info(INFO_VARIANT)
         self.channels, self.digital = channels_of(self.model), has_digital(self.model)
         self.settings = self.settings.for_scope(self.channels, self.digital)
@@ -672,6 +674,10 @@ class Stream(pico.Stream):
         self.ranges = self._ranges()
         self.has_offset = self._limits(RANGES["5V"][0], True) != (0.0, 0.0)
         self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
+
+    def _answers(self) -> bool:
+        # Busy, say, is still there: only what says it has gone is gone.
+        return self._library.ps2000aPingUnit(self._handle) not in GONE
 
     def _info(self, line: int) -> str:
         text, needed = ctypes.create_string_buffer(64), ctypes.c_int16(0)

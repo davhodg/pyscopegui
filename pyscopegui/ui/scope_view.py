@@ -57,7 +57,7 @@ from PySide6.QtWidgets import (
 from pyscopegui.backends.base import ANALOG, DIGITAL
 from pyscopegui.core import capture_file, decoding, export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
-from pyscopegui.core.capture import Capture
+from pyscopegui.core.capture import Bit, Capture, Record
 from pyscopegui.core.context import Context
 from pyscopegui.core.decoding import PROTOCOLS
 from pyscopegui.core.maths import Maths
@@ -70,6 +70,7 @@ from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.decode_dialog import I2cDialog, SpiDialog, UartDialog
 from pyscopegui.ui.maths_dialog import MathsDialog
 from pyscopegui.ui.persist import remember
+from pyscopegui.ui.progress import CancelledError, with_progress
 from pyscopegui.ui.spin import SequenceSpin
 
 # Enough for a channel's name and how it is set, which is all there is to
@@ -129,6 +130,10 @@ EXPORT_TIP = (
     "Write what the plot shows as CSV: every sample of the channels that are\n"
     "ticked, in the stretch of time in view. One file for each instrument.\n"
     "Choose All beside Time first to write everything that is held."
+)
+BETWEEN_TIP = (
+    "Write as CSV every sample of the channels that are ticked between the two\n"
+    "cursors, wherever they are. With two cursors chosen."
 )
 PICTURE_TIP = "Save a picture of this plot and its channel list, as they look now."
 #: Where the last export went, kept so the next one starts there.
@@ -504,6 +509,11 @@ class ScopeView(QWidget):
         self.export_menu = QMenu(self.export_button)
         self.export_menu.setToolTipsVisible(True)
         self.export_menu.addAction("Export CSV...", self.ask_export).setToolTip(EXPORT_TIP)
+        self.between_action = self.export_menu.addAction(
+            "Export CSV between cursors...", lambda: self.ask_export(between_cursors=True)
+        )
+        self.between_action.setToolTip(BETWEEN_TIP)
+        self.between_action.setEnabled(False)
         self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
         self.export_button.setMenu(self.export_menu)
         bar.addStretch()
@@ -552,6 +562,7 @@ class ScopeView(QWidget):
             remember(ctx, f"{key}.cursors", self.cursors)
         # After what was chosen last time is put back, which is not a choice.
         self.cursors.currentIndexChanged.connect(self._on_cursor_count)
+        self.between_action.setEnabled(self.cursor_count() == 2)
         # activated as well: choosing what is chosen already brings them back.
         self.cursors.activated.connect(lambda _index: self.bring_cursors())
         self.channel_list.set_cursors(self.cursor_count())
@@ -927,6 +938,7 @@ class ScopeView(QWidget):
         self.set_cursor(number, moved.value())
 
     def _on_cursor_count(self, *_args) -> None:
+        self.between_action.setEnabled(self.cursor_count() == 2)
         self.cursors_moved.emit()
         self.channel_list.set_cursors(self.cursor_count())
         self._show_cursors()
@@ -1311,11 +1323,12 @@ class ScopeView(QWidget):
             self._ctx.settings.set(EXPORT_FOLDER, str(path.parent))
         return path
 
-    def ask_export(self) -> None:
-        """Ask where to, and write what the plot shows as CSV."""
+    def ask_export(self, between_cursors: bool = False) -> None:
+        """Ask where to, and write what the plot shows as CSV: or only what is
+        between the two cursors."""
         path = self._ask_where("Export CSV", "capture.csv", "Comma-separated values (*.csv)")
         if path is not None:
-            self.export_csv(path)
+            self.export_csv(path, between_cursors=between_cursors)
 
     def ask_picture(self) -> None:
         """Ask where to, and save a picture of the plot."""
@@ -1325,13 +1338,16 @@ class ScopeView(QWidget):
 
     def save_captures(self, path: Path) -> list[Path]:
         """Save everything held, of every instrument on the plot, as pyscopegui's own
-        file: one for each instrument, as Export CSV writes. The files written."""
+        file: one for each instrument, as Export CSV writes. The files written.
+
+        What is held is copied as it is, and written out on a thread of its
+        own with a progress bar, while the instruments go on running."""
         self.redraw()  # so that time is measured from where the plot has it now
         units = [unit for unit in self.session.shown() if unit.capture.stored()]
         if path.suffix.lower() != capture_file.SUFFIX:
             path = path.with_name(path.name + capture_file.SUFFIX)
         files = export.paths_for(path, [unit.short or unit.name or "capture" for unit in units])
-        written = []
+        jobs = []
         for unit in units:
             records = [r for r in unit.capture.records.values() if r.count]
             # What every channel has: they arrive together.
@@ -1340,23 +1356,50 @@ class ScopeView(QWidget):
             rate = records[0].rate
             timing = self._timings.get(unit.name)
             zero = round((timing.origin if timing is not None else 0.0) * rate) - first
+            ports: dict = {}
             loaded = capture_file.Loaded(
                 # Written in their units, whatever they were held as.
                 [r.channel.plain() for r in records],
                 rate,
-                {r.channel.key: r.values(first, last).copy() for r in records},
+                {
+                    r.channel.key: _Samples(_copied(r, first, last, ports), first, last)
+                    for r in records
+                },
                 zero if 0 <= zero < last - first else None,
             )
             where = files[unit.short or unit.name or "capture"]
-            try:
-                capture_file.save(where, loaded, unit.name)
-            except OSError as exc:
-                self._say(f"{unit.short or 'The capture'} was not saved: {exc}.", problem=True)
-                continue
-            written.append(where)
-            self._say(f"Saved {last - first:,} samples of {len(records)} channels to {where}.")
+            jobs.append((unit, where, loaded))
         if not units:
             self._say("There is nothing on the plot to save.", problem=True)
+            return []
+        total = sum(len(loaded) * len(loaded.channels) for _unit, _where, loaded in jobs)
+
+        def write(progress) -> list:
+            done, outcomes = 0, []
+            for unit, where, loaded in jobs:
+                try:
+                    capture_file.save(where, loaded, unit.name, lambda n, d=done: progress(d + n))
+                except (CancelledError, OSError) as exc:
+                    where.unlink(missing_ok=True)
+                    outcomes.append((unit, where, loaded, exc))
+                    if isinstance(exc, CancelledError):
+                        break
+                    continue
+                done += len(loaded) * len(loaded.channels)
+                outcomes.append((unit, where, loaded, None))
+            return outcomes
+
+        written = []
+        for unit, where, loaded, problem in with_progress(self, "Saving capture", total, write):
+            if isinstance(problem, CancelledError):
+                self._say("Saving was cancelled: what was part written is gone.", problem=True)
+            elif problem is not None:
+                self._say(f"{unit.short or 'The capture'} was not saved: {problem}.", problem=True)
+            else:
+                written.append(where)
+                self._say(
+                    f"Saved {len(loaded):,} samples of {len(loaded.channels)} channels to {where}."
+                )
         return written
 
     def export_png(self, path: Path) -> bool:
@@ -1377,35 +1420,72 @@ class ScopeView(QWidget):
         )
         return True
 
-    def export_csv(self, path: Path) -> list[export.Written]:
-        """Write the channels that are ticked, in the stretch of time in view:
-        one file for each instrument. Says what was written, or why not."""
+    def export_csv(self, path: Path, between_cursors: bool = False) -> list[export.Written]:
+        """Write the channels that are ticked, in the stretch of time in view --
+        or between the two cursors -- one file for each instrument. Says what
+        was written, or why not.
+
+        What is to be written is copied as it is held, and written out on a
+        thread of its own with a progress bar, while the instruments go on running."""
         self.redraw()  # so that what is written is what is on the screen now
-        (t_from, t_to), _y = self.analog.getViewBox().viewRange()
+        if between_cursors:
+            if self.cursor_count() != 2:
+                self._say("Choose two cursors to export what is between them.", problem=True)
+                return []
+            t_from, t_to = sorted(self._cursor_at)
+        else:
+            (t_from, t_to), _y = self.analog.getViewBox().viewRange()
         wanted: dict[str, dict] = {}
         for key, (unit, channel) in self._owners.items():
             record = unit.capture.records.get(channel)
             if key not in self._hidden and record is not None and record.count:
                 wanted.setdefault(unit.name, {})[record.channel.name] = record
+        if not wanted:
+            self._say("There is nothing on the plot to export.", problem=True)
+            return []
         units = {unit.name: unit for unit in self.session.shown()}
         files = export.paths_for(path, [units[name].short or name for name in wanted])
-        written = []
+        jobs = []
         for name, records in wanted.items():
             unit = units[name]
             timing = self._timings.get(name)
             origin = timing.origin if timing is not None else 0.0
-            try:
-                done = export.write_csv(files[unit.short or name], records, origin, t_from, t_to)
-            except (OSError, ValueError) as exc:
-                self._say(f"{unit.short or 'The capture'} was not exported: {exc}.", problem=True)
-                continue
-            written.append(done)
-            self._say(
-                f"Exported {done.rows:,} samples of {done.channels} "
-                f"{'channel' if done.channels == 1 else 'channels'} to {done.path}."
-            )
-        if not wanted:
-            self._say("There is nothing on the plot to export.", problem=True)
+            first, last = export.numbers(list(records.values()), origin, t_from, t_to)
+            ports: dict = {}
+            copies = {said: _copied(r, first, last, ports) for said, r in records.items()}
+            jobs.append((unit, files[unit.short or name], copies, origin, max(0, last - first)))
+        total = sum(rows for *_rest, rows in jobs)
+
+        def write(progress) -> list:
+            done, outcomes = 0, []
+            for unit, where, copies, origin, rows in jobs:
+                try:
+                    finished = export.write_csv(
+                        where, copies, origin, t_from, t_to, lambda n, d=done: progress(d + n)
+                    )
+                except (CancelledError, OSError, ValueError) as exc:
+                    if isinstance(exc, CancelledError):
+                        where.unlink(missing_ok=True)
+                    outcomes.append((unit, exc))
+                    if isinstance(exc, CancelledError):
+                        break
+                    continue
+                done += rows
+                outcomes.append((unit, finished))
+            return outcomes
+
+        written = []
+        for unit, done in with_progress(self, "Exporting CSV", total, write):
+            if isinstance(done, CancelledError):
+                self._say("Exporting was cancelled: what was part written is gone.", problem=True)
+            elif isinstance(done, Exception):
+                self._say(f"{unit.short or 'The capture'} was not exported: {done}.", problem=True)
+            else:
+                written.append(done)
+                self._say(
+                    f"Exported {done.rows:,} samples of {done.channels} "
+                    f"{'channel' if done.channels == 1 else 'channels'} to {done.path}."
+                )
         return written
 
     def _say(self, message: str, problem: bool = False) -> None:
@@ -1448,3 +1528,26 @@ class ScopeView(QWidget):
     def restore_state(self, state) -> None:
         if state is not None:
             self.splitter.restoreState(state)
+
+
+def _copied(record: Record | Bit, start: int, stop: int, ports: dict) -> Record | Bit:
+    """A copy of samples start to stop, for a thread to write out: see Record.copied."""
+    if isinstance(record, Bit):
+        return record.copied(start, stop, ports)
+    return record.copied(start, stop)
+
+
+class _Samples:
+    """A channel's samples start to stop, read out in its unit a piece at a
+    time as a file is written: what capture_file.save takes for an array."""
+
+    def __init__(self, record: Record | Bit, start: int, stop: int) -> None:
+        self._record, self._start, self._count = record, start, max(0, stop - start)
+        self.dtype = np.dtype(np.float32 if record.channel.kind == ANALOG else np.uint8)
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, piece: slice) -> np.ndarray:
+        begin, end, _step = piece.indices(self._count)
+        return self._record.values(self._start + begin, self._start + end)

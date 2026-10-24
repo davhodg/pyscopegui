@@ -156,6 +156,19 @@ class Record:
         """Everything held, oldest first, in the channel's unit: see ``values``."""
         return self.values()
 
+    def copied(self, start: int, stop: int) -> Record:
+        """Samples start to stop, by number, as a record of their own and still
+        numbered as they are here: for a thread to write out while this one
+        goes on filling. Copied as they are held, which is quick."""
+        start = max(start, self.first)
+        stop = max(start, min(stop, self.total))
+        copy = Record(self.channel, self.rate, max(1, stop - start))
+        copy._buffer[: stop - start] = self._held(start, stop)
+        copy._end = copy.count = stop - start
+        copy.total = stop
+        copy._scales = [(begin, scale) for begin, _end, scale in self._stretches(start, stop)]
+        return copy
+
     def stretch(self, start: int, stop: int) -> Stretch:
         """Samples start to stop, by number, as they are held, to be compared
         with a level: see pyscopegui.core.stretch."""
@@ -260,6 +273,14 @@ class Bit:
 
     def view(self) -> np.ndarray:
         return self.values()
+
+    def copied(self, start: int, stop: int, ports: dict | None = None) -> Bit:
+        """As Record.copied. ``ports`` keeps each port copied once, for all its inputs."""
+        ports = {} if ports is None else ports
+        key = (id(self.port), start, stop)
+        if key not in ports:
+            ports[key] = self.port.copied(start, stop)
+        return Bit(self.channel, ports[key])
 
     def stretch(self, start: int, stop: int) -> Stretch:
         """Its samples start to stop, as bits of the port's bytes."""

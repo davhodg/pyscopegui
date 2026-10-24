@@ -161,6 +161,20 @@ POLL_S = 0.01
 #: And how often it looks to see whether it has been asked for anything
 #: while the scope is open and not streaming.
 IDLE_S = 0.1
+#: How long the scope may say nothing before it is asked whether it is still
+#: there: stopped, or waiting for a block. Every other call is answered as if
+#: it were, once it has been unplugged -- found on a 2204A and a 2206B -- so
+#: without asking, a scope that has gone is not noticed until the next Run.
+QUIET_S = 5.0
+#: And streaming, when nothing has arrived for this long. While samples are
+#: arriving it is never asked: they say it is there.
+STALLED_S = 1.0
+#: Said when it does not answer. Its handle is no good after that, even once
+#: it is plugged in again, so it is closed.
+GONE_TEXT = (
+    "The PicoScope stopped answering: it may have been unplugged. It has been closed; plug "
+    "it in and press Open."
+)
 #: How long before the rate that is arriving is compared with the one asked for.
 CHECK_AFTER_S = 5.0
 #: How far out it may be before it is said.
@@ -215,6 +229,7 @@ class PwqConditions(ctypes.Structure):
 #: Name -> (return type, argument types), for the functions used here.
 PROTOTYPES = {
     "ps2000_open_unit": (_INT16, []),
+    "ps2000PingUnit": (_INT16, [_INT16]),
     "ps2000_close_unit": (_INT16, [_INT16]),
     "ps2000_get_unit_info": (_INT16, [_INT16, ctypes.c_char_p, _INT16, _INT16]),
     "ps2000_set_channel": (_INT16, [_INT16] * 5),
@@ -704,6 +719,8 @@ class Stream:
         self._sent = 0
         self._started = 0.0
         self._rate_checked = False
+        #: When the scope last said anything: opened, sent samples, or answered.
+        self._heard = 0.0
         #: Whether the scope is reading now, as a stream or in blocks.
         self.streaming = False
         #: What it is called by itself, once open: "2204A".
@@ -758,8 +775,32 @@ class Stream:
         if handle <= 0:
             raise ScopeError(self._why_not_opened(handle))
         self._handle = handle
+        self._heard = self._clock()
         self.model = self._info(INFO_VARIANT)
         self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
+
+    def heard_from(self) -> None:
+        """It has just sent something, so it is there."""
+        self._heard = self._clock()
+
+    def check_there(self) -> None:
+        """ScopeError if it has been quiet a while and does not answer when asked.
+
+        Never asked while samples are arriving, nor more than once in a
+        quiet spell: a stopped scope is asked every QUIET_S.
+        """
+        if self._handle <= 0:
+            return
+        streams = self.streaming and not self.settings.blocks
+        now = self._clock()
+        if now - self._heard < (STALLED_S if streams else QUIET_S):
+            return
+        if not self._answers():
+            raise ScopeError(GONE_TEXT)
+        self._heard = now
+
+    def _answers(self) -> bool:
+        return self._library.ps2000PingUnit(self._handle) != 0
 
     def _info(self, line: int) -> str:
         text = ctypes.create_string_buffer(64)
@@ -1351,6 +1392,8 @@ class _Reader(QThread):
                     command = self._asked.get(timeout=POLL_S if stream.streaming else IDLE_S)
                 except queue.Empty:
                     command = None
+                if command is None:
+                    stream.check_there()
                 if command is not None:
                     if command[0] == "close":
                         break
@@ -1380,6 +1423,7 @@ class _Reader(QThread):
                         self.stopped_run.emit(run)
                         continue
                     if block is not None:
+                        stream.heard_from()
                         self.block.emit(run, block)
                     self._say()
         except ScopeError as exc:

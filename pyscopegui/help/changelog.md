@@ -11,6 +11,13 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Export CSV between cursors...**, with two cursors: every sample between them, wherever
+  the plot has been moved since. On the export button's arrow and under *File*.
+- **A progress bar for a large save or export**, with **Cancel**: the file is written while
+  the instruments go on running, and a cancelled one leaves nothing part-written behind.
+- **A PicoScope that is unplugged is noticed**: asked whether it is still there when it has
+  been quiet a while -- never while samples are arriving -- and closed, with the Event Log
+  saying so, rather than seeming to take settings it never gets.
 - **An older PicoScope triggers on more than an edge itself**, reading blocks: **Either**
   edge, **Window**, **Pulse width** and a **Logic pattern** of A and B, on the models with
   Pico's advanced trigger (2202, 2204, 2204A, 2205, 2205A).

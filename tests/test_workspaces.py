@@ -230,6 +230,7 @@ def test_the_workspace_menu_is_in_the_file_menu_above_exit(win):
         "Open capture...",
         "Save capture...",
         "Export CSV...",
+        "Export CSV between cursors...",
         "Export PNG...",
         "Run script...",
         "Recent scripts",

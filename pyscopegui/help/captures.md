@@ -8,7 +8,8 @@
 file to open again later exactly as it is: every sample as it was held, each channel's name,
 unit and colour, the sample rate, and where the trigger was. With several instruments there
 is a file for each, named for it -- `capture-Rigol.npz`, `capture-Pico.npz` -- as
-[Export CSV](plot.md) does.
+[Export CSV](plot.md) does. A large one is written while the instruments go on running,
+with a bar showing how far it has got, and **Cancel**.
 
 The file is a numpy `.npz`, so a script can read it too:
 

@@ -226,8 +226,11 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   samples it marked as lost. Said once in a while, with how many since the last time.
 - *That is the longest block the scope can take* --- the block length asked for is more than
   its memory holds at its slowest. Streaming reads for longer.
-- *The scope stopped answering* --- while a block was being waited for. It may have been
-  unplugged.
+- *The PicoScope stopped answering: it may have been unplugged* --- pyscopegui asks the scope
+  whether it is still there whenever it has been quiet a while: every 5 seconds while it is
+  open and stopped or waiting for a block, and after a second of streaming with nothing
+  arriving; never while samples are arriving, which say it is there. Once unplugged it is
+  closed, since the driver needs it opened afresh: plug it in again and press **Open**.
 
 ## The newer scopes, on ps2000a
 

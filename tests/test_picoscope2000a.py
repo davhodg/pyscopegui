@@ -221,6 +221,10 @@ class FakeLibrary:
         self.calls.append(("stop",))
         return pico.OK
 
+    def ps2000aPingUnit(self, handle):
+        self.calls.append(("ping",))
+        return pico.OK if getattr(self, "present", True) else 0x07
+
     def ps2000aCloseUnit(self, handle):
         self.calls.append(("close",))
         return pico.OK
@@ -232,6 +236,18 @@ PORT0, PORT1 = pico.DIGITAL_PORT0, pico.DIGITAL_PORT0 + 1
 
 def stream(library, options=None, clock=None):
     return pico.Stream(library, pico.Settings(options), clock or Clock())
+
+
+def test_a_newer_scope_that_does_not_answer_is_an_error():
+    library, clock = FakeLibrary(), Clock()
+    reading = stream(library, clock=clock)
+    reading.open()
+    clock.now = pico.pico.QUIET_S
+    reading.check_there()
+    library.present = False
+    clock.now = 2 * pico.pico.QUIET_S
+    with pytest.raises(pico.ScopeError, match="stopped answering"):
+        reading.check_there()
 
 
 def started(library, options=None, trigger=None):

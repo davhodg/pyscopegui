@@ -201,6 +201,53 @@ def test_the_folder_last_exported_to_is_where_the_next_starts(window, tmp_path, 
     assert asked[1] == str(tmp_path / "sub" / "capture.csv")
 
 
+def test_between_the_cursors_is_what_is_written_wherever_the_view_is(window, tmp_path):
+    window.set_mode("auto")
+    feed(window)
+    window.scope.window_s.setValue(0.01)
+    window.scope.cursors.setCurrentIndex(2)
+    assert window.scope.between_action.isEnabled()
+    window.scope.redraw()
+    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    later, earlier = low + 0.6 * (high - low), low + 0.4 * (high - low)
+    window.scope.set_cursor(0, later)
+    window.scope.set_cursor(1, earlier)
+    window.scope.export_csv(tmp_path / "between.csv", between_cursors=True)
+    times = [float(row[0]) for row in rows_of(tmp_path / "between.csv")[1:]]
+    # A fifth of 10 ms at 100 kS/s, to within a sample at either end, whichever cursor is first.
+    assert 199 <= len(times) <= 202
+    assert times[0] == pytest.approx(earlier, abs=2e-5)
+    assert times[-1] == pytest.approx(later, abs=2e-5)
+
+
+def test_between_the_cursors_wants_two(window, tmp_path):
+    window.set_mode("auto")
+    feed(window)
+    window.scope.cursors.setCurrentIndex(1)
+    assert not window.scope.between_action.isEnabled()
+    assert window.scope.export_csv(tmp_path / "x.csv", between_cursors=True) == []
+    assert "Choose two cursors" in window.log.toPlainText()
+
+
+def test_an_export_cancelled_part_way_leaves_no_file(window, tmp_path, monkeypatch):
+    from pyscopegui.ui import scope_view
+    from pyscopegui.ui.progress import CancelledError
+
+    def cancelled_at_once(_parent, _title, _total, job):
+        def progress(_done):
+            raise CancelledError
+
+        return job(progress)
+
+    monkeypatch.setattr(scope_view, "with_progress", cancelled_at_once)
+    monkeypatch.setattr(export, "CHUNK", 10)
+    window.set_mode("auto")
+    feed(window)
+    assert window.scope.export_csv(tmp_path / "gone.csv") == []
+    assert not (tmp_path / "gone.csv").exists()
+    assert "cancelled" in window.log.toPlainText()
+
+
 # --- a picture of the plot ---------------------------------------------------------------------
 def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window, monkeypatch):
     asked = []
@@ -209,6 +256,7 @@ def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window,
     assert button.text() == "Export CSV..."
     assert [action.text() for action in button.menu().actions()] == [
         "Export CSV...",
+        "Export CSV between cursors...",
         "Export PNG...",
     ]
     file_menu = window.menuBar().actions()[0].menu()
@@ -226,7 +274,7 @@ def test_pressing_the_export_button_itself_is_still_csv(window, tmp_path, monkey
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(fake))
     window.scope.export_button.click()
-    window.scope.export_button.menu().actions()[1].trigger()
+    window.scope.export_button.menu().actions()[2].trigger()
     assert asked == [("Export CSV", "capture.csv"), ("Export PNG", "capture.png")]
 
 
