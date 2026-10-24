@@ -29,6 +29,12 @@ HISTORIES = (1.0, 10.0, 30.0, 60.0, 300.0, 600.0)
 #: are copied back to the start each time this much has been written past
 #: them, so less of it means more copying and more of it means more memory.
 SLACK = 0.5
+#: Samples summed up together as they arrive -- their lowest and highest --
+#: for drawing a long stretch from: see Record.drawn.
+SUMMED = 256
+#: How many of those a column has to span to be drawn from them. Fewer, and
+#: going through every sample is as quick: a few million of them is.
+SUMMARY_FROM = 32
 #: The least history a run is started with when memory is short, in seconds:
 #: less than this, and it is not started at all.
 LEAST_S = 0.1
@@ -81,6 +87,15 @@ class Record:
         #: a new sweep is. Otherwise a sample, once held, never changes, so what
         #: was worked out from a stretch of them stands while the stretch does.
         self.resets = 0
+        #: The lowest and highest of each SUMMED samples, kept as they arrive,
+        #: by the number of the first of them over SUMMED, round in a ring;
+        #: and the first sample they are right from. For logic levels, the
+        #: bits that are 1 throughout and those that are 1 anywhere, which
+        #: for an input of its own, 0 or 1, are its lowest and highest too.
+        slots = self.capacity // SUMMED + 2
+        self._lows = np.empty(slots, dtype=self._buffer.dtype)
+        self._highs = np.empty(slots, dtype=self._buffer.dtype)
+        self._summed_from = 0
 
     @property
     def memory_bytes(self) -> int:
@@ -104,30 +119,54 @@ class Record:
 
     def _write(self, samples: np.ndarray) -> None:
         new = len(samples)
+        began = self.total
         self.total += new
         if new >= self.capacity:
             self._buffer[: self.capacity] = samples[-self.capacity :]
             self._end = self.count = self.capacity
+        else:
+            if self._end + new > len(self._buffer):
+                keep = min(self.count, self.capacity - new)
+                self._buffer[:keep] = self._buffer[self._end - keep : self._end]
+                self._end = keep
+            self._buffer[self._end : self._end + new] = samples
+            self._end += new
+            self.count = min(self.count + new, self.capacity)
+        self._sum(max(began, self.first))
+
+    def _sum(self, began: int) -> None:
+        """Sum up again every SUMMED samples that what arrived from ``began`` is in.
+
+        The last of them is only part there, and is summed again when more
+        arrives. One whose first samples are no longer held is not summed:
+        it is never drawn from.
+        """
+        first = -(-max(began // SUMMED * SUMMED, self.first) // SUMMED) * SUMMED
+        if first >= self.total:
             return
-        if self._end + new > len(self._buffer):
-            keep = min(self.count, self.capacity - new)
-            self._buffer[:keep] = self._buffer[self._end - keep : self._end]
-            self._end = keep
-        self._buffer[self._end : self._end + new] = samples
-        self._end += new
-        self.count = min(self.count + new, self.capacity)
+        held = self._held(first, self.total)
+        whole = len(held) // SUMMED
+        parts = [held[: whole * SUMMED].reshape(whole, SUMMED)] if whole else []
+        lows, highs = _summed(parts, held[whole * SUMMED :], self.counts)
+        slots = (np.arange(first // SUMMED, first // SUMMED + len(lows))) % len(self._lows)
+        self._lows[slots], self._highs[slots] = lows, highs
 
     def empty(self) -> None:
         """Hold nothing, and count from nought again."""
         self._end = self.total = self.count = 0
         self._scales = []
         self.resets += 1
+        self._summed_from = 0
 
     def skip(self, missing: int) -> None:
         """Samples that never arrived: held as a gap, so later ones keep their time."""
         blank = np.nan if self._buffer.dtype.kind == "f" else LOST if self.counts else 0
         self._write(np.full(min(missing, self.capacity), blank, dtype=self._buffer.dtype))
-        self.total += missing - min(missing, self.capacity)
+        if missing > self.capacity:
+            # What was held is numbered on from here, and summed up as it was
+            # numbered before: it is drawn sample by sample.
+            self.total += missing - self.capacity
+            self._summed_from = self.total
 
     def _held(self, start: int, stop: int) -> np.ndarray:
         """Samples start to stop, by number, as they are held: a view."""
@@ -212,7 +251,7 @@ class Record:
         and the values there in the channel's unit -- worked out from counts
         only for the few that are drawn."""
         start, stop = self.numbers(t_from, t_to)
-        positions, picked = min_max(self._held(start, stop), columns)
+        positions, picked = self._cut_down(start, stop, columns, packed=False)
         if self.counts:
             values = np.empty(len(picked), dtype=np.float32)
             numbers = start + positions
@@ -223,6 +262,78 @@ class Record:
         self.last_drawn = _extremes(start, stop, picked)
         return start, positions, picked
 
+    def _cut_down(
+        self, start: int, stop: int, columns: int, packed: bool
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Samples start to stop as ``min_max`` cuts them down -- or for a port,
+        ``min_max_packed`` -- and the same, but quicker for a long stretch:
+        where a column spans SUMMARY_FROM SUMMED or more, the whole ones in it are
+        taken from what was summed up as they arrived, and only the samples
+        at its two ends are looked at."""
+        held = self._held(start, stop)
+        count = len(held)
+        cut = min_max_packed if packed else min_max
+        if columns < 1 or count <= 2 * columns or start < self._summed_from:
+            return cut(held, columns)
+        per = -(-count // columns)
+        if per < SUMMARY_FROM * SUMMED:
+            return cut(held, columns)
+        # Each column is samples begin to end; the whole SUMMED in it are
+        # those from inside to outside.
+        begins = start + np.arange(0, count, per)
+        ends = np.minimum(begins + per, stop)
+        inside = -(-begins // SUMMED)
+        outside = ends // SUMMED
+        if (outside <= inside).any():
+            return cut(held, columns)  # a short last column with no whole one in it
+        summed_lows, summed_highs = self._summed_between(int(inside[0]), int(outside[-1]))
+        # Each column's whole ones, inside to outside, and between two columns
+        # the ones they share an end of, which are left out: taken every
+        # other one, and the last to the end.
+        at = np.empty(2 * len(inside) - 1, dtype=np.int64)
+        at[0::2], at[1::2] = inside - inside[0], outside[:-1] - inside[0]
+        bits = packed or held.dtype == np.uint8
+        if bits:
+            low = np.bitwise_and.reduceat(summed_lows, at)[0::2]
+            high = np.bitwise_or.reduceat(summed_highs, at)[0::2]
+        elif held.dtype.kind == "f":
+            low = np.fmin.reduceat(summed_lows, at)[0::2]
+            high = np.fmax.reduceat(summed_highs, at)[0::2]
+        else:
+            low = np.minimum.reduceat(summed_lows, at)[0::2]
+            high = np.maximum.reduceat(summed_highs, at)[0::2]
+        # And the samples at either end of each column, fewer than SUMMED.
+        end_low, end_high = _ends(held, start, begins, ends, inside, outside, bits, self.counts)
+        if bits:
+            low &= end_low
+            high |= end_high
+        elif held.dtype.kind == "f":
+            low, high = np.fmin(low, end_low), np.fmax(high, end_high)
+        else:
+            low, high = np.minimum(low, end_low), np.maximum(high, end_high)
+            if self.counts:
+                # Above the highest is a column with no readings at all: a gap.
+                low[low > high] = LOST
+        values = np.empty(2 * len(low), dtype=held.dtype)
+        values[0::2], values[1::2] = low, high
+        positions = np.repeat(begins - start, 2)
+        positions[1::2] += per - 1
+        positions[-1] = count - 1
+        return positions, values
+
+    def _summed_between(self, first: int, last: int) -> tuple[np.ndarray, np.ndarray]:
+        """What was summed up of SUMMED ``first`` to ``last``, by number over
+        SUMMED: a view of the ring, or two pieces of it joined."""
+        slots = len(self._lows)
+        begin, end = first % slots, first % slots + (last - first)
+        if end <= slots:
+            return self._lows[begin:end], self._highs[begin:end]
+        end -= slots
+        return (
+            np.concatenate((self._lows[begin:], self._lows[:end])),
+            np.concatenate((self._highs[begin:], self._highs[:end])),
+        )
+
     def drawn_packed(
         self, t_from: float, t_to: float, columns: int
     ) -> tuple[int, np.ndarray, np.ndarray]:
@@ -232,7 +343,7 @@ class Record:
         start, stop = self.numbers(t_from, t_to)
         asked = (start, stop, columns)
         if self._packed_drawn is None or self._packed_drawn[0] != asked:
-            positions, values = min_max_packed(self._held(start, stop), columns)
+            positions, values = self._cut_down(start, stop, columns, packed=True)
             self._packed_drawn = (asked, positions, values)
         _asked, positions, values = self._packed_drawn
         return start, positions, values
@@ -647,3 +758,101 @@ def _pass_over_lost(samples: np.ndarray, per: int, low: np.ndarray, high: np.nda
     for column in np.flatnonzero((low == LOST) & (high != LOST)):
         values = samples[column * per : (column + 1) * per]
         low[column] = values[values != LOST].min()
+
+
+#: The highest count: the lowest of a stretch with no readings in it, all LOST.
+HIGHEST = 32767
+
+
+def _summed(
+    parts: list[np.ndarray], rest: np.ndarray, counts: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """The lowest and highest of each row of samples, and of the rest after
+    them: as min_max takes them, or for logic levels, the AND and the OR."""
+    lows, highs = [], []
+    for part in [*parts, *([rest[np.newaxis]] if len(rest) else [])]:
+        if part.dtype == np.uint8:
+            low, high = np.bitwise_and.reduce(part, axis=1), np.bitwise_or.reduce(part, axis=1)
+        elif part.dtype.kind == "f":
+            low, high = np.fmin.reduce(part, axis=1), np.fmax.reduce(part, axis=1)
+        else:
+            low, high = part.min(axis=1), part.max(axis=1)
+            if counts:
+                # LOST is the least count, and not a reading: the lowest is of
+                # the readings, and with none, above every reading, for the
+                # lowest of several to pass over it.
+                for row in np.flatnonzero(low == LOST):
+                    readings = part[row][part[row] != LOST]
+                    low[row] = readings.min() if len(readings) else HIGHEST
+        lows.append(low)
+        highs.append(high)
+    return np.concatenate(lows), np.concatenate(highs)
+
+
+def _ends(
+    held: np.ndarray,
+    start: int,
+    begins: np.ndarray,
+    ends: np.ndarray,
+    inside: np.ndarray,
+    outside: np.ndarray,
+    bits: bool,
+    counts: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    """For each column, samples ``begins`` to ``ends`` by number, the lowest
+    and highest -- or the AND and the OR -- of those before its first whole
+    SUMMED and after its last: fewer than SUMMED at each end, and what passes
+    over where there are none. ``held`` is the samples from number ``start``,
+    and ``inside`` and ``outside`` are where the whole SUMMED in each column
+    begin and end, over SUMMED.
+
+    Where two columns meet, the end of one and the start of the next are the
+    SUMMED the boundary is in: each is a row of a view of ``held``, and split
+    where the boundary falls in it.
+    """
+    if bits:
+        neutral = (np.uint8(0xFF), np.uint8(0))
+        lower, higher = np.bitwise_and, np.bitwise_or
+    elif held.dtype.kind == "f":
+        neutral = (np.float32(np.nan), np.float32(np.nan))
+        lower, higher = np.fmin, np.fmax
+    else:
+        # LOST is the least count, so never the highest of anything but gaps;
+        # for the lowest, it is put above every reading, to be passed over.
+        neutral = (np.int16(HIGHEST), np.int16(LOST))
+        lower, higher = np.minimum, np.maximum
+
+    def lowest(samples, **where):
+        if counts:
+            samples = np.where(samples == LOST, np.int16(HIGHEST), samples)
+        return lower.reduce(samples, initial=neutral[0], **where)
+
+    def highest(samples, **where):
+        return higher.reduce(samples, initial=neutral[1], **where)
+
+    columns = len(begins)
+    low = np.full(columns, neutral[0], held.dtype)
+    high = np.full(columns, neutral[1], held.dtype)
+    # The start of the first column, and the end of the last.
+    head = held[: int(inside[0] * SUMMED) - start]
+    tail = held[int(outside[-1] * SUMMED) - start :]
+    low[0], high[0] = lowest(head), highest(head)
+    low[-1], high[-1] = lower(low[-1], lowest(tail)), higher(high[-1], highest(tail))
+    if columns > 1:
+        boundaries = begins[1:]
+        first_whole = -(-start // SUMMED)
+        skip = first_whole * SUMMED - start
+        whole = (len(held) - skip) // SUMMED
+        rows = held[skip : skip + whole * SUMMED].reshape(whole, SUMMED)
+        shared = rows[boundaries // SUMMED - first_whole]
+        split = (boundaries % SUMMED)[:, np.newaxis]
+        place = np.arange(SUMMED)
+        # A boundary on the start of a SUMMED shares none: that one is whole.
+        before = (place < split) & (split > 0)
+        after = (place >= split) & (split > 0)
+        # The end of the column before the boundary, and the start of the one after.
+        low[:-1] = lower(low[:-1], lowest(shared, axis=1, where=before))
+        high[:-1] = higher(high[:-1], highest(shared, axis=1, where=before))
+        low[1:] = lower(low[1:], lowest(shared, axis=1, where=after))
+        high[1:] = higher(high[1:], highest(shared, axis=1, where=after))
+    return low, high

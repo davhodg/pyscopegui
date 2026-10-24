@@ -303,6 +303,11 @@ drawn as a line from the lowest sample it holds to the highest. A spike narrower
 column is therefore still drawn, where taking every thousandth sample would lose it. Zoom in
 far enough and each sample is drawn as it is.
 
+The lowest and highest of every 256 samples are also kept as they arrive, so a span of
+seconds at megasamples a second -- tens of millions of samples in view -- is drawn from those
+and the few samples at each column's edges, rather than from every sample in it each time the
+plot is drawn. What is drawn is the same either way.
+
 A signal much faster than the stretch of time in view fills in as a solid band between its
 lowest and highest levels. That is the signal, not a fault: zoom in to see its shape.
 
