@@ -146,6 +146,10 @@ since the last version, and comes out in the next one.
   stretch is measured from a share of it and said to be close, so that measuring a span of seconds at megasamples a second takes no longer than
   a short one. Edges are found only where the signal gets clear of the band, and a long
   stretch is measured a piece at a time, in no more memory than a piece.
+- **A window that falls behind a fast PicoScope stays a second behind at most**: what it has
+  not yet taken in is left out and shown as a gap, and the Event Log says so, rather than its
+  falling further behind and its memory growing. A newer PicoScope's driver has room for a
+  second between two reads, not a quarter, for a computer that is busy for a moment.
 - **A third less memory for the same history**, or half as much history again in the same:
   each channel's samples are held round in a ring, the newest over the oldest, where before
   half as much again was kept spare to copy them back into. Taking them in is quicker too.

@@ -504,11 +504,11 @@ def test_the_fastest_rate_offered_is_a_whole_number_of_nanoseconds_a_sample():
         assert pico.Settings({"rate": rate}).rate == rate, "none of them is rounded"
 
 
-def test_a_fast_stream_is_given_room_for_a_quarter_of_a_second_between_polls():
+def test_a_fast_stream_is_given_room_for_a_second_between_polls():
     library = FakeLibrary()
     reading = started(library, {"rate": 20_000_000, "enabled_b": False})
-    assert library.calls[-1] == ("stream", 50, pico.TIME_UNITS_NS, 0, 1, 5_000_000)
-    assert library.buffers[0][1] == 5_000_000
+    assert library.calls[-1] == ("stream", 50, pico.TIME_UNITS_NS, 0, 1, 20_000_000)
+    assert library.buffers[0][1] == 20_000_000
     library.waiting.append({0: np.arange(200_000) % 100})
     block = reading.poll()
     assert (len(block), block.rate) == (200_000, 20e6)

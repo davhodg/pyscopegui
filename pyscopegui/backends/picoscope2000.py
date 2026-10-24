@@ -30,6 +30,7 @@ import math
 import os
 import queue
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -175,6 +176,13 @@ GONE_TEXT = (
     "The PicoScope stopped answering: it may have been unplugged. It has been closed; plug "
     "it in and press Open."
 )
+#: How far behind the window may fall, in seconds of samples handed to it and
+#: not yet taken in, before the next block is left out and shown as a gap:
+#: rather than the window falling further behind, and its memory growing,
+#: for as long as the run goes on.
+BEHIND_S = 1.0
+#: The least time between two warnings that blocks were left out.
+BEHIND_SAID_S = 5.0
 #: How long before the rate that is arriving is compared with the one asked for.
 CHECK_AFTER_S = 5.0
 #: How far out it may be before it is said.
@@ -1236,7 +1244,11 @@ class Stream:
         self._library.ps2000_get_streaming_last_values(self._handle, self._callback)
         if not self._arrived:
             return None
-        arrived = {key: np.concatenate(batches) for key, batches in self._arrived.items()}
+        # Mostly one batch a poll, which is taken as it is.
+        arrived = {
+            key: batches[0] if len(batches) == 1 else np.concatenate(batches)
+            for key, batches in self._arrived.items()
+        }
         count = min(len(samples) for samples in arrived.values())
         data, scales = {}, {}
         lost = 0
@@ -1369,6 +1381,44 @@ class _Reader(QThread):
         super().__init__(parent)
         self._stream = stream
         self._asked: queue.SimpleQueue = queue.SimpleQueue()
+        #: Samples handed to the window and not yet taken in: added to here,
+        #: taken off on the GUI thread as each block is. See BEHIND_S.
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
+        #: Samples left out since the window was last told, and when it was.
+        self._left_out = 0
+        self._left_out_said = -BEHIND_SAID_S
+        self._after_left_out = False
+
+    def taken_in(self, samples: int) -> None:
+        """The window has taken in a block of this many samples."""
+        with self._waiting_lock:
+            self._waiting -= samples
+
+    def _hand_over(self, run: int, block) -> None:
+        """Send a block to the window: or, with it a second behind already,
+        leave it out, to be drawn as the gap it leaves."""
+        count = len(block)
+        with self._waiting_lock:
+            behind = not block.sweep and self._waiting > BEHIND_S * block.rate
+            if not behind:
+                self._waiting += count
+        if behind:
+            self._left_out += count
+            self._after_left_out = True
+            now = time.monotonic()
+            if now - self._left_out_said >= BEHIND_SAID_S:
+                self.warning.emit(
+                    f"The window fell behind the scope, so {self._left_out:,} samples were left "
+                    "out and are shown as a gap. A lower rate, fewer channels or a shorter span "
+                    "on the plot gives it less to do."
+                )
+                self._left_out, self._left_out_said = 0, now
+            return
+        if self._after_left_out:
+            # The gap it leaves was said here: the window need not say it again.
+            block, self._after_left_out = replace(block, after_pause=True), False
+        self.block.emit(run, block)
 
     def ask(self, *command) -> None:
         """("start", settings, run, trigger), ("stop",) or ("close",): done in the order asked."""
@@ -1424,7 +1474,7 @@ class _Reader(QThread):
                         continue
                     if block is not None:
                         stream.heard_from()
-                        self.block.emit(run, block)
+                        self._hand_over(run, block)
                     self._say()
         except ScopeError as exc:
             self.failed.emit(str(exc))
@@ -1608,6 +1658,8 @@ class PicoScope2000(Instrument):
         self.state_changed.emit(False)
 
     def _on_block(self, run: int, block: Block) -> None:
+        if self._reader is not None and not block.sweep:
+            self._reader.taken_in(len(block))
         if run == self._run and self._running:
             if block.sweep:
                 self._block_rate = block.rate

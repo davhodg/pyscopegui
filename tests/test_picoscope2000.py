@@ -17,6 +17,7 @@ import pytest
 
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000 as pico
+from pyscopegui.backends.base import Block
 
 
 class FakeLibrary:
@@ -1150,7 +1151,7 @@ def test_what_a_run_sends_after_it_was_stopped_is_dropped(app, monkeypatch):
     instrument.start()
     run_for(app, instrument, lambda: states == [True])
     instrument.stop()
-    instrument._on_block(instrument._run, "late")
+    instrument._on_block(instrument._run, Block(0, 1000.0, {"A": np.zeros(5, np.int16)}))
     assert blocks == []
     instrument.close()
 
@@ -1218,6 +1219,57 @@ def test_a_scope_unplugged_while_stopped_is_closed_and_said(app, monkeypatch):
     run_for(app, instrument, lambda: not instrument.is_open)
     assert len(errors) == 1 and "unplugged" in errors[0]
     assert ("close",) in library.calls
+
+
+# --- a window that falls behind -----------------------------------------------------------------
+def handed(app, reader, blocks):
+    """What the window is handed of these blocks, taking in none of them."""
+    got, said = [], []
+    reader.block.connect(lambda _run, block: got.append(block))
+    reader.warning.connect(said.append)
+    for block in blocks:
+        reader._hand_over(1, block)
+    return got, said
+
+
+def a_block(first, count=1000, rate=1000.0):
+    return Block(first, rate, {"A": np.zeros(count, dtype=np.int16)})
+
+
+def test_a_window_a_second_behind_is_handed_no_more_until_it_catches_up(app):
+    reader = pico._Reader(stream(FakeLibrary()))
+    got, said = handed(app, reader, [a_block(n * 1000) for n in range(4)])
+    # A second's worth waiting, at 1000 a second: the next is left out, and the
+    # next, said once: the second is counted for the next time it is said.
+    assert [block.first for block in got] == [0, 1000]
+    assert len(said) == 1 and "1,000 samples were left out" in said[0]
+    assert reader._left_out == 1000
+    for block in got:
+        reader.taken_in(len(block))
+    more, again = handed(app, reader, [a_block(4000)])
+    assert [block.first for block in more] == [4000]
+    assert more[0].after_pause, "the gap it leaves was said once, and is not said again"
+    assert again == [], "nor said again so soon"
+
+
+def test_a_window_that_keeps_up_is_handed_everything(app):
+    reader = pico._Reader(stream(FakeLibrary()))
+    reader.block.connect(lambda _run, block: reader.taken_in(len(block)))
+    got, said = handed(app, reader, [a_block(n * 1000) for n in range(10)])
+    assert len(got) == 10 and said == [] and not any(block.after_pause for block in got)
+
+
+def test_the_instrument_says_each_block_it_takes_in(app, monkeypatch):
+    library = FakeLibrary()
+    library.waiting += [([100] * 10, [200] * 10)]
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    instrument = backends.create("picoscope2000")
+    blocks = []
+    instrument.block.connect(blocks.append)
+    instrument.start()
+    run_for(app, instrument, lambda: blocks)
+    assert instrument._reader._waiting == 0
+    instrument.close()
 
 
 # --- what an older scope waits for itself, beyond an edge --------------------------------------

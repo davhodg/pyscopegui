@@ -224,6 +224,11 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   samples were lost.
 - *The driver lost ... samples, which are shown as a gap* --- the same, said for the
   samples it marked as lost. Said once in a while, with how many since the last time.
+- *The window fell behind the scope, so ... samples were left out* --- the scope kept up, but
+  drawing, measuring and decoding what it sent did not: with a second's worth waiting to be
+  taken in, the next is left out and shown as a gap, rather than the window falling further
+  and further behind. Said once in a while. A lower rate, fewer channels, or a shorter span on
+  the plot gives it less to do.
 - *That is the longest block the scope can take* --- the block length asked for is more than
   its memory holds at its slowest. Streaming reads for longer.
 - *The PicoScope stopped answering: it may have been unplugged* --- pyscopegui asks the scope

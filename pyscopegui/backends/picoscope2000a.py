@@ -161,9 +161,10 @@ FEWEST_SAMPLES = pico.FEWEST_SAMPLES
 AUTO_TRIGGER_MS = pico.AUTO_TRIGGER_MS
 #: The buffer the driver fills between two polls when streaming, for each
 #: channel: this many samples at the least, and this long at the rate it is
-#: streaming at, which is many polls' worth for when the computer is busy.
-STREAM_SAMPLES = 500_000
-STREAM_S = 0.25
+#: streaming at -- a hundred polls' worth -- so that a computer busy for a
+#: moment, with a large save, say, does not leave the driver nowhere to put them.
+STREAM_SAMPLES = 1_000_000
+STREAM_S = 1.0
 #: The fastest rate offered for streaming: a sample every 32 ns, which is the
 #: most USB 2 carries from these scopes with one channel on.
 FASTEST_RATE = 31_250_000
@@ -1304,7 +1305,11 @@ class Stream(pico.Stream):
             )
         if not self._arrived:
             return None
-        raw = {code: np.concatenate(parts) for code, parts in self._arrived.items()}
+        # Mostly one batch a poll, which is taken as it is.
+        raw = {
+            code: parts[0] if len(parts) == 1 else np.concatenate(parts)
+            for code, parts in self._arrived.items()
+        }
         count = min(len(values) for values in raw.values())
         data, scales, bits = self._as_sent({code: values[:count] for code, values in raw.items()})
         block = Block(
