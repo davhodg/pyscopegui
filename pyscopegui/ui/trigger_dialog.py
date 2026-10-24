@@ -3,9 +3,10 @@
 """The details of a trigger beyond its channel, edge and level: a window's
 upper level, a pulse's width, a pattern's channels, a holdoff.
 
-What is asked depends on the kind chosen on the toolbar; the holdoff is asked
-of every kind. A time is typed as it is said -- 1 ms, 500 us, 2e-6 -- since a
-trigger's times run from nanoseconds to seconds.
+What is asked depends on the kind chosen on the toolbar; the holdoff, the
+Nth time and the delay are asked of every kind. A time is typed as it is
+said -- 1 ms, 500 us, 2e-6 -- since a trigger's times run from nanoseconds
+to seconds.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -94,6 +96,19 @@ def time_text(seconds: float) -> str:
         if seconds >= scale:
             return f"{seconds / scale:g} {unit}"
     return f"{seconds:g} s"
+
+
+#: The most times a trigger may wait for its condition to be met.
+MOST_TIMES = 1_000_000
+NTH_TIP = (
+    "Trigger the Nth time it is met, rather than the first: counted from the first\n"
+    "time after the holdoff, so that with a holdoff as long as a burst, each burst\n"
+    "triggers on its Nth edge, pulse or frame. 1 for the first."
+)
+DELAY_TIP = (
+    "Put the trigger this long after the moment it is met, to look at what comes\n"
+    "later: 0 for at that moment."
+)
 
 
 class TriggerDialog(QDialog):
@@ -179,13 +194,29 @@ class TriggerDialog(QDialog):
         self.holdoff = QLineEdit(time_text(condition.holdoff) if condition.holdoff else "0")
         self.holdoff.setToolTip("After a trigger, none for this long: 0 for none.")
         self.form.addRow("Holdoff:", self.holdoff)
+        self.nth = QSpinBox()
+        self.nth.setRange(1, MOST_TIMES)
+        self.nth.setValue(condition.nth)
+        self.nth.setToolTip(NTH_TIP)
+        self.form.addRow("Trigger on time:", self.nth)
+        self.delay = QLineEdit(time_text(condition.delay) if condition.delay else "0")
+        self.delay.setToolTip(DELAY_TIP)
+        self.form.addRow("Delay:", self.delay)
         if doable is not None:
             # What the instrument cannot do itself, it is not offered.
-            for name, field in (("held", self.held), ("holdoff", self.holdoff)):
+            for name, field in (
+                ("held", self.held),
+                ("holdoff", self.holdoff),
+                ("delay", self.delay),
+            ):
                 if field is not None and not doable(replace(condition, **{name: 1e-3})):
                     field.setText("0")
                     field.setEnabled(False)
                     field.setToolTip(CANNOT_TIP)
+            if not doable(replace(condition, nth=2)):
+                self.nth.setValue(1)
+                self.nth.setEnabled(False)
+                self.nth.setToolTip(CANNOT_TIP)
         self.problem = QLabel()
         self.problem.setStyleSheet("color: #d08000;")
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -258,6 +289,7 @@ class TriggerDialog(QDialog):
             ("longest", self.longest),
             ("held", self.held),
             ("holdoff", self.holdoff),
+            ("delay", self.delay),
         ):
             if field is None or (name == "longest" and not field.isEnabled()):
                 continue
@@ -297,6 +329,7 @@ class TriggerDialog(QDialog):
     def condition(self) -> Condition:
         times = self._times()
         changes = dict(times) if isinstance(times, dict) else {}
+        changes["nth"] = self.nth.value()
         for name, box in (
             ("direction", self.direction),
             ("polarity", self.polarity),

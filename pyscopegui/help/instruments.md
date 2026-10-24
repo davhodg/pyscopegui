@@ -140,7 +140,12 @@ there with two or more.
 | **Protocol** | The start of a frame, burst or transfer read off a [decoded bus](decoding.md) that matches | The bus; an ID or address; bytes it contains; its type; all, good only, or only problems |
 
 Every type also has a **holdoff**: after a trigger, none is taken for that long -- for a
-burst of edges, say, of which only the first is wanted. A time is typed as it is said: `1 ms`,
+burst of edges, say, of which only the first is wanted. And every type can trigger on the
+Nth time it is met, under **Trigger on time**, rather than the first: counted from the
+first time after the holdoff, so that with a holdoff as long as a burst, each burst triggers
+on its third edge, say, or its fifth frame. A **Delay** puts the trigger that long after the
+moment it is met, to look at what comes later. Both are found by pyscopegui in what is
+streamed: an instrument that triggers itself does neither, and they are greyed out for it. A time is typed as it is said: `1 ms`,
 `500 us`, `2e-6`. A pattern's channels are chosen in its details, so **Trigger** is not used
 for one; an analog channel in a pattern is high above the level.
 

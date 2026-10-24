@@ -312,6 +312,24 @@ def test_a_pattern_of_channels_each_with_the_level():
     assert wanted[":TRIG:PATT:LEV CHAN1,"] == wanted[":TRIG:PATT:LEV CHAN2,"] == "1"
 
 
+def test_a_pattern_held_a_while_is_the_scopes_duration_trigger():
+    held = Condition(PATTERN, pattern=(("CH2", 1), ("CH1", 0)), held=2e-3)
+    wanted = trigger_of(held, source=None)
+    assert wanted[":TRIG:MODE"] == "DUR" and ":TRIG:PATT:PATT" not in wanted
+    assert wanted[":TRIG:DUR:TYP"] == "L,H,X,X" and wanted[":TRIG:DUR:SOUR"] == "CHAN2"
+    assert (wanted[":TRIG:DUR:WHEN"], wanted[":TRIG:DUR:TLOW"]) == ("GRE", "0.002")
+    assert wanted[":TRIG:PATT:LEV CHAN1,"] == wanted[":TRIG:PATT:LEV CHAN2,"] == "1"
+
+
+def test_a_durations_limits_are_sent_upper_lower_upper(fake):
+    scope = opened(fake)
+    held = Condition(PATTERN, pattern=(("CH1", 1),), held=5e-4)
+    scope.start(scope.settings, rigol.Trigger(None, condition=held))
+    sent = [line for line in fake.heard if line.startswith((":TRIG:DUR:TUPP", ":TRIG:DUR:TLOW"))]
+    assert sent == [":TRIG:DUR:TUPP 10", ":TRIG:DUR:TLOW 0.0005", ":TRIG:DUR:TUPP 10"]
+    scope.close()
+
+
 def test_levels_are_told_to_the_scope_through_its_probe():
     wanted = trigger_of(Condition(RUNT, upper=4.0), level=2.0, probe_1="10")
     assert (wanted[":TRIG:RUNT:ALEV"], wanted[":TRIG:RUNT:BLEV"]) == ("4", "2")
@@ -343,7 +361,8 @@ def test_what_it_cannot_do_itself():
     assert can(Condition(TIMEOUT), "CH1", on)
     assert not can(Condition(TIMEOUT, holdoff=1e-3), "CH1", on), "a timeout has no holdoff"
     assert not can(Condition(WINDOW), "CH3", on), "a channel that is off"
-    assert not can(Condition(PATTERN, pattern=(("CH1", 1),), held=1e-3), None, on)
+    assert can(Condition(PATTERN, pattern=(("CH1", 1),), held=1e-3), None, on), "a duration"
+    assert not can(Condition(PATTERN, pattern=(("CH1", 1),), held=20.0), None, on), "past 10 s"
     assert can(Condition(PATTERN), None, on), "its channels still to be chosen"
     assert not can(Condition("protocol"), "CH1", on)
 

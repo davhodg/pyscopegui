@@ -284,7 +284,8 @@ class Instrument(QObject):
     def triggers_itself(self, condition: Condition, source: str | None) -> bool:
         """Whether, sending sweeps, it can wait for this itself, on this
         channel: a rising or a falling edge, unless it says it can do more."""
-        return condition.kind == "edge" and condition.edge != "either" and not condition.holdoff
+        plain = condition.kind == "edge" and condition.edge != "either"
+        return plain and not condition.holdoff and not condition.counted
 
     def set(self, key: str, value: object) -> None:
         """Take up a setting. A ``live`` one may arrive while running; any

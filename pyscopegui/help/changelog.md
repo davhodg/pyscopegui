@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Trigger on the Nth time** a trigger is met, and **a delay** after it, for every trigger
+  type, in its details: counted from the first time after the holdoff, so that each burst
+  triggers on its Nth edge, pulse or frame. The toolbar says so: *3rd time, +1 ms*.
+- **A Rigol waits for a logic pattern that has to be held** itself, as its own Duration
+  trigger, one of its advanced triggers: for 8 ns to 10 s, triggering as the pattern ends.
 - **Export CSV between cursors...**, with two cursors: every sample between them, wherever
   the plot has been moved since. On the export button's arrow and under *File*.
 - **A progress bar for a large save or export**, with **Cancel**: the file is written while

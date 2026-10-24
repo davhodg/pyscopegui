@@ -24,7 +24,10 @@ them is looked at one at a time.
 | Logic pattern | logic channels each at the level wanted, together: at once, or once held |
 | Protocol | a frame, burst or transfer read off a decoded bus that matches: at its start |
 
-And for all of them, a holdoff: after a trigger, none is taken for this long.
+And for all of them, a holdoff: after a trigger, none is taken for this long;
+the Nth time it is met rather than the first, counted from the first time
+after the holdoff, so that a burst triggers on its Nth edge, pulse or frame;
+and a delay, which puts the trigger that long after the moment it is met.
 """
 
 from __future__ import annotations
@@ -90,6 +93,10 @@ class Condition:
     held: float = 0.0
     #: After a trigger, none for this long, in seconds.
     holdoff: float = 0.0
+    #: The trigger is the Nth time it is met, counted from the first after the holdoff.
+    nth: int = 1
+    #: And is put this long after that, in seconds.
+    delay: float = 0.0
     #: Protocol: the decoded bus, by its key -- "can:D0" -- and what has to
     #: match: an identifier or address in hex, X for a digit that may be anything;
     #: bytes it contains, in hex, XX for any, or "text" in quotes; its type; and
@@ -124,7 +131,7 @@ class Condition:
         for name, allowed in known.items():
             value = saved.get(name)
             values[name] = value if value in allowed else getattr(start, name)
-        for name in ("upper", "shortest", "longest", "held", "holdoff"):
+        for name in ("upper", "shortest", "longest", "held", "holdoff", "delay"):
             value = saved.get(name)
             number = isinstance(value, int | float) and not isinstance(value, bool)
             # A level may be below nought; a time may not.
@@ -141,10 +148,33 @@ class Condition:
         for name in ("bus", "match_id", "match_data"):
             value = saved.get(name, "")
             values[name] = value if isinstance(value, str) else ""
+        nth = saved.get("nth")
+        whole = isinstance(nth, int) and not isinstance(nth, bool)
+        values["nth"] = nth if whole and nth >= 1 else 1
         return cls(**values)
 
+    @property
+    def counted(self) -> bool:
+        """Whether it waits for more than the first time it is met, or puts the
+        trigger later than that: what no instrument here does itself."""
+        return self.nth != 1 or self.delay > 0
+
+    def said_after(self) -> str:
+        """The Nth and the delay, in a few words, for the end of the summary."""
+        parts = []
+        if self.nth != 1:
+            parts.append(f"{_ordinal(self.nth)} time")
+        if self.delay > 0:
+            parts.append(f"+{_time(self.delay)}")
+        return ", ".join(parts)
+
     def summary(self, unit: str = "V") -> str:
-        """In a few words, for the toolbar: "pulse > 1 ms", "pattern 1X0"."""
+        """In a few words, for the toolbar: "pulse > 1 ms", "pattern 1X0";
+        "3rd time, +1 ms" after it."""
+        said, after = self._summary(unit), self.said_after()
+        return f"{said}, {after}" if said and after else said or after
+
+    def _summary(self, unit: str) -> str:
         if self.kind == EDGE:
             return "either edge" if self.edge == EITHER else ""
         if self.kind == WINDOW:
@@ -181,6 +211,14 @@ class Condition:
         return ""
 
 
+def _ordinal(number: int) -> str:
+    """1st, 2nd, 3rd, 4th, 11th, 21st."""
+    if 10 <= number % 100 <= 20:
+        return f"{number}th"
+    ending = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{ending}"
+
+
 def _time(seconds: float) -> str:
     for scale, unit in ((1.0, "s"), (1e-3, "ms"), (1e-6, "µs"), (1e-9, "ns")):
         if seconds >= scale:
@@ -203,15 +241,14 @@ class Finder:
         self.shortest = max(1, round(condition.shortest * rate))
         self.longest = max(self.shortest, round(condition.longest * rate))
         self.held = round(condition.held * rate)
-        self.holdoff = round(condition.holdoff * rate)
+        self._taking = Taking(condition, rate)
         #: Carried from one block to the next: each threshold's level, a run's
-        #: start, whether a runt's pulse reached the upper level, and the last trigger.
+        #: start, and whether a runt's pulse reached the upper level.
         self._high: dict[str, bool] = {}
         self._run_start: int | None = None
         self._run_level: bool | None = None
         self._fired = False
         self._reached = False
-        self._last = -(10**18)
 
     # --- levels ------------------------------------------------------------------------
     def _levels(self, name: str, samples: Stretch, threshold: float) -> Steps:
@@ -257,7 +294,7 @@ class Finder:
                 RUNT: self._runt,
                 TIMEOUT: self._timeout,
             }[kind](samples, first)
-        return self._hold_off(np.asarray(found, dtype=np.int64))
+        return self._taking.take(np.asarray(found, dtype=np.int64))
 
     def _edge(self, samples, first):
         self._before("level", samples, self.level)
@@ -402,19 +439,48 @@ class Finder:
             return matched.rises() + first
         return self._held(matched, first, HIGH, self.held)
 
-    def _hold_off(self, found: np.ndarray) -> np.ndarray:
-        """None within the holdoff of the one before."""
+
+class Taking:
+    """Which of the times a condition is met are triggers, and where each is
+    put: none within the holdoff of the one before; the Nth time, counted
+    from the first after the holdoff; that long after it again, with a delay.
+    Carried on from one block to the next."""
+
+    def __init__(self, condition: Condition, rate: float) -> None:
+        self.holdoff = round(condition.holdoff * rate)
+        self.nth = max(1, condition.nth)
+        self.delay = round(condition.delay * rate)
+        #: The last trigger, before its delay; and how many times it has been
+        #: met towards the next, nought until the first after the holdoff.
+        self._last = -(10**18)
+        self._counted = 0
+
+    def take(self, found: np.ndarray) -> np.ndarray:
+        """The triggers among these times it is met, sample numbers in order."""
         if not len(found):
             return found
         if not self.holdoff:
-            self._last = int(found[-1])
-            return found
-        kept = []
-        for at in found.tolist():
-            if at - self._last >= self.holdoff:
-                kept.append(at)
-                self._last = at
-        return np.array(kept, dtype=np.int64)
+            # Every Nth, counted on from the last block: no loop.
+            taken = found[self.nth - self._counted - 1 :: self.nth]
+            self._counted = (self._counted + len(found)) % self.nth
+        else:
+            # A turn for each trigger, not for each time it is met.
+            kept, at, count = [], 0, len(found)
+            while at < count:
+                if not self._counted:
+                    at += int(np.searchsorted(found[at:], self._last + self.holdoff))
+                    if at >= count:
+                        break
+                wanted = at + self.nth - self._counted - 1
+                if wanted >= count:
+                    self._counted += count - at
+                    break
+                kept.append(int(found[wanted]))
+                self._last, self._counted, at = kept[-1], 0, wanted + 1
+            taken = np.array(kept, dtype=np.int64)
+        if len(taken):
+            self._last = int(taken[-1])
+        return taken + self.delay
 
 
 # --- protocol triggers ---------------------------------------------------------------------

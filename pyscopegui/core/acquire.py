@@ -35,6 +35,7 @@ from pyscopegui.core.triggers import (
     RISING,
     Condition,
     Finder,
+    Taking,
     item_matches,
 )
 
@@ -176,8 +177,10 @@ class Acquisition(QObject):
         record = self.record()
         self._scanned = record.total if from_now and record is not None else 0
         self._armed = False
-        #: What finds anything but a plain edge, made once there are samples.
+        #: What finds anything but a plain edge, made once there are samples;
+        #: and for a protocol, which of what matches are triggers.
         self._finder: Finder | None = None
+        self._taking: Taking | None = None
         self._single: int | None = None
         self._single_said = False
         #: What Single caught, kept on screen once the instrument has stopped.
@@ -210,7 +213,12 @@ class Acquisition(QObject):
         """Whether it is a rising or falling edge and nothing more: what any
         instrument can trigger on by itself."""
         condition = self.condition
-        return condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff
+        return (
+            condition.kind == EDGE
+            and condition.edge != EITHER
+            and not condition.holdoff
+            and not condition.counted
+        )
 
     def _newest(self) -> int:
         return max((r.total for r in self.capture.records.values()), default=0)
@@ -298,17 +306,11 @@ class Acquisition(QObject):
             return
         protocol = decoding.setup.protocol
         hits = [item.start for item in found if item_matches(protocol, item, condition)]
-        if hits and condition.holdoff:
-            holdoff = round(condition.holdoff * decoding.rate)
-            kept = []
-            for at in hits:
-                if not len(self._triggers) or at - int(self._triggers[-1]) >= holdoff:
-                    if not kept or at - kept[-1] >= holdoff:
-                        kept.append(at)
-            hits = kept
-        if hits:
-            found_at = np.array(hits, dtype=np.int64)
-            self._keep(found_at)
+        if self._taking is None:
+            self._taking = Taking(condition, decoding.rate)
+        taken = self._taking.take(np.array(hits, dtype=np.int64))
+        if len(taken):
+            self._keep(taken)
 
     def _keep(self, found: np.ndarray) -> None:
         """Remember these triggers too: the newest MOST_TRIGGERS of all of them,

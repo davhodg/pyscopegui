@@ -296,8 +296,11 @@ def triggers_itself(
     A rising or falling edge, any of them. One with the advanced trigger
     also an edge either way, a window, a pulse's width, or a pattern of its
     channels at once; not a runt, a timeout, a holdoff, or a pattern that
-    has to be held, which the driver has nothing for.
+    has to be held, which the driver has nothing for; nor the Nth time, or a
+    delay, which are found in what is streamed.
     """
+    if condition.counted:
+        return False
     if condition.kind == EDGE and condition.edge != EITHER and not condition.holdoff:
         return True
     if model not in ADVANCED_MODELS or condition.holdoff:
@@ -1530,7 +1533,8 @@ class PicoScope2000(Instrument):
     def triggers_itself(self, condition: Condition, source: str | None) -> bool:
         if condition.kind == PATTERN and not condition.pattern:
             # Its channels are still to be chosen.
-            return self._model in ADVANCED_MODELS and not condition.held and not condition.holdoff
+            plain = not condition.held and not condition.holdoff and not condition.counted
+            return self._model in ADVANCED_MODELS and plain
         return triggers_itself(condition, source, self.settings.keys(), self._model)
 
     def set_trigger(

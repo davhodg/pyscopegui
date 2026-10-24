@@ -68,13 +68,17 @@ The trigger's [types](instruments.md) are the scope's own, each tried on a DS105
 | Window | Entering or leaving: an option on a DS1000Z |
 | Timeout | High, low or either for longer than a time: an option on a DS1000Z |
 | Logic pattern | Channels together, each at the level, as soon as they are so |
+| Logic pattern, held | The scope's Duration trigger: an option on a DS1000Z, and not yet tried on one |
 | Protocol | Greyed out |
 
 Each with a **holdoff**, which the scope has too -- all but a timeout, which has none. A
-pattern that has to be **held** is greyed out, because the scope measures how long one
-lasted only once it is over. Runt, window and timeout are among the advanced triggers Rigol
-sells as an option for the DS1000Z: a scope without it says so in the
-[Event Log](event-log.md) when one is asked for.
+pattern that has to be **held** for 8 ns to 10 s is the scope's own Duration trigger, which
+measures how long the pattern lasted once it is over: the sweep is taken around the moment
+the pattern ends, having lasted longer than the time, rather than the moment it has lasted
+that long, as it is for an instrument that streams. A pattern held for ever does not trigger
+it. Runt, window, timeout and duration are among the advanced triggers Rigol sells as an
+option for the DS1000Z: a scope without it says so in the [Event Log](event-log.md) when one
+is asked for. The **Nth time** and a **delay** are greyed out: the scope has neither.
 
 The plot shows the whole sweep, so the box beside **Time** has no say in how much is drawn:
 **Time** in the Instrument pane does that, as the knob on the scope would.

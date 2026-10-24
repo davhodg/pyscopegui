@@ -362,6 +362,9 @@ MODES = {
 #: How far either side of the middle of its screen the scope takes a trigger level from,
 #: in divisions: past the top and bottom of what it shows.
 LEVEL_DIVISIONS = 5
+#: The shortest and longest a pattern can be held for the scope's Duration
+#: trigger, in seconds: one of its advanced triggers.
+DURATIONS = (8e-9, 10.0)
 #: The least holdoff the scope has, in seconds: what it is with none.
 LEAST_HOLDOFF = 16e-9
 
@@ -372,14 +375,16 @@ def triggers_itself(condition: Condition, source: str | None, on: list[str]) -> 
     An edge either way, a pulse's width, a runt, a window, or a pattern of
     channels at once -- each with a holdoff, which it has as well -- and a
     timeout, which has none. Runt, window and timeout are among the advanced
-    triggers a DS1000Z has as an option. Not a pattern that has to be held,
-    which it has only as a duration measured to the pattern's end.
+    triggers a DS1000Z has as an option. A pattern that has to be held is
+    its Duration trigger, another of them, for as long as that takes: 8 ns
+    to 10 s. Not the Nth time, or a delay.
     """
-    if condition.kind == TIMEOUT and condition.holdoff:
+    if condition.counted or (condition.kind == TIMEOUT and condition.holdoff):
         return False
     if condition.kind == PATTERN:
         keys = [key for key, _level in condition.pattern]
-        return not condition.held and all(key in on for key in keys)
+        held = not condition.held or DURATIONS[0] <= condition.held <= DURATIONS[1]
+        return held and all(key in on for key in keys)
     return condition.kind in MODES and source in on
 
 
@@ -411,9 +416,20 @@ def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
     wanted = {":TRIG:MODE": MODES[kind]}
     if kind == PATTERN:
         levels = dict(condition.pattern)
-        wanted[":TRIG:PATT:PATT"] = ",".join(
+        pattern = ",".join(
             "X" if key not in levels else "H" if levels[key] else "L" for key in CHANNELS
         )
+        if condition.held:
+            # Held for at least this long: the scope's Duration trigger.
+            wanted[":TRIG:MODE"] = "DUR"
+            wanted[":TRIG:DUR:SOUR"] = "CHAN" + next(iter(levels))[2:]
+            wanted[":TRIG:DUR:TYP"] = pattern
+            wanted[":TRIG:DUR:WHEN"] = "GRE"
+            wanted[":TRIG:DUR:TUPP"] = f"{DURATIONS[1]:g}"
+            wanted[":TRIG:DUR:TLOW"] = f"{condition.held:g}"
+        else:
+            wanted[":TRIG:PATT:PATT"] = pattern
+        # Each channel's level, as the pattern trigger has them.
         for key in levels:
             wanted[f":TRIG:PATT:LEV CHAN{key[2:]},"] = level(key, trigger.level)
     else:
@@ -496,6 +512,7 @@ LIMITS = (
     (":TRIG:PULS:LWID", ":TRIG:PULS:UWID"),
     (":TRIG:RUNT:BLEV", ":TRIG:RUNT:ALEV"),
     (":TRIG:WIND:BLEV", ":TRIG:WIND:ALEV"),
+    (":TRIG:DUR:TLOW", ":TRIG:DUR:TUPP"),
 )
 
 

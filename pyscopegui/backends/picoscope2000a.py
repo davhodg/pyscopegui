@@ -299,11 +299,12 @@ def triggers_itself(
     An edge either way, on a channel or a logic input; a window, a pulse's
     width or a runt, on a channel; or a pattern of the two together, at once.
     Not a timeout -- the driver has nothing that fires while a level lasts --
-    and no holdoff, nor a pattern that has to be held: those are found in
-    what is streamed. A pulse on a logic input wants the MSO's own structures,
-    which nobody here has a scope to check against yet.
+    and no holdoff, nor a pattern that has to be held, nor the Nth time or a
+    delay: those are found in what is streamed. A pulse on a logic input
+    wants the MSO's own structures, which nobody here has a scope to check
+    against yet.
     """
-    if condition.holdoff:
+    if condition.holdoff or condition.counted:
         return False
     if condition.kind == PATTERN:
         keys = [key for key, _level in condition.pattern]
@@ -1369,7 +1370,7 @@ class PicoScope2000A(pico.PicoScope2000):
         settings = self.settings
         if condition.kind == PATTERN and not condition.pattern:
             # Its channels are still to be chosen, and it can do some.
-            return not condition.held and not condition.holdoff
+            return not condition.held and not condition.holdoff and not condition.counted
         return triggers_itself(condition, source, settings.keys(), settings.digital_keys())
 
     def settings_offered(self) -> tuple[Setting, ...]:
