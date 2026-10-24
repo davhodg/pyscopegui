@@ -116,7 +116,7 @@ def memory_actions(window):
     return {action.text(): action for action in window.memory_menu.actions()}
 
 
-def test_the_memory_menu_offers_shares_of_what_is_free_with_half_ticked(window):
+def test_the_memory_menu_offers_shares_of_what_is_free_with_three_quarters_ticked(window):
     actions = memory_actions(window)
     assert list(actions) == [
         "25% of what is free",
@@ -124,7 +124,7 @@ def test_the_memory_menu_offers_shares_of_what_is_free_with_half_ticked(window):
         "75% of what is free",
         "90% of what is free",
     ]
-    assert [text for text, a in actions.items() if a.isChecked()] == ["50% of what is free"]
+    assert [text for text, a in actions.items() if a.isChecked()] == ["75% of what is free"]
 
 
 def test_the_share_chosen_is_what_a_run_may_take_and_is_remembered(window, monkeypatch):
@@ -154,6 +154,6 @@ def test_the_status_bar_says_what_is_held_and_free_and_offers_the_menu(window, m
     button = window.memory_button
     assert held > 0
     assert button.text().startswith("Memory: ") and "8 GB free" in button.text()
-    assert "of 16 GB in all" in button.toolTip() and "4 GB" in button.toolTip()
+    assert "of 16 GB in all" in button.toolTip() and "6 GB" in button.toolTip()
     assert button.menu() is window.memory_menu
     window.set_mode("stop")

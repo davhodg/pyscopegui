@@ -19,7 +19,7 @@ import sys
 #: How much of what is free a run's history may take, unless Tools >
 #: Settings > Memory says otherwise. The rest is for drawing, measuring and
 #: saving it, and for everything else on the computer.
-SHARE = 0.5
+SHARE = 0.75
 #: What Memory offers.
 SHARES = (0.25, 0.5, 0.75, 0.9)
 

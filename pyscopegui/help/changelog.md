@@ -155,6 +155,9 @@ since the last version, and comes out in the next one.
   not yet taken in is left out and shown as a gap, and the Event Log says so, rather than its
   falling further behind and its memory growing. A newer PicoScope's driver has room for a
   second between two reads, not a quarter, for a computer that is busy for a moment.
+- A run may take **three quarters** of the memory that is free when it starts, unless
+  *Tools > Settings > Memory* says otherwise, rather than half.
+- A newer PicoScope streams at **15.625 and 25 MS/s** too: a sample every 64 ns, and 40 ns.
 - **Captures are saved as they are held**: a PicoScope's channels as the scope's own counts,
   a third smaller than volts, and every logic input a bit a sample, a tenth the size or less.
   A mixed-signal scope's inputs open again packed in their ports. A capture saved before

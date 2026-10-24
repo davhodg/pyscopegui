@@ -279,8 +279,8 @@ oldest, so nothing is copied about as they arrive and none of the memory is spar
 says how much the history chosen comes to each time the instrument is run.
 
 A run takes no more than a share of the memory that is free when it starts, leaving the rest
-for drawing, measuring and everything else on the computer: half, to begin with, and
-*Tools > Settings > Memory* chooses a quarter, three quarters or nine tenths instead. A change
+for drawing, measuring and everything else on the computer: three quarters, to begin with,
+and *Tools > Settings > Memory* chooses a quarter, a half or nine tenths instead. A change
 starts the instrument again. Where the history chosen would take more, the run keeps as much
 as fits and the Event Log says how much that is: "Keeping the last 2.5 s of each channel, not
 10 s". History itself is left as it was, for the next run. Only where not even a tenth of a

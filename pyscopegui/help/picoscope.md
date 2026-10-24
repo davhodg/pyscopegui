@@ -303,8 +303,8 @@ channels are, so it starts the run again.
 
 ### Streaming faster
 
-**Sample rate** goes on past 1 MS/s: 2, 5, 10 and 20 MS/s, and 31.25 MS/s, which is a
-sample every 32 ns. Whether a rate is kept depends on the scope, on USB and on the computer,
+**Sample rate** goes on past 1 MS/s: 2, 5, 10, 15.625, 20 and 25 MS/s, and 31.25 MS/s, which
+is a sample every 32 ns. Each is a whole number of nanoseconds a sample: 15.625 MS/s is 64 ns. Whether a rate is kept depends on the scope, on USB and on the computer,
 and on how much is switched on -- the fastest rates are for one channel. Nothing is hidden
 when it is not kept:
 
@@ -316,7 +316,7 @@ when it is not kept:
 What is kept to go back over is held in memory as the scope sends it, two bytes a sample
 for a channel and one for a port of eight logic inputs, and turned into volts only where it
 is looked at: at 20 MS/s that is 40 MB for every second of one channel. A run keeps no more of the memory that is free than *Tools > Settings >
-Memory* says -- half, to begin with -- so streaming fast keeps a shorter stretch than
+Memory* says -- three quarters, to begin with -- so streaming fast keeps a shorter stretch than
 *Tools > Settings > History* says, and the Event Log says how long: see
 [How much is kept](plot.md).
 
