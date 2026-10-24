@@ -139,7 +139,18 @@ def feed(window, seconds=0.2):
     window.instrument._tick()
 
 
-def test_the_plot_writes_what_it_shows(window, tmp_path):
+def test_the_plot_writes_what_it_shows(window, tmp_path, monkeypatch):
+    from pyscopegui.ui import scope_view
+
+    # What is in view as the writing starts: the plot goes on moving while it writes.
+    shown = []
+
+    def noting_the_view(*args):
+        shown.append(window.scope.analog.getViewBox().viewRange()[0])
+        return writing(*args)
+
+    writing = scope_view.with_progress
+    monkeypatch.setattr(scope_view, "with_progress", noting_the_view)
     window.set_mode("auto")
     feed(window)
     window.scope.window_s.setValue(0.01)
@@ -150,7 +161,7 @@ def test_the_plot_writes_what_it_shows(window, tmp_path):
     assert rows[0] == ["time (s)", "A: sine (V)", "D0", "D1", "D2", "D3", "CAN"], "and not B"
     # Ten milliseconds at 100 kS/s, to within a sample at either end.
     assert 999 <= len(rows) - 1 <= 1002
-    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    low, high = shown[0]
     assert float(rows[1][0]) == pytest.approx(low, abs=2e-5)
     assert float(rows[-1][0]) == pytest.approx(high, abs=2e-5)
     assert "Exported" in window.log.toPlainText() and "shot.csv" in window.log.toPlainText()
