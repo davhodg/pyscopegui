@@ -146,6 +146,9 @@ since the last version, and comes out in the next one.
   stretch is measured from a share of it and said to be close, so that measuring a span of seconds at megasamples a second takes no longer than
   a short one. Edges are found only where the signal gets clear of the band, and a long
   stretch is measured a piece at a time, in no more memory than a piece.
+- **A third less memory for the same history**, or half as much history again in the same:
+  each channel's samples are held round in a ring, the newest over the oldest, where before
+  half as much again was kept spare to copy them back into. Taking them in is quicker too.
 - **A long span is drawn in a fraction of the time**: the lowest and highest of every 256
   samples are kept as they arrive, and a span of seconds at megasamples a second is drawn
   from those -- 10 s at 10 MS/s in a twentieth of the time it took -- looking just the same.

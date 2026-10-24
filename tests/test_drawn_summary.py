@@ -25,13 +25,13 @@ def summed_a_few_at_a_time(monkeypatch):
 def used(monkeypatch):
     """How often the summary was drawn from."""
     count = [0]
-    ends = capture._ends
+    ends = Record._ends
 
     def counting(*args):
         count[0] += 1
         return ends(*args)
 
-    monkeypatch.setattr(capture, "_ends", counting)
+    monkeypatch.setattr(Record, "_ends", counting)
     return count
 
 

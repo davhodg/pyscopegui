@@ -8,7 +8,7 @@ import pytest
 
 from pyscopegui.backends.base import DIGITAL, Channel
 from pyscopegui.core import memory
-from pyscopegui.core.capture import SLACK, Capture
+from pyscopegui.core.capture import SUMMED, Capture
 from pyscopegui.core.maths import Maths
 
 TWO = [Channel("A", "A"), Channel("B", "B")]
@@ -48,18 +48,20 @@ def test_a_history_that_fits_is_kept_whole():
 
 def test_one_that_does_not_is_cut_down_to_what_does():
     held = Capture(history_s=10.0)
-    # Two float32 channels and the slack: 12 bytes a sample. A second's worth.
-    held.set_channels(TWO, 1000.0, room=lambda: int(1000 * 2 * 4 * (1 + SLACK)))
+    # Two float32 channels, and what is summed up of them: 8 bytes a sample
+    # and a little. A second's worth, to the next whole SUMMED of each.
+    each = 2 * 4 * (1 + 2 / SUMMED)
+    held.set_channels(TWO, 1000.0, room=lambda: int(1000 * each) + 1)
     assert held.held_s() == pytest.approx(1.0)
-    assert held.memory_bytes() <= 1000 * 2 * 4 * (1 + SLACK) + 16
+    assert held.memory_bytes() <= 1000 * each + 2 * SUMMED * 4 * (1 + 2 / SUMMED)
 
 
 def test_a_logic_input_counts_a_byte_and_a_maths_channel_four():
     held = Capture(history_s=10.0)
     held.set_maths([Maths("A", "-", "B")])
     channels = [*TWO, Channel("D0", "D0", DIGITAL, "")]
-    each = (4 + 4 + 1 + 4) * (1 + SLACK)
-    held.set_channels(channels, 1000.0, room=lambda: int(2000 * each))
+    each = (4 + 4 + 1 + 4) * (1 + 2 / SUMMED)
+    held.set_channels(channels, 1000.0, room=lambda: int(2000 * each) + 1)
     assert held.held_s() == pytest.approx(2.0)
     assert "maths:A-B" in held.records
 
@@ -90,9 +92,10 @@ def test_sweeps_are_not_cut_down():
 def test_a_run_short_of_memory_keeps_less_and_says_so(window, monkeypatch):
     from pyscopegui.backends import demo
 
-    # The demo's two analog channels, and four logic ones and a CAN bus: with
-    # the slack, 19.5 bytes a sample, held.
-    monkeypatch.setattr(memory, "room", lambda share: int(demo.RATE * 5 * 19.5))
+    # The demo's two analog channels, and four logic ones and a CAN bus: 13
+    # bytes a sample, held, and what is summed up of them.
+    each = 13 * (1 + 2 / SUMMED)
+    monkeypatch.setattr(memory, "room", lambda share: int(demo.RATE * 5 * each) + 1)
     window.set_mode("auto")
     assert window.instrument.running
     assert window.capture.held_s() == pytest.approx(5.0)

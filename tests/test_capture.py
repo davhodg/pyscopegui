@@ -94,10 +94,19 @@ def test_the_history_is_how_many_seconds_each_record_holds():
     assert capture.oldest() == 3.0 and capture.newest() == 5.0
 
 
-def test_memory_is_half_as_much_again_as_the_samples_held():
+def taken(samples, size):
+    """What a record of this many samples, each this many bytes, takes: the
+    samples, to the next whole SUMMED, and the lowest and highest of each SUMMED."""
+    from pyscopegui.core.capture import SUMMED
+
+    rows = -(-samples // SUMMED)
+    return rows * SUMMED * size + 2 * rows * size
+
+
+def test_memory_is_the_samples_held_and_a_little_for_drawing_them():
     capture = Capture(history_s=1.0)
     capture.set_channels([Channel("A", "A"), Channel("D0", "D0", DIGITAL, "")], rate=1000.0)
-    assert capture.memory_bytes() == 1500 * 4 + 1500 * 1
+    assert capture.memory_bytes() == taken(1000, 4) + taken(1000, 1)
 
 
 def test_clearing_counts_from_zero_again():
@@ -158,7 +167,7 @@ def test_counts_take_half_the_memory_of_volts():
     capture = Capture(history_s=1.0)
     capture.set_channels([Channel("A", "A", counts=True)], rate=1000.0)
     assert capture.records["A"].counts
-    assert capture.memory_bytes() == 1500 * 2
+    assert capture.memory_bytes() == taken(1000, 2)
 
 
 def test_counts_are_held_as_they_came_and_read_in_volts():
@@ -249,7 +258,7 @@ def test_a_port_of_eight_inputs_takes_a_byte_a_sample():
     capture.set_channels([Channel("A", "A", counts=True), *inputs()], rate=1000.0)
     assert list(capture.records) == ["A"] + [f"D{bit}" for bit in range(8)]
     assert list(capture.ports) == ["port0"]
-    assert capture.memory_bytes() == 1500 * 2 + 1500 * 1
+    assert capture.memory_bytes() == taken(1000, 2) + taken(1000, 1)
 
 
 def test_each_input_is_read_out_of_its_port_where_it_is_looked_at():
@@ -303,3 +312,70 @@ def test_a_decoding_and_a_trigger_read_inputs_out_of_a_port():
 def test_a_packed_input_is_written_to_a_file_on_its_own():
     channel = inputs()[3]
     assert channel.plain() == Channel("D3", "D3", DIGITAL, "")
+
+
+# --- held round in a ring ---------------------------------------------------------------------
+def wrapped(capacity=1000, written=2600, counts=False):
+    """A record that has gone round its array a few times, a block at a time:
+    sample n is n, or n's count, so any one can be checked by its number."""
+    channel = Channel("A", "A", counts=counts)
+    record = Record(channel, 1000.0, capacity)
+    for start in range(0, written, 70):
+        numbers = np.arange(start, min(start + 70, written))
+        if counts:
+            record.append((numbers % 30000).astype(np.int16), Scale(1.0 if start < 1800 else 2.0))
+        else:
+            record.append(numbers.astype(np.float32))
+    return record
+
+
+def test_what_is_held_is_the_newest_wherever_it_is_in_the_ring():
+    record = wrapped()
+    assert (record.first, record.total) == (1600, 2600)
+    assert np.array_equal(record.values(), np.arange(1600, 2600, dtype=np.float32))
+    # A stretch across where the array goes round is the two pieces joined.
+    length = len(record._buffer)
+    across = length * (2600 // length)
+    assert np.array_equal(record.values(across - 5, across + 5), np.arange(across - 5, across + 5))
+
+
+@pytest.mark.parametrize("step", [1, 2, 3, 7, 64])
+def test_every_steppth_is_counted_on_across_where_the_ring_goes_round(step):
+    record = wrapped()
+    length = len(record._buffer)
+    start = length * (2600 // length) - 100
+    wanted = np.arange(start, start + 300, step)
+    assert np.array_equal(record.values(start, start + 300, step), wanted)
+
+
+def test_counts_across_where_it_goes_round_and_the_range_changes():
+    record = wrapped(counts=True)
+    numbers = np.arange(1600, 2600)
+    volts = np.where(numbers < 1820, 1.0, 2.0) * (numbers % 30000)
+    assert record.values().tolist() == pytest.approx(volts.tolist())
+    assert record.stretch(1600, 2600).held.tolist() == (numbers % 30000).tolist()
+
+
+def test_a_copy_across_where_it_goes_round_is_numbered_the_same():
+    record = wrapped()
+    copy = record.copied(1700, 2500)
+    assert (copy.first, copy.total) == (1700, 2500)
+    assert np.array_equal(copy.values(), np.arange(1700, 2500, dtype=np.float32))
+
+
+def test_a_block_longer_than_the_ring_leaves_its_newest_in_their_places():
+    record = Record(Channel("A", "A"), 1000.0, 1000)
+    record.append(np.arange(130, dtype=np.float32))
+    record.append(np.arange(130, 3130, dtype=np.float32))
+    assert np.array_equal(record.values(), np.arange(2130, 3130, dtype=np.float32))
+    record.append(np.arange(3130, 3200, dtype=np.float32))
+    assert np.array_equal(record.values(), np.arange(2200, 3200, dtype=np.float32))
+
+
+def test_a_gap_longer_than_the_ring_is_all_that_is_held():
+    record = wrapped()
+    record.skip(5000)
+    assert record.total == 7600 and np.isnan(record.values()).all()
+    record.append(np.arange(7600, 7700, dtype=np.float32))
+    assert np.array_equal(record.values(7600, 7700), np.arange(7600, 7700))
+    assert np.isnan(record.values(6700, 7600)).all()

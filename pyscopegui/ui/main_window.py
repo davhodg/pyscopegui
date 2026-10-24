@@ -117,8 +117,8 @@ HISTORY_TIP = (
     "How much of each channel is kept, for the plot to go back over. Past it the\n"
     "oldest samples are dropped. It is all held in memory: four bytes a sample\n"
     "for an analog channel -- two from a PicoScope -- and one for a digital one,\n"
-    "and half as much again, so ten minutes of two channels at 1 MS/s is about\n"
-    "7 GB, or 3.6 GB from a PicoScope. Tools > Settings > Memory says how much\n"
+    "so ten minutes of two channels at 1 MS/s is about 4.8 GB, or 2.4 GB from a\n"
+    "PicoScope. Tools > Settings > Memory says how much\n"
     "of it a run may take. A change starts the instrument again."
 )
 MEMORY_TIP = (

@@ -271,10 +271,11 @@ The last ten seconds of every channel, to begin with. Past that the oldest are d
 starts the instrument again.
 
 It is all held in memory, so a long history at a high rate is a great deal of it: four bytes
-a sample for an analog channel and one for a digital one, and half as much again. A
-PicoScope's channels are held as the scope sends them, two bytes a sample, and its logic
-inputs eight to a byte. Ten seconds of two channels at 1 MS/s is about 120 MB, or 60 MB from
-a PicoScope; ten minutes of them is about 7 GB, or 3.6 GB. The [Event Log](event-log.md)
+a sample for an analog channel and one for a digital one. A PicoScope's channels are held as
+the scope sends them, two bytes a sample, and its logic inputs eight to a byte. Ten seconds of
+two channels at 1 MS/s is about 80 MB, or 40 MB from a PicoScope; ten minutes of them is
+about 4.8 GB, or 2.4 GB. Each channel's samples are held round in a ring, the newest over the
+oldest, so nothing is copied about as they arrive and none of the memory is spare. The [Event Log](event-log.md)
 says how much the history chosen comes to each time the instrument is run.
 
 A run takes no more than a share of the memory that is free when it starts, leaving the rest
