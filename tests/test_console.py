@@ -45,9 +45,12 @@ def test_a_block_carries_on_until_it_is_finished(console):
 
 
 def test_a_mistake_is_shown_under_it_and_not_reported_as_a_bug(console, window):
+    before = window.log.toPlainText()
     said = typed(console, "no_such_name")
     assert "NameError" in said
-    assert "pyscopegui" not in window.log.toPlainText().split("NameError")[0][-200:]
+    # Only what the mistake added: what was said at the start is not about it.
+    added = window.log.toPlainText()[len(before) :]
+    assert "pyscopegui" not in added.split("NameError")[0][-200:]
 
 
 def test_up_goes_back_through_what_was_typed(console):

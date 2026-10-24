@@ -34,8 +34,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from pyscopegui.core.can_decode import levels
-from pyscopegui.core.edges import changes, falls, rises
+from pyscopegui.core.edges import Steps, combined, crossings
+from pyscopegui.core.stretch import Stretch
 
 EDGE, WINDOW, PULSE, RUNT, TIMEOUT, PATTERN = (
     "edge",
@@ -214,29 +214,35 @@ class Finder:
         self._last = -(10**18)
 
     # --- levels ------------------------------------------------------------------------
-    def _levels(self, name: str, samples: np.ndarray, threshold: float) -> np.ndarray:
-        """Above the threshold or not, carried on from the last block."""
+    def _levels(self, name: str, samples: Stretch, threshold: float) -> Steps:
+        """Above the threshold or not, carried on from the last block: found
+        only where the samples get clear of the hysteresis either side of it."""
         before = self._high.get(name, False)
-        if samples.dtype.kind in "ub":
-            found = samples >= 1
+        if samples.digital:
+            ups, downs = samples.starts(">=", 1), samples.starts("<", 1)
         else:
             half = self.margin / 2
-            found = levels(samples, threshold - half, threshold + half, start=before)
-        self._high[name] = bool(found[-1]) if len(found) else before
+            ups = samples.starts(">", threshold + half)
+            downs = samples.starts("<", threshold - half)
+        at, _into, _after = crossings(ups, downs, int(before))
+        found = Steps(before, at, len(samples))
+        self._high[name] = found.after
         return found
 
-    def _before(self, name: str, samples: np.ndarray, threshold: float) -> bool:
+    def _before(self, name: str, samples: Stretch, threshold: float) -> bool:
         """The level before these samples: what the last block ended at, or at
         the very first, the first sample's own -- nothing has happened yet."""
         if name not in self._high and len(samples):
-            first = samples[0]
-            self._high[name] = bool(first >= 1 if samples.dtype.kind in "ub" else first > threshold)
+            first = samples.first()
+            self._high[name] = bool(first >= 1 if samples.digital else first > threshold)
         return self._high.get(name, False)
 
     # --- finding ------------------------------------------------------------------------
-    def find(self, data: dict[str, np.ndarray], first: int) -> np.ndarray:
+    def find(self, data: dict[str, np.ndarray | Stretch], first: int) -> np.ndarray:
         """The sample numbers it is met at in these samples, numbered from
-        ``first``: the trigger's channel, or for a pattern, its channels."""
+        ``first``: the trigger's channel, or for a pattern, its channels. Each
+        is samples in the channel's unit, or a stretch of them as held."""
+        data = {key: Stretch.of(samples) for key, samples in data.items()}
         kind = self.condition.kind
         if kind == PATTERN:
             found = self._pattern(data, first)
@@ -254,37 +260,35 @@ class Finder:
         return self._hold_off(np.asarray(found, dtype=np.int64))
 
     def _edge(self, samples, first):
-        before = self._before("level", samples, self.level)
+        self._before("level", samples, self.level)
         level = self._levels("level", samples, self.level)
         edge = self.condition.edge
         if edge == RISING:
-            return rises(before, level) + first
+            return level.rises() + first
         if edge == FALLING:
-            return falls(before, level) + first
-        return changes(before, level) + first
+            return level.falls() + first
+        return level.at + first
 
     def _window(self, samples, first):
-        was = self._before("lower", samples, self.level) and not self._before(
-            "upper", samples, self.upper
-        )
-        inside = self._levels("lower", samples, self.level) & ~self._levels(
-            "upper", samples, self.upper
-        )
+        self._before("lower", samples, self.level)
+        self._before("upper", samples, self.upper)
+        lower = self._levels("lower", samples, self.level)
+        upper = self._levels("upper", samples, self.upper)
+        inside = combined([lower, upper], lambda low, high: low & ~high)
         if self.condition.direction == ENTER:
-            return rises(was, inside) + first
-        return falls(was, inside) + first
+            return inside.rises() + first
+        return inside.falls() + first
 
-    def _polar(self, name: str, samples, threshold: float) -> tuple[bool, np.ndarray]:
-        """A pulse's level, high pulses high and low ones high too: and before."""
-        before = self._before(name, samples, threshold)
+    def _polar(self, name: str, samples, threshold: float) -> Steps:
+        """A pulse's level, high pulses high and low ones high too."""
+        self._before(name, samples, threshold)
         found = self._levels(name, samples, threshold)
-        if self.condition.polarity == LOW:
-            return not before, ~found
-        return before, found
+        return found.inverted() if self.condition.polarity == LOW else found
 
     def _pulse(self, samples, first):
-        before, pulse = self._polar("level", samples, self.level)
-        starts, ends = rises(before, pulse), falls(before, pulse)
+        pulse = self._polar("level", samples, self.level)
+        before = pulse.before
+        starts, ends = pulse.rises(), pulse.falls()
         began = self._began(starts, ends, first, before)
         width = ends + first - began
         compare = self.condition.compare
@@ -294,7 +298,7 @@ class Finder:
             wanted = width > self.shortest
         else:
             wanted = (width >= self.shortest) & (width <= self.longest)
-        self._carry(starts, ends, first, before, len(pulse))
+        self._carry(starts, ends, first, before)
         return (ends + first)[(began >= 0) & wanted]
 
     def _began(self, starts, ends, first, before) -> np.ndarray:
@@ -309,7 +313,7 @@ class Finder:
             began = np.where(index < 0, self._run_start, began)
         return began.astype(np.int64)
 
-    def _carry(self, starts, ends, first, before, count):
+    def _carry(self, starts, ends, first, before):
         """The pulse still going at the end of the block, if one is."""
         if len(starts) and (not len(ends) or starts[-1] > ends[-1]):
             self._run_start = int(starts[-1]) + first
@@ -319,49 +323,53 @@ class Finder:
             self._run_start = None
 
     def _runt(self, samples, first):
-        polarity = self.condition.polarity
-        if polarity == LOW:
+        self._before("lower", samples, self.level)
+        self._before("upper", samples, self.upper)
+        lower = self._levels("lower", samples, self.level)
+        upper = self._levels("upper", samples, self.upper)
+        if self.condition.polarity == LOW:
             # Down through the upper level, and back without reaching the lower.
-            before = not self._before("upper", samples, self.upper)
-            self._before("lower", samples, self.level)
-            pulse = ~self._levels("upper", samples, self.upper)
-            beyond = ~self._levels("lower", samples, self.level)
+            pulse, beyond = upper.inverted(), lower.inverted()
         else:
-            before = self._before("lower", samples, self.level)
-            self._before("upper", samples, self.upper)
-            pulse = self._levels("lower", samples, self.level)
-            beyond = self._levels("upper", samples, self.upper)
-        starts, ends = rises(before, pulse), falls(before, pulse)
-        reached = np.concatenate(([0], np.cumsum(beyond)))
+            pulse, beyond = lower, upper
+        before, count = pulse.before, len(samples)
+        starts, ends = pulse.rises(), pulse.falls()
         index = np.searchsorted(starts, ends, side="right") - 1
         inside = index >= 0
-        from_start = reached[ends] - reached[starts[np.maximum(index, 0)]] if len(starts) else 0
-        got_there = np.where(inside, from_start > 0, self._reached | (reached[ends] > 0))
+        began = starts[np.maximum(index, 0)] if len(starts) else np.zeros(len(ends), np.int64)
+        # Whether each pulse reached the upper level: one that began before
+        # this block may have done so already.
+        got_there = np.where(
+            inside,
+            beyond.any_high(began, ends),
+            self._reached | beyond.any_high(np.zeros(len(ends), np.int64), ends),
+        )
         seen = inside | before
         found = (ends + first)[seen & ~got_there]
         # Whether the pulse still going has reached the upper level yet.
         if len(starts) and (not len(ends) or starts[-1] > ends[-1]):
-            self._reached = bool(reached[-1] - reached[starts[-1]] > 0)
+            self._reached = bool(beyond.any_high([starts[-1]], [count])[0])
         elif not len(ends) and before:
-            self._reached = self._reached or bool(reached[-1] > 0)
+            self._reached = self._reached or bool(beyond.any_high([0], [count])[0])
         else:
             self._reached = False
         return found
 
     def _timeout(self, samples, first):
-        before = self._before("level", samples, self.level)
+        self._before("level", samples, self.level)
         level = self._levels("level", samples, self.level)
-        return self._held(level, before, first, self.condition.polarity, self.shortest)
+        return self._held(level, first, self.condition.polarity, self.shortest)
 
-    def _held(self, level, before, first, polarity, length):
+    def _held(self, level: Steps, first, polarity, length):
         """Where a run of a level has lasted ``length`` samples: once a run."""
         count = len(level)
         if self._run_level is None:
-            self._run_level, self._run_start, self._fired = bool(level[0]), first, False
-        bounds = changes(before, level)
+            self._run_level = bool(level.level_at(np.zeros(1, np.int64))[0])
+            self._run_start, self._fired = first, False
+        bounds = level.at
         starts = np.concatenate(([self._run_start], bounds + first))
         ends = np.concatenate((bounds + first, [first + count]))
-        run_levels = np.concatenate(([self._run_level], level[bounds]))
+        run_levels = np.concatenate(([self._run_level], level.each()))
         fired = np.zeros(len(starts), dtype=bool)
         fired[0] = self._fired
         wanted = (
@@ -375,23 +383,24 @@ class Finder:
         return starts[hit] + length
 
     def _pattern(self, data, first):
-        matched = None
+        each = []
         for key, wanted in self.condition.pattern:
             samples = data.get(key)
             if samples is None:
                 return []
             self._before(key, samples, self.level)
             high = self._levels(key, samples, self.level)
-            each = high if wanted else ~high
-            matched = each if matched is None else matched & each
-        if matched is None or not len(matched):
+            each.append(high if wanted else high.inverted())
+        if not each or not len(each[0]):
             return []
+        matched = combined(each, lambda *levels: np.logical_and.reduce(levels))
         # A pattern there from the very first sample did not begin here.
-        before = self._high.get("matched", bool(matched[0]))
-        self._high["matched"] = bool(matched[-1])
+        at_first = bool(matched.level_at(np.zeros(1, np.int64))[0])
+        matched = matched.from_level(self._high.get("matched", at_first))
+        self._high["matched"] = matched.after
         if not self.held:
-            return rises(before, matched) + first
-        return self._held(matched, before, first, HIGH, self.held)
+            return matched.rises() + first
+        return self._held(matched, first, HIGH, self.held)
 
     def _hold_off(self, found: np.ndarray) -> np.ndarray:
         """None within the holdoff of the one before."""

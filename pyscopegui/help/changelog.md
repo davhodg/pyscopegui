@@ -136,6 +136,10 @@ since the last version, and comes out in the next one.
   stretch is measured from a share of it and said to be close, so that measuring a span of seconds at megasamples a second takes no longer than
   a short one. Edges are found only where the signal gets clear of the band, and a long
   stretch is measured a piece at a time, in no more memory than a piece.
+- **Triggers are found in a fraction of the time**: only where the signal gets clear of
+  the margin either side of the level is anything worked out, and a PicoScope's samples are
+  compared as the scope sent them, the level turned into the scope's own count once. Every
+  trigger type is found exactly where it was before.
 
 ### Fixed
 

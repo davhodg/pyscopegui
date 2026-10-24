@@ -170,7 +170,9 @@ all still there to go back over, and it finds what the instrument streams: on a 
 
 A signal has to go back past the level by a fiftieth of the channel's range before it can
 trigger again, so that the noise on a slow edge does not trigger a dozen times on the way
-through.
+through. Only where the signal gets clear of that margin is anything worked out, a few times
+a cycle, and a PicoScope's samples are compared with the level as the scope sent them: so
+finding a trigger keeps up with a fast stream, two channels of it at once.
 
 What the plot does with a trigger is in [Channels and Plot](plot.md). The trigger's settings
 are remembered.

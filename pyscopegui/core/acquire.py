@@ -24,6 +24,8 @@ from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, Block
 from pyscopegui.core.capture import Capture, Record
+from pyscopegui.core.edges import crossings
+from pyscopegui.core.stretch import Stretch
 from pyscopegui.core.triggers import (
     EDGE,
     EITHER,
@@ -63,7 +65,7 @@ class Sweep:
 
 
 def find_triggers(
-    samples: np.ndarray, level: float, low: float, rising: bool, armed: bool
+    samples: np.ndarray | Stretch, level: float, low: float, rising: bool, armed: bool
 ) -> tuple[np.ndarray, bool]:
     """Where the samples cross the level, and whether a crossing is still owed.
 
@@ -73,31 +75,22 @@ def find_triggers(
     positions says the same of the end of these. Falling is the same thing
     upside down, and ``low`` is then above the level.
 
-    No loop over samples or over triggers: a 100 kHz signal has a thousand
-    edges in every block.
+    The samples are compared as they are held -- a record's counts, say --
+    and only where they get clear of the level or of the low one is anything
+    worked out: a few times a cycle, and no loop over samples or over
+    triggers. A 100 kHz signal has a thousand edges in every block.
     """
-    if not rising:
-        samples, level, low = -samples.astype(np.float32), -level, -low
-    count = len(samples)
-    if count == 0:
+    stretch = Stretch.of(samples)
+    if not len(stretch):
         return np.empty(0, dtype=np.int64), armed
-    above = samples >= level
-    below = samples <= low
-    numbers = np.arange(1, count + 1)
-    #: For each sample, the number of the last one at or above the level, and
-    #: of the last at or below the low one, up to and including it. Zero is none.
-    last_above = np.maximum.accumulate(np.where(above, numbers, 0))
-    last_below = np.maximum.accumulate(np.where(below, numbers, 0))
-    before = np.concatenate(([0], last_above[:-1]))
-    # Armed when the last time it was low is more recent than the last time
-    # it was high. Before either has happened here, what was carried in decides.
-    ready = (2 * last_below + int(armed)) > 2 * before
-    found = np.flatnonzero(above & ready).astype(np.int64)
-    if last_below[-1] > last_above[-1]:
-        armed = True
-    elif last_above[-1] > last_below[-1]:
-        armed = False
-    return found, armed
+    if rising:
+        ups, downs = stretch.starts(">=", level), stretch.starts("<=", low)
+    else:
+        ups, downs = stretch.starts("<=", level), stretch.starts(">=", low)
+    # Armed is having been low since it was last high: not armed, it is high,
+    # or has not been either yet, and the next time it is high is no trigger.
+    at, into, after = crossings(ups, downs, 0 if armed else 1)
+    return at[into == 1], after == 0
 
 
 class Acquisition(QObject):
@@ -261,7 +254,7 @@ class Acquisition(QObject):
             if self._scanned < record.first:
                 # More arrived than is held: what was dropped cannot be searched.
                 self._scanned, self._armed = record.first, False
-            samples = record.values(self._scanned)
+            samples = record.stretch(self._scanned, record.total)
             level, low = self.levels(record)
             found, self._armed = find_triggers(samples, level, low, self.rising, self._armed)
             if len(found):
@@ -289,7 +282,7 @@ class Acquisition(QObject):
             margin = HYSTERESIS * first.channel.full_scale if analog else 0.0
             self._finder = Finder(self.condition, self.level, margin, first.rate)
         data = {
-            key: record.values(self._scanned, end)
+            key: record.stretch(self._scanned, end)
             for key, record in zip(keys, records, strict=True)
         }
         found = self._finder.find(data, self._scanned)

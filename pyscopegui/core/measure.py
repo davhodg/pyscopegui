@@ -28,6 +28,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from pyscopegui.core.edges import crossings, starts
+
 #: Either side of the middle, as a share of peak to peak, that the signal has
 #: to get clear of to count as having crossed it.
 BAND = 0.1
@@ -174,7 +176,7 @@ def _edges(pieces: Iterable[np.ndarray], levels: _Levels) -> tuple[np.ndarray, n
     rises: list[np.ndarray] = []
     falls: list[np.ndarray] = []
     #: 1 high, 0 low, -1 not clear of the band yet; and where the last piece ended.
-    state, was_above, was_below, offset = -1, False, False, 0
+    state, offset = -1, 0
     for piece in pieces:
         if not len(piece):
             continue
@@ -187,30 +189,12 @@ def _edges(pieces: Iterable[np.ndarray], levels: _Levels) -> tuple[np.ndarray, n
             above, below = piece > int(np.floor(upper)), piece < int(np.ceil(lower))
         else:
             above, below = piece > upper, piece < lower
-        ups = _starts(above, was_above)
-        downs = _starts(below, was_below)
-        at = np.concatenate((ups, downs))
-        into = np.concatenate((np.ones(len(ups), np.int8), np.zeros(len(downs), np.int8)))
-        order = np.argsort(at, kind="stable")
-        at, into = at[order] + offset, into[order]
-        if len(into):
-            before = np.concatenate(([state], into[:-1]))
-            rises.append(at[(into == 1) & (before == 0)])
-            falls.append(at[(into == 0) & (before == 1)])
-            state = int(into[-1])
-        was_above, was_below = bool(above[-1]), bool(below[-1])
+        at, into, state = crossings(starts(above), starts(below), state)
+        rises.append(at[into == 1] + offset)
+        falls.append(at[into == 0] + offset)
         offset += len(piece)
     empty = np.empty(0, dtype=np.int64)
     return (np.concatenate(rises) if rises else empty, np.concatenate(falls) if falls else empty)
-
-
-def _starts(clear: np.ndarray, was: bool) -> np.ndarray:
-    """Where a run of samples clear of the band starts, with whether the one
-    before the first was clear too."""
-    starts = np.flatnonzero(clear[1:] > clear[:-1]) + 1
-    if clear[0] and not was:
-        starts = np.concatenate(([0], starts))
-    return starts
 
 
 def _measured(

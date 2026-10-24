@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, Signal
 from pyscopegui.backends.base import ANALOG, DIGITAL, LOST, Block, Channel, Scale, unpacked
 from pyscopegui.core.decoding import Decoding, Setup, decoding_for
 from pyscopegui.core.maths import Maths, Worker
+from pyscopegui.core.stretch import Stretch
 
 #: How much of each channel is kept, in seconds, before the oldest is dropped,
 #: unless Tools > Settings > History says otherwise.
@@ -155,6 +156,17 @@ class Record:
         """Everything held, oldest first, in the channel's unit: see ``values``."""
         return self.values()
 
+    def stretch(self, start: int, stop: int) -> Stretch:
+        """Samples start to stop, by number, as they are held, to be compared
+        with a level: see pyscopegui.core.stretch."""
+        start = max(start, self.first)
+        stop = max(start, min(stop, self.total))
+        held = self._held(start, stop)
+        if not self.counts:
+            return Stretch(held)
+        parts = [(b - start, e - start, scale) for b, e, scale in self._stretches(start, stop)]
+        return Stretch(held, parts)
+
     def _stretches(self, start: int, stop: int):
         """(from, to, scale) for each part of samples start to stop with a scale of its own."""
         scales = self._scales
@@ -248,6 +260,10 @@ class Bit:
 
     def view(self) -> np.ndarray:
         return self.values()
+
+    def stretch(self, start: int, stop: int) -> Stretch:
+        """Its samples start to stop, as bits of the port's bytes."""
+        return Stretch(self.port.stretch(start, stop).held, bit=self.bit)
 
     def numbers(self, t_from: float, t_to: float) -> tuple[int, int]:
         return self.port.numbers(t_from, t_to)
