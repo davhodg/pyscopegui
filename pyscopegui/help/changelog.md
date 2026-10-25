@@ -156,7 +156,7 @@ since the last version, and comes out in the next one.
 - The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not
   part of its name.
 - The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
-  driver and not only the 2204A.
+  driver.
 - **Measurements** are exact once the instrument stops, and are worked out again only when
   the stretch measured moves -- held on a trigger, once a trigger; while it runs, a long
   stretch is measured from a share of it and said to be close, so that measuring a span of seconds at megasamples a second takes no longer than
@@ -230,7 +230,7 @@ The first version.
   found in the samples as they arrive, so it is the same for every instrument.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its
   back end says it has.
-- **PicoScope 2204A**, and the other scopes on Pico's `ps2000` driver: both channels
+- **PicoScope 2000 series**, the scopes on Pico's `ps2000` driver: both channels
   streamed at up to 1 MS/s, with scale, probe, coupling and sample rate, either channel switched
   off, and the scope's signal generator.
 - PicoScope **blocks**: short captures at up to 100 MS/s around the scope's own trigger, for

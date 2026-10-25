@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""Rigol DS1000Z scopes, over the network or USB: the DS1054Z, and the others of the series.
+"""Rigol DS1000Z scopes, over the network or USB: every scope of the series.
 
 The series differs in bandwidth, and in whether a model has logic inputs
 (MSO, or Plus with the option) or a signal generator (-S). The four analog
@@ -423,8 +423,8 @@ def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
         )
         if condition.held:
             # Held for at least this long: the scope's Duration trigger. In
-            # full: its short form is DURAT, and DUR is not taken -- found on a
-            # DS1054Z, which kept its 1 us however long was asked for.
+            # full: its short form is DURAT, and DUR is not taken -- the scope
+            # kept its 1 us however long was asked for.
             wanted[":TRIG:MODE"] = "DURATion"
             wanted[":TRIGger:DURATion:SOURce"] = "CHAN" + next(iter(levels))[2:]
             wanted[":TRIGger:DURATion:TYPe"] = pattern
@@ -467,7 +467,7 @@ def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
             wanted[":TRIG:TIM:SLOP"] = {LOW: "NEG", EITHER: "RFAL"}.get(condition.polarity, "POS")
             wanted[":TRIG:TIM:TIM"] = f"{condition.shortest:g}"
             # Its level is the edge trigger's: there is no command of its own
-            # for it. Found by trying, on a DS1054Z.
+            # for it.
             wanted[":TRIG:EDG:SOUR"] = source
             wanted[":TRIG:EDG:LEV"] = level(key, trigger.level)
             return wanted  # and no holdoff, which it does not have

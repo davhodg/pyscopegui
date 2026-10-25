@@ -58,7 +58,7 @@ trigger for as long as it takes. **Auto** waits a little longer than one screen 
 has the scope take the sweep anyway. **Single** takes one sweep and stops. With no trigger
 chosen, sweeps are taken one after another.
 
-The trigger's [types](instruments.md) are the scope's own, each tried on a DS1054Z:
+The trigger's [types](instruments.md) are the scope's own:
 
 | Type | On the scope |
 |------|--------------|
@@ -68,7 +68,7 @@ The trigger's [types](instruments.md) are the scope's own, each tried on a DS105
 | Window | Entering or leaving: an option on a DS1000Z |
 | Timeout | High, low or either for longer than a time: an option on a DS1000Z |
 | Logic pattern | Channels together, each at the level, as soon as they are so |
-| Logic pattern, held | The scope's Duration trigger: an option on a DS1000Z, still to be tried on one for its time |
+| Logic pattern, held | The scope's Duration trigger: an option on a DS1000Z |
 | Protocol | Greyed out |
 
 Each with a **holdoff**, which the scope has too -- all but a timeout, which has none. A

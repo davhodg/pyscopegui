@@ -54,7 +54,7 @@ are held. The instruments in the pane, and the one chosen, are remembered.
 | Instrument | What it is |
 |------------|------------|
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
-| [PicoScope 2000 series (ps2000)](picoscope.md) | Pico's older two-channel scopes: the 2204A and its relatives |
+| [PicoScope 2000 series (ps2000)](picoscope.md) | Pico's older two-channel scopes: the 2202 to 2205A |
 | [PicoScope 2000 series (ps2000a)](picoscope.md) | Pico's newer scopes: two or four channels, and the logic inputs of an MSO |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network or USB |
 | [Tektronix TDS and TPS 2000](tektronix.md) | Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port |
@@ -170,8 +170,8 @@ An instrument that sends short captures taken around a trigger of its own -- a
 settings and does the triggering. The scopes do most trigger types in their own hardware --
 what [each](picoscope.md) [does](rigol.md) -- and the rest are greyed out. For everything else the trigger is found by pyscopegui, in the samples as they
 arrive, and not by the instrument. So it is the same for every instrument, the samples either side of a trigger are
-all still there to go back over, and it finds what the instrument streams: on a PicoScope
-2204A, signals up to its streaming rate of 1 MS/s.
+all still there to go back over, and it finds what the instrument streams: signals up to
+the rate it streams at.
 
 A signal has to go back past the level by a fiftieth of the channel's range before it can
 trigger again, so that the noise on a slow edge does not trigger a dozen times on the way

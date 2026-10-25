@@ -43,7 +43,7 @@ POINTS = 2500
 #: Seconds to wait for an answer to a question, and for a waveform, which at
 #: the slowest speed the scope has is most of a minute by itself.
 ANSWER_S = 3.0
-#: Seconds the scope may take over one setting. A TPS2014 takes most of a
+#: Seconds the scope may take over one setting. A scope may take most of a
 #: second over some, so thirty of them is half a minute. Each is sent once
 #: the one before is done, so that the scope never has a queue of them, and
 #: this is how long each may take before the scope is taken to have gone.

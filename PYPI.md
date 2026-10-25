@@ -13,7 +13,7 @@
 
 Oscilloscopes and logic analysers in one view: analog and logic channels from separate instruments, on one time axis.
 
-![pyscopegui with a Rigol DS1054Z and a PicoScope 2204A open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](https://raw.githubusercontent.com/davhodg/pyscopegui/master/pyscopegui/help/main-window.png)
+![pyscopegui with a Rigol and a PicoScope open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](https://raw.githubusercontent.com/davhodg/pyscopegui/master/pyscopegui/help/main-window.png)
 
 **This is an early version.**
 

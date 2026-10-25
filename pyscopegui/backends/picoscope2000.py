@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""PicoScope 2000 series scopes on Pico's own ``ps2000`` library: the 2204A and its relatives.
+"""PicoScope 2000 series scopes on Pico's own ``ps2000`` library: the 2202 to the 2205A.
 
 The older two-channel 2000 Series scopes -- 2202, 2203, 2204, 2204A, 2205 and
 2205A -- use the ``ps2000`` driver, not ``ps2000a``. The library comes with
@@ -164,7 +164,7 @@ POLL_S = 0.01
 IDLE_S = 0.1
 #: How long the scope may say nothing before it is asked whether it is still
 #: there: stopped, or waiting for a block. Every other call is answered as if
-#: it were, once it has been unplugged -- found on a 2204A and a 2206B -- so
+#: it were, once it has been unplugged, so
 #: without asking, a scope that has gone is not noticed until the next Run.
 QUIET_S = 5.0
 #: And streaming, when nothing has arrived for this long. While samples are
@@ -1168,10 +1168,10 @@ class Stream:
     def _take_up(self, wanted: Settings) -> None:
         """Change a range, the coupling or the generator while streaming.
 
-        The scope takes none of them while it is streaming -- found on a
-        2204A, which refused its generator a new output until it was stopped
-        -- so the stream is stopped, the change made and the stream started
-        again, with the scope left open. The time that took is counted as
+        The scope takes none of them while it is streaming -- its generator
+        is refused a new output until it is stopped -- so the stream is
+        stopped, the change made and the stream started again, with the scope
+        left open. The time that took is counted as
         samples not taken, so what comes after is drawn where it belongs and
         the pause is a gap.
         """

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""PicoScope 2000 series scopes on Pico's ``ps2000a`` library: the 2206B and its relatives.
+"""PicoScope 2000 series scopes on Pico's ``ps2000a`` library: the 2206 to the 2208B, and others.
 
 The newer of the two ranges that share the name. The two-channel 2206, 2207
 and 2208, in their A and B forms; the mixed-signal ones, which add sixteen

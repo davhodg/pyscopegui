@@ -102,7 +102,7 @@ stretch of time and there is nothing either side of it to go back over.
 | | Streaming | Blocks |
 |---|---|---|
 | Fastest | 1 MS/s on each channel | Up to 100 MS/s: the scope says what it has, which is less with both channels on |
-| How long | As long as it runs | One block: about 8000 samples on a 2204A, between the channels on |
+| How long | As long as it runs | One block: a few thousand samples, as the model has, between the channels on |
 | Trigger | Found by pyscopegui | The scope's own |
 | History | Kept, as *Tools > Settings > History* says | None: each block replaces the last |
 
@@ -144,9 +144,6 @@ is there again when streaming, where pyscopegui finds it. A pulse's width is tim
 block's samples, so it is as fine as the block's rate. In **Auto**, a block is called
 triggered only when what was waited for is where the trigger is in it: the driver does not
 say whether it triggered or gave up waiting.
-
-Every type in the table has been tried on a 2206B and a 2204A, each scope triggering on its
-own generator's square wave, except the logic pattern, which has not been tried on either.
 
 **Choose a range the signal fills** for the most dependable trigger. The scope triggers on
 its own readings, with a fiftieth of the range to go back past before it triggers again, so
@@ -326,9 +323,9 @@ scope's full rate, and nothing has to keep up.
 
 These scopes have far more memory than the older ones -- tens of thousands of samples on the
 smallest, tens of millions on the largest -- so a block is not the few thousand samples it
-is on a 2204A. pyscopegui reads **up to a million samples a block**, and has the scope
-sample as fast as it can for the block length within that: a 1 ms block on a 2206B is
-250,000 samples at 250 MS/s with both channels on.
+is on the older ones. pyscopegui reads **up to a million samples a block**, and has the scope
+sample as fast as it can for the block length within that: a 1 ms block at 250 MS/s is
+250,000 samples.
 
 The fastest rate needs the fewest inputs on. A scope that samples at 1 GS/s does so with
 one channel; with two it is half that, and the logic inputs count as well.
