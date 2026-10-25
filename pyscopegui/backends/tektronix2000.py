@@ -1034,6 +1034,24 @@ class Tektronix2000(Instrument):
     def reads_as_is(self) -> bool:
         return self.settings.as_is
 
+    def diagnostics(self) -> list[str]:
+        """How it is reached, how it is read, and what answered."""
+        settings = self.settings
+        if settings.usb:
+            where = f"USB, {settings.usb_device or 'the first Tektronix found'}"
+        else:
+            flow = "hard flagging" if settings.hard_flow else "no flow control"
+            where = (
+                f"serial port {settings.port or 'not chosen'}, {settings.baud} baud, {flow}, "
+                f"parity {settings.parity}, end of line {settings.eol!r}"
+            )
+        scope = self._scope
+        said = "not opened"
+        if scope is not None and scope.model:
+            said = f"{scope.model}, {scope.channels} channels"
+        reading = "as it is" if settings.as_is else "set up from here"
+        return [f"connection: {where}", f"scope: {said}; read {reading}"]
+
     def set_trigger(
         self,
         source: str | None,

@@ -117,6 +117,11 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **Help > Diagnostics** opens in a window of its own, with **Refresh**, **Copy** and
+  **Save...**, rather than in the Event Log, and says more: what each instrument says of
+  itself -- a PicoScope's library, driver and how its stream is keeping up, how a Rigol or a
+  Tektronix is reached -- the trigger and who finds it, memory, what is decoded and sent on,
+  panes put away, the last 20 warnings and errors, and the threads running.
 - **A more compact Instrument pane**: what has no say is not shown until it has -- a block's
   length while streaming, a generator's details while it is off -- in place of being greyed
   out; a logic port's threshold is on its line, a channel's offset beside its scale, its

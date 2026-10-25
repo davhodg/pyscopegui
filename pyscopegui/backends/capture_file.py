@@ -79,6 +79,16 @@ class CaptureFile(Instrument):
                 self._loaded = read_csv(path, CsvLayout.from_options(self._options.get(LAYOUT)))
         return self._loaded
 
+    def diagnostics(self) -> list[str]:
+        """Which file, and what was read from it."""
+        loaded = self._loaded
+        read = (
+            f"{len(loaded.channels)} channels, {len(loaded):,} samples at {loaded.rate:,.6g} S/s"
+            if loaded is not None
+            else "not read yet"
+        )
+        return [f"file: {self.path or 'none chosen'}", f"read: {read}"]
+
     # --- what it is ------------------------------------------------------------------------
     def channels(self) -> list[Channel]:
         try:

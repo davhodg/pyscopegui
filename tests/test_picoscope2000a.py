@@ -1226,3 +1226,22 @@ def test_a_mixed_signal_run_in_the_window_holds_its_ports_packed(
     assert opened.records["D1"].values(0, 100).tolist() == [0] * 50 + [1] * 50
     assert opened.records["A"].values(0, 3).tolist() == capture.records["A"].values(0, 3).tolist()
     window.close_instrument()
+
+
+def test_diagnostics_say_the_driver_and_how_the_stream_is_keeping_up(app, monkeypatch):
+    library = FakeLibrary()
+    library.info[pico.INFO_DRIVER] = b"PS2000A Windows Driver, 2.1.82.3070"
+    monkeypatch.setattr(pico, "load_library", lambda: library)
+    monkeypatch.setattr(pico, "find_library", lambda: Path("C:/Pico/ps2000a.dll"))
+    instrument = backends.create("picoscope2000a", None, {"rate": 1_000_000})
+    assert instrument.diagnostics()[1] == "not opened"
+    states = []
+    instrument.state_changed.connect(states.append)
+    instrument.start()
+    run_for(app, instrument, lambda: states == [True])
+    said = "\n".join(instrument.diagnostics())
+    assert "ps2000a.dll" in said and "driver PS2000A Windows Driver, 2.1.82.3070" in said
+    assert "streaming: 1,000,000 S/s asked, 1,000,000 given" in said
+    assert "the driver's room 1,000,000 samples a channel" in said
+    assert "waiting to be taken in by the window" in said
+    instrument.close()

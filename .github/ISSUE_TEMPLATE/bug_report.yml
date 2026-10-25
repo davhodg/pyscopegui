@@ -27,7 +27,7 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        *Help > Diagnostics...* copies a report to the clipboard: the versions of pyscopegui, Python, PySide6, pyqtgraph and numpy, the platform, each instrument and its settings, and how many samples each channel has received. Paste it here. The settings include a scope's network address, and the Event Log names a scope's serial number as it opens; remove either if you would rather.
+        *Help > Diagnostics...* opens a report and copies it to the clipboard: the versions of pyscopegui, Python, PySide6, pyqtgraph and numpy, the platform, each instrument and its settings and driver, how many samples each channel has received, the trigger, and the last warnings and errors. Paste it here. The settings include a scope's network address, and the Event Log names a scope's serial number as it opens; remove either if you would rather.
         If pyscopegui will not start at all, say so, and paste whatever it printed instead.
       render: text
 

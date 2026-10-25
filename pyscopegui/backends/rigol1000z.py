@@ -949,6 +949,18 @@ class Rigol1000Z(Instrument):
     def sweeps(self) -> bool:
         return True
 
+    def diagnostics(self) -> list[str]:
+        """How it is reached, and what answered."""
+        settings = self.settings
+        where = (
+            f"USB, {settings.usb_device or 'the first Rigol found'}"
+            if settings.usb
+            else f"network, {settings.host or 'no address'} port {settings.port}"
+        )
+        scope = self._scope
+        said = scope.model if scope is not None and scope.model else "not opened"
+        return [f"connection: {where}", f"scope: {said}; sweeps at {self._sweep_rate:,.0f} S/s"]
+
     def triggers_itself(self, condition: Condition, source: str | None) -> bool:
         return triggers_itself(condition, source, self.settings.keys())
 

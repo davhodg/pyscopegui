@@ -82,7 +82,7 @@ LOST_DATA = LOST
 #: A logic threshold is given in these: full scale is five volts.
 THRESHOLD_VOLTS, THRESHOLD_COUNTS = 5.0, 32767
 DEFAULT_THRESHOLD = 1.5
-INFO_VARIANT, INFO_SERIAL = 3, 4
+INFO_DRIVER, INFO_VARIANT, INFO_SERIAL = 0, 3, 4
 #: Asked of ps2000aGetChannelInformation: the ranges the scope has.
 INFO_RANGES = 0
 #: Trigger directions for an analog channel, PS2000A_THRESHOLD_DIRECTION:
@@ -676,6 +676,7 @@ class Stream(pico.Stream):
         self._handle = handle.value
         self.heard_from()
         self.model = self._info(INFO_VARIANT)
+        self.driver = self._info(INFO_DRIVER)
         self.channels, self.digital = channels_of(self.model), has_digital(self.model)
         self.settings = self.settings.for_scope(self.channels, self.digital)
         most = ctypes.c_int16(0)
@@ -825,7 +826,7 @@ class Stream(pico.Stream):
 
     def _start_streaming(self) -> None:
         settings = self.settings
-        room = max(STREAM_SAMPLES, round(settings.rate * STREAM_S))
+        room = self.room = max(STREAM_SAMPLES, round(settings.rate * STREAM_S))
         self._hand_buffers(room)
         interval = ctypes.c_uint32(settings.interval_ns)
         status = self._library.ps2000aRunStreaming(
@@ -1359,6 +1360,9 @@ class PicoScope2000A(pico.PicoScope2000):
 
     def _load_library(self):
         return load_library()
+
+    def _library_file(self):
+        return find_library()
 
     def _has(self) -> tuple[int, bool]:
         """Channels, and whether there are logic inputs. Before a scope is

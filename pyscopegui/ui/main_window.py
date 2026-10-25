@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
@@ -45,6 +47,7 @@ from pyscopegui.ui import column_widths, event_colours, messages, theme
 from pyscopegui.ui.console_view import ConsoleView
 from pyscopegui.ui.data_view import DataView
 from pyscopegui.ui.decoded_view import DecodedView
+from pyscopegui.ui.diagnostics import RECENT_PROBLEMS
 from pyscopegui.ui.help_menu import HelpMenu
 from pyscopegui.ui.import_dialog import ImportDialog
 from pyscopegui.ui.instrument_bar import InstrumentBar
@@ -188,6 +191,8 @@ class MainWindow(QMainWindow):
         #: if it has been closed; notes do not.
         self.events = EventLog()
         self._surfacing = False
+        #: The last warnings and errors, for Help > Diagnostics: (time, level, text).
+        self.recent_problems: deque[tuple[str, str, str]] = deque(maxlen=RECENT_PROBLEMS)
         self.events.posted.connect(self._on_event)
 
         self.ctx = Context(events=self.events)
@@ -1538,6 +1543,7 @@ class MainWindow(QMainWindow):
         if at_end:
             bar.setValue(bar.maximum())
         if level in PROBLEMS:
+            self.recent_problems.append((f"{datetime.now():%H:%M:%S}", level, message))
             self._surface_log()
 
     def _log_menu(self, at) -> None:

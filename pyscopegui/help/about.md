@@ -5,10 +5,15 @@
 **Help > Documentation** opens this manual. It ships inside pyscopegui and needs no network;
 *Back* and *Contents* get you around it.
 
-**Help > Diagnostics...** writes a report to the [Event Log](event-log.md) and copies it to
-the clipboard, ready to paste into a bug report: the versions, the instrument chosen and its
-settings, how many samples each channel has received and holds, what each plot is showing,
-and any panes out on their own.
+**Help > Diagnostics...** opens a report in a window of its own and copies it to the
+clipboard, ready to paste into a bug report: the versions, each instrument and its settings,
+how many samples each channel has received and holds, and what each plot is showing. Then
+what each instrument says of itself -- a PicoScope's library and driver, the rate it gave
+and how its stream is keeping up, how a Rigol or a Tektronix is reached and what answered --
+the trigger and who finds it, the memory there is for the history, what is decoded and sent
+on, any pane put away or out on its own, the last 20 warnings and errors, and what is
+running. **Refresh** makes it again as things are now, **Copy** puts it on the clipboard
+again, and **Save...** writes it to a text file.
 
 **Help > Check for updates...** asks the question that fits how pyscopegui was installed.
 The Windows installer's build asks GitHub whether there is a newer release, and offers to

@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 
 import pytest
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QMessageBox, QPlainTextEdit, QTabWidget
 
 from pyscopegui import __version__
@@ -695,3 +696,53 @@ def test_no_installation_at_all_is_not_an_error(monkeypatch):
 
     monkeypatch.setattr(metadata, "distribution", missing)
     assert help_menu._find_installed("LICENSE") is None
+
+
+# --- the diagnostics window -----------------------------------------------------------------
+def test_diagnostics_open_in_a_window_of_their_own_copied_and_kept(app, window):
+    from pyscopegui.ui.diagnostics import DiagnosticsDialog
+
+    window.help_menu._show_diagnostics()
+    dialog = window.help_menu.diagnostics
+    assert isinstance(dialog, DiagnosticsDialog) and dialog.isVisible()
+    assert "Triggers" in dialog.report() and "Threads" in dialog.report()
+    assert QGuiApplication.clipboard().text() == dialog.report()
+    window.events.warning("something to be found")
+    window.help_menu._show_diagnostics()
+    assert window.help_menu.diagnostics is dialog, "the same window, made again"
+    assert "warning: something to be found" in dialog.report()
+    dialog.close()
+
+
+def test_diagnostics_are_saved_where_asked(app, window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    window.help_menu._show_diagnostics()
+    dialog = window.help_menu.diagnostics
+    chosen = tmp_path / "report.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(chosen), ""))
+    dialog.save()
+    assert chosen.read_text(encoding="utf-8").strip() == dialog.report().strip()
+    dialog.close()
+
+
+def test_a_section_that_cannot_be_read_costs_only_itself(app, window):
+    from pyscopegui.ui import diagnostics as report
+
+    def broken(_window):
+        raise RuntimeError("an odd corner")
+
+    lines = report.section("Broken", broken, window)
+    lines += report.section("Empty", lambda _window: [], window)
+    assert "  could not be read: RuntimeError: an odd corner" in lines
+    assert lines[-2:] == ["Empty", "  nothing"], "an empty section says so"
+
+
+def test_the_trigger_says_who_finds_it(app, window):
+    from pyscopegui.core.triggers import EDGE, Condition
+    from pyscopegui.ui.help_menu import diagnostics
+
+    window.acquisition.set_trigger(source="A", level=0.5, condition=Condition(EDGE, nth=3))
+    report = diagnostics(window)
+    assert "demo: edge on A, 3rd time; level 0.5" in report
+    assert "found by pyscopegui, in what is streamed" in report

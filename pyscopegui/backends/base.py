@@ -286,6 +286,12 @@ class Instrument(QObject):
         edge otherwise. An instrument that streams is triggered by
         pyscopegui, and need do nothing here."""
 
+    def diagnostics(self) -> list[str]:
+        """What Help > Diagnostics says of it beyond what every instrument has:
+        its library, what it said it is, how it is keeping up. Lines of text;
+        nothing, for one with nothing more to say."""
+        return []
+
     def triggers_itself(self, condition: Condition, source: str | None) -> bool:
         """Whether, sending sweeps, it can wait for this itself, on this
         channel: a rising or a falling edge, unless it says it can do more."""

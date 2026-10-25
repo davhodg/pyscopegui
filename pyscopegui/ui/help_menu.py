@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from PySide6.QtCore import QObject, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QImage, QTextDocument
+from PySide6.QtGui import QDesktopServices, QImage, QTextDocument
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -47,7 +47,9 @@ from pyscopegui.core.updates import (
 from pyscopegui.core.updates import is_newer as version_is_newer
 from pyscopegui.core.worker import Worker
 from pyscopegui.help import manual_text
+from pyscopegui.ui import diagnostics as diagnostics_report
 from pyscopegui.ui import fonts, messages
+from pyscopegui.ui.diagnostics import DiagnosticsDialog
 
 
 class LicenceFile(NamedTuple):
@@ -427,8 +429,9 @@ def diagnostics(window) -> str:
     lines += ["", "Plots"]
     for name in window.panes.instances("scope"):
         scope = window.panes.view(name)
+        where = "" if window.panes.on_screen(name) else " (put away)"
         lines.append(
-            f"  {name}: time={scope.time.currentText()} window={scope.window_s.value():g} s "
+            f"  {name}{where}: time={scope.time.currentText()} window={scope.window_s.value():g} s "
             f"Y={scope.y_mode.currentText()} shown={scope.shown() or 'none'} "
             f"state={scope.state.text() or 'following'}"
         )
@@ -438,6 +441,9 @@ def diagnostics(window) -> str:
         lines += ["", "Undocked panes"]
         lines += [f"  {name}: floating" for name, _dock in floating]
         lines += [f"  {name}: in a window of its own" for name in window.panes.detached]
+    # What each instrument says of itself, the triggers, memory and the rest:
+    # see ui/diagnostics.py.
+    lines += diagnostics_report.sections(window)
     return "\n".join(lines)
 
 
@@ -452,6 +458,8 @@ class HelpMenu(QObject):
         #: The manual, once opened: kept, so Documentation brings the same
         #: window forward -- on the page it was left at -- rather than a second.
         self.manual: ManualDialog | None = None
+        #: Diagnostics, kept like the manual, so asking again refreshes it.
+        self.diagnostics: DiagnosticsDialog | None = None
 
         menu = window.menuBar().addMenu("&Help")
         menu.addAction("Documentation", self._open_docs)
@@ -496,13 +504,26 @@ class HelpMenu(QObject):
         self.manual.activateWindow()
 
     def _show_diagnostics(self) -> None:
-        """Report the state of the window, and put it on the clipboard."""
-        report = diagnostics(self.window)
-        QGuiApplication.clipboard().setText(report)
-        # Through the Event Log like every other line, as information. Written
-        # into the pane directly it had no level of its own, and took the
-        # colour of whatever came before it -- red and bold after an error.
-        self.window.events.information("Diagnostics (copied to the clipboard):\n" + report)
+        """Report the state of the window in a window of its own, and copy it.
+
+        It was written into the Event Log, where a report of a hundred lines
+        pushed everything else out of sight and could not be asked again
+        without making another. Still copied as it opens, as the bug report
+        form says it is.
+        """
+        if self.diagnostics is None:
+            self.diagnostics = DiagnosticsDialog(
+                self.window, lambda: diagnostics(self.window), self.window.ctx
+            )
+        else:
+            self.diagnostics.refresh()
+        self.diagnostics.copy_to_clipboard()
+        self.diagnostics.show()
+        self.diagnostics.raise_()
+        self.diagnostics.activateWindow()
+        # As information, like every other line: written into the pane
+        # directly it took the colour of whatever came before it.
+        self.window.events.information("Diagnostics report made, and copied to the clipboard.")
 
     def _show_licences(self) -> None:
         LicenceDialog(self.window).exec()

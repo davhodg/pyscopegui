@@ -27,5 +27,6 @@ An error inside pyscopegui itself -- a bug -- is reported here with its tracebac
 than disappearing with only a button that did nothing to show for it. Please send it with a
 bug report.
 
-*Help > Diagnostics...* writes a report of the versions, the instrument and what it has sent
-here, and copies it to the clipboard; see [About, licences and updates](about.md).
+*Help > Diagnostics...* opens a report of the versions, the instruments and what they have
+sent, and the last warnings and errors here, in a window of its own, and copies it to the
+clipboard; see [About, licences and updates](about.md).

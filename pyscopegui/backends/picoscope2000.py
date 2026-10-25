@@ -71,7 +71,7 @@ MAX_VALUE = 32767
 #: Written in place of a sample the driver lost to a full buffer: what a
 #: channel sent as counts holds a gap as, so kept as it is.
 LOST_DATA = LOST
-INFO_VARIANT, INFO_SERIAL, INFO_ERROR = 3, 4, 6
+INFO_DRIVER, INFO_VARIANT, INFO_SERIAL, INFO_ERROR = 0, 3, 4, 6
 #: Range name -> the driver's code and full scale in volts. A scope supports
 #: only some of them, and refuses the rest when it is set up.
 RANGES: dict[str, tuple[int, float]] = {
@@ -739,6 +739,10 @@ class Stream:
         self.streaming = False
         #: What it is called by itself, once open: "2204A".
         self.model: str | None = None
+        #: The driver's version, as it said when the scope was opened.
+        self.driver = ""
+        #: The driver's own buffer for streaming, in samples a channel.
+        self.room = OVERVIEW_SAMPLES
         #: The trigger for blocks, and one waiting to replace it, set from
         #: the GUI thread as ``wanted`` is.
         self.trigger = Trigger()
@@ -791,6 +795,7 @@ class Stream:
         self._handle = handle
         self._heard = self._clock()
         self.model = self._info(INFO_VARIANT)
+        self.driver = self._info(INFO_DRIVER)
         self.notes.append((f"PicoScope {self.model}, {self._info(INFO_SERIAL)}.", False))
 
     def heard_from(self) -> None:
@@ -1516,6 +1521,37 @@ class PicoScope2000(Instrument):
     # --- what a scope on another of Pico's drivers does its own way --------------------------
     def _load_library(self):
         return load_library()
+
+    def _library_file(self) -> Path | None:
+        return find_library()
+
+    def diagnostics(self) -> list[str]:
+        """The library, the scope and its driver, and how reading is keeping up."""
+        lines = [f"library: {self._library_file() or 'not found'}"]
+        stream, reader = self._stream, self._reader
+        if stream is None:
+            return [*lines, "not opened"]
+        lines.append(
+            f"scope: {stream.model or 'not opened yet'}; driver {stream.driver or 'not said'}"
+        )
+        settings = stream.settings
+        if settings.blocks:
+            lines.append(
+                f"reading blocks of {settings.block_s * 1000:g} ms, at "
+                f"{self._block_rate:,.0f} S/s as the last one came"
+            )
+        else:
+            lines.append(
+                f"streaming: {settings.rate:,.0f} S/s asked, {stream._streaming_rate():,.0f} "
+                f"given; the driver's room {stream.room:,} samples a channel"
+            )
+        lines.append(f"samples sent on: {stream._sent:,}; lost, not yet said: {stream._lost:,}")
+        if reader is not None:
+            lines.append(
+                f"waiting to be taken in by the window: {reader._waiting:,} samples; left out "
+                f"as it fell behind, not yet said: {reader._left_out:,}"
+            )
+        return lines
 
     #: The scope has no probe setting: its scales are offered through each probe here.
     PROBES_COUNTED_HERE = True
