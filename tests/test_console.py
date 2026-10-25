@@ -2,6 +2,8 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """The Python Console, and the commands it drives the scopes with, against the demo."""
 
+import time
+
 import numpy as np
 import pytest
 from PySide6.QtWidgets import QFileDialog
@@ -182,10 +184,16 @@ def test_run_knows_only_the_run_buttons(names):
         names["run"]("fast")
 
 
-def test_exports(names, tmp_path):
+def test_exports(names, window, tmp_path):
     names["run"]("auto")
+    # Until something is held, however busy the computer: a tenth of a second
+    # was once not enough for anything to arrive, and there was nothing to export.
+    deadline = time.monotonic() + 10
+    while not window.capture.stored() and time.monotonic() < deadline:
+        names["wait"](0.05)
     names["wait"](0.1)
     names["stop"]()
+    assert window.capture.stored(), "the demo sent nothing in ten seconds"
     assert names["export_csv"](tmp_path / "a.csv") == [tmp_path / "a.csv"]
     assert names["export_png"](tmp_path / "a.png") and (tmp_path / "a.png").exists()
 

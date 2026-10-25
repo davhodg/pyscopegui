@@ -103,7 +103,6 @@ since the last version, and comes out in the next one.
   and a file for each instrument.
 - **Cursors** on the plot, one or two: the channel list reads every channel at each, to the
   nearest sample, and two give the time and the change between them.
-
 - **Export PNG**, under the arrow on the plot's Export button and under *File*: a picture
   of the plot and its channel list.
 - **Read**, for a Tektronix read as it is: one reading of what its screen shows. The
