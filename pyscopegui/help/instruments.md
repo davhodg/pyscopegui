@@ -54,25 +54,30 @@ are held. The instruments in the pane, and the one chosen, are remembered.
 | Instrument | What it is |
 |------------|------------|
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
-| [PicoScope 2000 series (ps2000)](picoscope.md) | Pico's older two-channel scopes: the 2202 to 2205A |
-| [PicoScope 2000 series (ps2000a)](picoscope.md) | Pico's newer scopes: two or four channels, and the logic inputs of an MSO |
+| [PicoScope 2202 to 2205A](picoscope.md) | Two channels, 25 MHz or less, no logic inputs |
+| [PicoScope 2206 to 2408B, and MSOs](picoscope.md) | Two or four channels, and the logic inputs of an MSO |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network or USB |
 | [Tektronix TDS and TPS 2000](tektronix.md) | Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port |
 
 ## Several instruments at once
 
 Add one instrument and open it, add another and open that too. The channels of all of them
-are on the one plot, each named for whose it is: *Pico A*, *Rigol CH1*.
+are on the one plot, each named for whose it is: *2204A A*, *DS1054Z CH1*.
 
-The tab chosen in the Instrument pane -- *Pico*, *Rigol* -- says which instrument the
+An instrument is called by the model it says it is once it has been opened, and keeps that
+name for the next time pyscopegui starts. Until it has been opened it is called by its kind
+-- *ps2000*, *ps2000a*, *Rigol*, *Tek* -- and its tab's tip, and a channel's, say which it is
+in full.
+
+The tab chosen in the Instrument pane -- *2204A*, *DS1054Z* -- says which instrument the
 settings, **Open** and the trigger toolbar are about. The four run buttons are for every
 instrument that is open: **Auto** runs them all, **Stop** stops them all, and **Single**
 stops once each has its capture.
 
 **Two of the same kind** are added the same way: choose the kind again under **Add
-instrument**. The second is numbered -- *Rigol 2* -- and is an instrument in its own right,
-with its own settings, its own address or port, and its own trigger. Two scopes of one
-model on the bench are two tabs.
+instrument**. The second is numbered -- *DS1054Z 2*, or *Rigol 2* before it is opened --
+and is an instrument in its own right, with its own settings, its own address or port, and
+its own trigger. Two scopes of one model on the bench are two tabs.
 
 **Each instrument keeps time for itself**, and nothing says when one started by another's
 clock. What puts them on one time axis is either a trigger on each, or one leading the

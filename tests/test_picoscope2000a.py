@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """The ps2000a back end, against a stand-in for Pico's library.
 
-As for the older driver: the stand-in answers the way Pico's programmer's
+As for ``ps2000``: the stand-in answers the way Pico's programmer's
 guide says the driver does -- a status from every call, buffers it was handed
 filled, samples announced through the same C callback -- so what is checked
 is everything on pyscopegui's side of that boundary.
@@ -238,7 +238,7 @@ def stream(library, options=None, clock=None):
     return pico.Stream(library, pico.Settings(options), clock or Clock())
 
 
-def test_a_newer_scope_that_does_not_answer_is_an_error():
+def test_a_ps2000a_scope_that_does_not_answer_is_an_error():
     library, clock = FakeLibrary(), Clock()
     reading = stream(library, clock=clock)
     reading.open()
@@ -807,7 +807,7 @@ def test_the_library_named_in_the_environment_is_the_one_used():
     assert pico.find_library("linux", environ) == Path("/somewhere/libps2000a.so")
 
 
-def test_windows_looks_for_this_drivers_library_and_not_the_older_ones(tmp_path):
+def test_windows_looks_for_this_drivers_library_and_not_ps2000s(tmp_path):
     sdk = tmp_path / "Pico Technology" / "SDK" / "lib"
     sdk.mkdir(parents=True)
     (sdk / "ps2000.dll").write_bytes(b"")
@@ -833,8 +833,8 @@ def test_the_structures_are_the_size_the_driver_packs_them_to():
 
 
 # --- the instrument, on its thread -----------------------------------------------------------
-def test_the_instrument_is_listed_and_named_apart_from_the_older_driver():
-    assert backends.title("picoscope2000a") == "PicoScope 2000 series (ps2000a)"
+def test_the_instrument_is_listed_and_named_apart_from_ps2000():
+    assert backends.title("picoscope2000a") == "PicoScope 2206 to 2408B, and MSOs"
     assert backends.short("picoscope2000a") != backends.short("picoscope2000")
 
 
@@ -1000,7 +1000,7 @@ def test_the_instrument_offers_an_offset_only_on_a_scope_that_has_one(app, monke
         run_for(app, instrument, lambda opened=opened: opened == [True, False])
 
 
-def test_samples_the_driver_lost_are_said_as_on_the_older_scopes():
+def test_samples_the_driver_lost_are_said_as_on_ps2000():
     library = FakeLibrary()
     reading = started(library, {"enabled_b": False})
     library.waiting.append({0: [100, pico.LOST_DATA, pico.LOST_DATA, 100]})

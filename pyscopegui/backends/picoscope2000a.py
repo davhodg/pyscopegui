@@ -2,18 +2,18 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """PicoScope 2000 series scopes on Pico's ``ps2000a`` library: the 2206 to the 2208B, and others.
 
-The newer of the two ranges that share the name. The two-channel 2206, 2207
-and 2208, in their A and B forms; the mixed-signal ones, which add sixteen
-logic inputs; and the four-channel 2405A to 2408B. The older scopes, on the
-``ps2000`` library, are in ``picoscope2000``: this is that back end with the
+One of the two ranges that share the name. The two-channel 2206, 2207 and
+2208, in their A and B forms; the mixed-signal ones, which add sixteen logic
+inputs; and the four-channel 2405A to 2408B. The scopes on the ``ps2000``
+library, are in ``picoscope2000``: this is that back end with the
 other driver under it, and what is the same in the two -- scales and probes,
 the thread the scope is read on, how a run is started and stopped -- is used
 from there.
 
 What differs is the driver. It answers every call with a status, not with
-nought for no; it fills buffers it is handed, where the older one hands over
+nought for no; it fills buffers it is handed, where ``ps2000`` hands over
 its own; a block can be as long as the scope's memory, which is thousands of
-times what the older scopes have; and it says what the scope has -- how many
+times what the scopes on ``ps2000`` have; and it says what the scope has -- how many
 channels, which ranges -- so nothing is listed here by model.
 
 A mixed-signal scope's logic inputs come in two ports of eight, D0 to D7 and
@@ -615,7 +615,7 @@ class Settings(pico.Settings):
 class Stream(pico.Stream):
     """The scope, from opening it to closing it, with any number of runs between.
 
-    The older driver's, with every call to the driver made this one's way.
+    The ``ps2000`` driver's, with every call to the driver made this one's way.
     """
 
     def __init__(

@@ -54,7 +54,7 @@ transceiver reads, and it is far less troubled by noise than either wire alone.
 | 500 kbit/s | 5 MS/s |
 | 1 Mbit/s | 10 MS/s |
 
-A PicoScope on Pico's `ps2000` driver streams at up to 1 MS/s, enough for 125 kbit/s.
+A PicoScope 2202 to 2205A streams at up to 1 MS/s, enough for 125 kbit/s.
 
 | Problem | What it means |
 |---------|---------------|

@@ -9,6 +9,8 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - **Trigger on the Nth time** a trigger is met, and **a delay** after it, for every trigger
@@ -26,11 +28,12 @@ since the last version, and comes out in the next one.
 - **A Rigol or Tektronix switched off or unplugged while stopped is noticed** too: asked
   who it is every 5 seconds while it is stopped, and closed if it does not answer. Running,
   it is never asked: every look at its trigger or its sweep already says it is there.
-- **An older PicoScope triggers on more than an edge itself**, reading blocks: **Either**
+- **A PicoScope 2202 to 2205A triggers on more than an edge itself**, reading blocks: **Either**
   edge, **Window**, **Pulse width** and a **Logic pattern** of A and B, on the models with
   Pico's advanced trigger (2202, 2204, 2204A, 2205, 2205A).
-- **The signal generator on the scope's trigger**, on a newer PicoScope: **Start** at once,
-  or on the scope's trigger, with a number of **Cycles** each time, or running on from it.
+- **The signal generator on the scope's trigger**, on a PicoScope 2206 to 2408B or MSO: **Start** at
+  once, or on the scope's trigger, with a number of **Cycles** each time, or running on from
+  it.
 - **More maths**: of one channel, **−A**, **|A|**, **A²**, **√A**, **k × A + c** in a unit of
   its own, **dA/dt**, **∫A dt** and an **average** over a time, beside the four of two
   channels. Every maths channel is named *Math: ...*; right-click below the channels for one.
@@ -41,7 +44,7 @@ since the last version, and comes out in the next one.
 - **A Rigol triggers on more than an edge itself**: **Either** edge, **Pulse width**,
   **Runt**, **Window**, **Timeout** and **Logic pattern**, with a holdoff, as the scope's
   own trigger types. A trigger level past what the scope takes is the nearest it does.
-- **A newer PicoScope triggers on more than an edge itself**, reading blocks: **Either**
+- **A PicoScope 2206 to 2408B or MSO triggers on more than an edge itself**, reading blocks: **Either**
   edge, **Window**, **Pulse width**, **Runt** and **Logic pattern**, in its own hardware at
   its full rate. What a scope that sends sweeps cannot wait for itself is greyed out.
 - **One instrument leading the others**: **Lead** on the trigger toolbar, with two or more
@@ -83,8 +86,8 @@ since the last version, and comes out in the next one.
 - **Python Console**, under *View*: a Python prompt with commands to drive the scopes --
   `add`, `open`, `set`, `run`, `single`, `data`, `export_csv` and the rest -- and *Run
   script...* for a file of them.
-- **PicoScope 2000 series (ps2000a)**: the newer 2000 Series scopes -- the 2206 to 2208 in
-  their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
+- **PicoScope 2206 to 2408B, and MSOs**: the 2000 Series scopes beyond the 2205A --
+  the 2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the mixed-signal ones with
   their sixteen logic inputs -- streamed at up to 31.25 MS/s, or read in blocks of up to a
   million samples -- with an **offset** on each channel where the scope has one.
 - **Channel colours** as each scope draws its channels, kept by a channel whatever else is
@@ -155,8 +158,12 @@ since the last version, and comes out in the next one.
   Log where a shortcut is made.
 - The Rigol is listed as **Rigol DS1000Z series**: how it is connected is a setting, not
   part of its name.
-- The PicoScope is listed as **PicoScope 2000 series (ps2000)**, for every scope on that
-  driver.
+- The PicoScopes are listed by the models they cover, as the scope itself says:
+  **PicoScope 2202 to 2205A**, and **PicoScope 2206 to 2408B, and MSOs**. Where there is
+  room only for a word -- a tab, a channel's name, an export's file -- an instrument is
+  called by the model it says it is once opened, *2206B* or *DS1054Z*, remembered for the
+  next start, and by its kind until then, *ps2000* or *ps2000a*; the tab's or the channel's
+  tip says which in full.
 - **Measurements** are exact once the instrument stops, and are worked out again only when
   the stretch measured moves -- held on a trigger, once a trigger; while it runs, a long
   stretch is measured from a share of it and said to be close, so that measuring a span of seconds at megasamples a second takes no longer than
@@ -164,13 +171,14 @@ since the last version, and comes out in the next one.
   stretch is measured a piece at a time, in no more memory than a piece.
 - **A window that falls behind a fast PicoScope stays a second behind at most**: what it has
   not yet taken in is left out and shown as a gap, and the Event Log says so, rather than its
-  falling further behind and its memory growing. A newer PicoScope's driver has room for a
-  second between two reads, not a quarter, for a computer that is busy for a moment.
+  falling further behind and its memory growing. A PicoScope 2206 to 2408B or MSO has room in
+  its driver for a second between two reads, not a quarter, for a computer that is busy for a
+  moment.
 - A run may take **three quarters** of the memory that is free when it starts, unless
   *Tools > Settings > Memory* says otherwise, rather than half.
 - A **200x** voltage probe, as some differential probes are: a Rigol is told it, and for any
   other scope pyscopegui does the multiplying.
-- A newer PicoScope streams at **15.625 and 25 MS/s** too: a sample every 64 ns, and 40 ns.
+- A PicoScope 2206 to 2408B or MSO streams at **15.625 and 25 MS/s** too: a sample every 64 ns, and 40 ns.
 - **Captures are saved as they are held**: a PicoScope's channels as the scope's own counts,
   a third smaller than volts, and every logic input a bit a sample, a tenth the size or less.
   A mixed-signal scope's inputs open again packed in their ports. A capture saved before
@@ -198,8 +206,9 @@ since the last version, and comes out in the next one.
   showed them all at once.
 - In **Normal**, a span as long as the history -- 10 s of a 1 kHz signal, say -- drew once
   and then went blank: the trigger it needed, half the span back, had been forgotten.
-- A newer PicoScope's samples were checked against the rate asked for, not the nearest one
-  the scope gave, so a rate it rounds -- 20 MS/s, say -- could be said to be arriving slowly.
+- A PicoScope 2206 to 2408B or MSO had its samples checked against the rate asked for, not the
+  nearest one the scope gave, so a rate it rounds -- 20 MS/s, say -- could be said to be
+  arriving slowly.
 - The launchers notice a `.venv` whose Python has been uninstalled or replaced, and offer
   to make it again: before, Windows opened nothing and Linux took it for a first run. On
   Windows, `.venv` is made from Python 3.15, 3.14, 3.13 or 3.12, newest first, through the
@@ -207,7 +216,7 @@ since the last version, and comes out in the next one.
   `.venv` behind. CI tests on Windows with Python 3.15 too.
 - With **Y** at **Range**, the voltage axis follows a channel's offset: it shows what the
   scope is measuring, -6 V to 4 V for a 1 V offset on ±5 V, and not the range around nought.
-- PicoScope 2000 (ps2000): samples the driver handed over in more than one batch at once
+- PicoScope 2202 to 2205A: samples the driver handed over in more than one batch at once
   were partly dropped, without a word, and the time of everything after them was out;
   and samples the driver lost were drawn as a gap the Event Log said nothing about.
 - *Help > Licences* said the third-party file held the full text of every licence. It is a
@@ -257,5 +266,6 @@ The first version.
 - Installing with pip, from a source folder with a launcher that sets itself up, or with a
   Windows installer.
 
-[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/davhodg/pyscopegui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/davhodg/pyscopegui/releases/tag/v0.1.0

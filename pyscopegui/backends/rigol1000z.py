@@ -939,6 +939,8 @@ class Rigol1000Z(Instrument):
         self._options = dict(options) if isinstance(options, dict) else {}
         self._reader: _Reader | None = None
         self._scope: Scope | None = None
+        #: The model it said it was, once opened.
+        self._model = ""
         self._is_open = False
         self._running = False
         #: Which run the blocks that count belong to: one more at each start.
@@ -1054,7 +1056,12 @@ class Rigol1000Z(Instrument):
         self._reader.ask("close")
         self._reader.wait(int((CONNECT_S + ANSWER_S) * 1000) + 2000)
 
-    def _on_opened(self, _model: str) -> None:
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def _on_opened(self, model: str) -> None:
+        self._model = model
         self._is_open = True
         self.opened_changed.emit(True)
 

@@ -15,6 +15,7 @@ maker's library is never bundled: it is installed separately.
 from __future__ import annotations
 
 import importlib
+import re
 from typing import NamedTuple
 
 from PySide6.QtCore import QObject
@@ -39,8 +40,8 @@ BACKENDS: dict[str, Backend] = {
     "picoscope2000": Backend(
         "pyscopegui.backends.picoscope2000",
         "PicoScope2000",
-        "PicoScope 2000 series (ps2000)",
-        "Pico",
+        "PicoScope 2202 to 2205A",
+        "ps2000",
     ),
     "file": Backend(
         "pyscopegui.backends.capture_file", "CaptureFile", "Capture file", "File", listed=False
@@ -48,8 +49,8 @@ BACKENDS: dict[str, Backend] = {
     "picoscope2000a": Backend(
         "pyscopegui.backends.picoscope2000a",
         "PicoScope2000A",
-        "PicoScope 2000 series (ps2000a)",
-        "Pico 2000A",
+        "PicoScope 2206 to 2408B, and MSOs",
+        "ps2000a",
     ),
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
@@ -110,8 +111,12 @@ def title(name: str) -> str:
     return _numbered(BACKENDS[kind(name)].title, name)
 
 
-def short(name: str) -> str:
-    return _numbered(BACKENDS[kind(name)].short, name)
+def short(name: str, model: str = "") -> str:
+    """A word for an instrument, for its tab and before its channels' names: the model it
+    said it was, once it has been opened -- "2206B", "TPS2014" -- and its kind's until then."""
+    said = re.sub(r"^([A-Z]+) (?=\d)", r"\1", " ".join(model.split()))
+    said = re.sub(r"(?<=\w)MSO$", " MSO", said)
+    return _numbered(said or BACKENDS[kind(name)].short, name)
 
 
 def settings(name: str) -> tuple[Setting, ...]:

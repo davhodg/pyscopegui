@@ -674,7 +674,7 @@ def test_diagnostics_name_every_instrument_in_the_pane_made_or_not(app, window):
     window.session.forget("picoscope2000a")  # as on starting: not chosen since
     said = instruments(window)
     assert said[0].endswith("(rigol1000z):"), "the one chosen first"
-    at = said.index("PicoScope 2000 series (ps2000a) (picoscope2000a):")
+    at = said.index("PicoScope 2206 to 2408B, and MSOs (picoscope2000a):")
     assert said[at + 1] == "  not made: its tab has not been chosen since starting"
 
 

@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from pyscopegui import backends
 from pyscopegui.backends.base import ANALOG, DIGITAL
 from pyscopegui.core import capture_file, decoding, export
 from pyscopegui.core.acquire import AUTO, AUTO_S, SINGLE, STOP, Acquisition
@@ -90,6 +91,13 @@ MATHS_KEY = "maths"
 #: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
 CHOSEN_COLOURS = "channel.colours"
 COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
+
+
+def _named_tip(key: str) -> str:
+    """A channel's tip: whose it is, in full -- its name says only "ps2000 A" -- and its colour."""
+    owner = key.partition(":")[0]
+    return f"{backends.title(owner)}\n{COLOUR_TIP}" if backends.known(owner) else COLOUR_TIP
+
 
 FOLLOW, ALL, MANUAL = "Follow", "All", "Manual"
 TIME_CHOICES = (FOLLOW, ALL, MANUAL)
@@ -309,7 +317,7 @@ class ChannelList(QTreeWidget):
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(NAME, Qt.Unchecked if key in hidden else Qt.Checked)
             item.setForeground(NAME, QBrush(QColor(colours[key])))
-            item.setToolTip(NAME, COLOUR_TIP)
+            item.setToolTip(NAME, _named_tip(key))
             item.setData(NAME, Qt.UserRole + 1, key in (chosen or set()))
             for column in (VALUE, SECOND, DIFFERENCE):
                 item.setFont(column, fonts.mono())

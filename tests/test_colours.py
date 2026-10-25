@@ -122,7 +122,7 @@ def test_choosing_from_the_list_asks_for_a_colour(both, monkeypatch):  # noqa: F
 
     monkeypatch.setattr(QColorDialog, "getColor", staticmethod(pick))
     window.scope.channel_list.colour_asked.emit(key, "choose")
-    assert asked == [(rigol1000z.COLOURS["CH1"], "Colour of Rigol CH1")]
+    assert asked == [(rigol1000z.COLOURS["CH1"], "Colour of DS1054Z CH1")]
     assert pen_colour(window, key) == "#00ff00"
 
 
@@ -169,3 +169,4 @@ def test_the_list_offers_its_own_colour_back_only_once_one_was_chosen(both):  # 
     item = window.scope.channel_list._items[key]
     assert item.data(NAME, scope_view.Qt.UserRole + 1)
     assert scope_view.COLOUR_TIP in item.toolTip(NAME)
+    assert item.toolTip(NAME).startswith("Rigol DS1000Z series\n"), "whose it is, in full"

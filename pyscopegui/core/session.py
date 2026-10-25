@@ -28,7 +28,7 @@ class Unit:
         #: end's, with a number for a second of the same kind. Empty for a
         #: capture that stands by itself, with no instrument behind it.
         self.name = name
-        #: A word for it, to tell its channels from another's: "Pico".
+        #: A word for it, to tell its channels from another's: "Rigol".
         self.short = short
         self.capture = Capture(history_s=history_s, parent=parent)
         self.acquisition = Acquisition(self.capture, parent=parent)

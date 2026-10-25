@@ -1146,6 +1146,10 @@ class Tektronix2000(Instrument):
         # slowest speed the scope has it is most of a minute.
         self._reader.wait(int(2 * WAVEFORM_BITS / self.settings.baud * 1000) + 10_000)
 
+    @property
+    def model(self) -> str:
+        return self._scope.model if self._scope is not None else ""
+
     def _on_opened(self, channels: int) -> None:
         self._is_open = True
         self._channels = channels

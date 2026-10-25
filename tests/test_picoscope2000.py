@@ -1272,7 +1272,7 @@ def test_the_instrument_says_each_block_it_takes_in(app, monkeypatch):
     instrument.close()
 
 
-# --- what an older scope waits for itself, beyond an edge --------------------------------------
+# --- what a ps2000 scope waits for itself, beyond an edge ---------------------------------------
 from pyscopegui.core.triggers import (  # noqa: E402
     BETWEEN,
     EDGE,

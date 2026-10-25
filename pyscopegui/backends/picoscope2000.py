@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """PicoScope 2000 series scopes on Pico's own ``ps2000`` library: the 2202 to the 2205A.
 
-The older two-channel 2000 Series scopes -- 2202, 2203, 2204, 2204A, 2205 and
+The two-channel 2000 Series scopes -- 2202, 2203, 2204, 2204A, 2205 and
 2205A -- use the ``ps2000`` driver, not ``ps2000a``. The library comes with
 Pico's software and is not bundled: this looks for it where Pico installs it.
 
@@ -1663,6 +1663,10 @@ class PicoScope2000(Instrument):
         self._reader.ask("close")
         # Opening cannot be interrupted, so this can be most of its few seconds.
         self._reader.wait(10_000)
+
+    @property
+    def model(self) -> str:
+        return self._model or ""
 
     def _on_opened(self, model: str) -> None:
         self._is_open = True

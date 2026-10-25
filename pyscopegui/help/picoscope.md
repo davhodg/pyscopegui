@@ -2,14 +2,15 @@
 
 # PicoScope 2000 series
 
-Pico has made two ranges of scope called the 2000 Series, with a driver each, and the
-instrument list has an entry for each driver. The model number alone does not say which a
-scope is on: a 2205A is on `ps2000` and a 2205A MSO is on `ps2000a`.
+Pico has made two ranges of scope called the 2000 Series, each driven its own way, and the
+instrument list has an entry for each. Look for the model on the scope. The first range is
+the two-channel scopes of 25 MHz or less without logic inputs; everything else is in the
+second, so a 2205A is in the first and a 2205A MSO, or a four-channel 2405A, in the second.
 
 | Choose | For | Models |
 |--------|-----|--------|
-| **PicoScope 2000 series (ps2000)** | The older two-channel scopes | 2202, 2203, 2204, 2204A, 2205, 2205A |
-| **PicoScope 2000 series (ps2000a)** | The newer two-channel scopes | 2206, 2206A, 2206B, 2207, 2207A, 2207B, 2208, 2208A, 2208B |
+| **PicoScope 2202 to 2205A** | Two channels, 2 to 25 MHz, no logic inputs | 2202, 2203, 2204, 2204A, 2205, 2205A |
+| **PicoScope 2206 to 2408B, and MSOs** | Two channels, 50 MHz and up | 2206, 2206A, 2206B, 2207, 2207A, 2207B, 2208, 2208A, 2208B |
 | | Those with sixteen logic inputs as well | 2205 MSO, 2205A MSO, 2206B MSO, 2207B MSO, 2208B MSO |
 | | The four-channel scopes | 2405A, 2406B, 2407B, 2408B |
 
@@ -18,11 +19,11 @@ Choosing the wrong one does no harm: it says that no PicoScope was found.
 The single-channel 2104 and 2105 stream in a different way, which pyscopegui does not
 support.
 
-Nearly everything on this page is the same for both. Where the newer scopes differ is
-gathered under *The newer scopes, on ps2000a*, below.
+Nearly everything on this page is the same for both. Where the 2206 to 2408B and the MSOs
+differ is gathered under *The 2206 to 2408B, and the MSOs*, below.
 
-Once a scope is open pyscopegui knows which model it is, and offers what that model has. On
-the older driver:
+Once a scope is open pyscopegui knows which model it is, and offers what that model has. Of
+the 2202 to 2205A:
 
 | Model | Ranges it has | Signal generator |
 |-------|---------------|------------------|
@@ -62,20 +63,20 @@ is multiplied to be what is at the probe's tip. The scales offered have the prob
 ## Before you start
 
 - **Install the PicoSDK**, from [picotech.com/downloads](https://www.picotech.com/downloads).
-  pyscopegui uses the `ps2000` library that comes with it, and does not include it.
+  pyscopegui uses Pico's libraries that come with it, and does not include them.
 - **Close PicoScope 7**, Pico's own program, if it is running. Only one program can have
   the scope open.
 - **Plug the scope straight into the computer.** Opening it loads its firmware, and the
   scope leaves the USB bus and comes back while that happens. A virtual machine that has
   been handed the scope by its USB address loses it at that moment.
 
-To use a copy of the library somewhere else, set the environment variable
-`PYSCOPEGUI_PS2000` to its full path.
+To use a copy of the library for the 2202 to 2205A somewhere else, set the environment
+variable `PYSCOPEGUI_PS2000` to its full path.
 
 ## Running it
 
-Choose **PicoScope 2000 series (ps2000)** under **Add instrument**, or **(ps2000a)** for the
-newer scopes, and press **Open** in the Instrument pane. Opening takes a few seconds, and
+Choose **PicoScope 2202 to 2205A** or **PicoScope 2206 to 2408B, and MSOs** under **Add instrument**, as the
+model on the scope says, and press **Open** in the Instrument pane. Opening takes a few seconds, and
 Pico's driver shows a progress window of its own while it does. The
 [Event Log](event-log.md) then names the scope and its serial number.
 
@@ -123,11 +124,11 @@ Two things are different from streaming. The plot shows the whole block, so the 
 trigger, since it is the scope that is triggering.
 
 **What the scope waits for itself.** Beyond a rising or a falling edge, a scope does more of
-the trigger's [types](instruments.md) in its own hardware, at its full rate. On `ps2000`,
-those with Pico's advanced trigger -- the 2202, 2204, 2204A, 2205 and 2205A -- do; the 2203,
-2104 and 2105 trigger on an edge only.
+the trigger's [types](instruments.md) in its own hardware, at its full rate. Of the 2202
+to 2205A, those with Pico's advanced trigger -- the 2202, 2204, 2204A, 2205 and 2205A -- do;
+the 2203 triggers on an edge only.
 
-| Type | On `ps2000a` | On `ps2000`, with the advanced trigger |
+| Type | 2206 to 2408B, and MSOs | 2202 to 2205A, with the advanced trigger |
 |------|--------------|----------------------------------------|
 | Edge | Rising, falling or **Either**, on a channel or a logic input | Rising, falling or **Either** |
 | Window | Entering or leaving | Entering or leaving |
@@ -189,8 +190,8 @@ scope is not opened again.
 | Frequency | 1 Hz to 100 kHz. Its arrows go 1, 2, 5, 10, 20, 50 |
 | Peak to peak | From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V |
 | Offset | Moves the whole wave up or down, within 2 V of zero |
-| Start | `ps2000a` only. **At once**: the wave runs all the time. **On the scope's trigger**: it waits, and puts out its cycles each time the scope triggers -- a stimulus at the moment of the capture |
-| Cycles | `ps2000a` only. How many cycles it puts out at each trigger; 0 starts it at the first and leaves it running |
+| Start | 2206 to 2408B and MSOs only. **At once**: the wave runs all the time. **On the scope's trigger**: it waits, and puts out its cycles each time the scope triggers -- a stimulus at the moment of the capture |
+| Cycles | 2206 to 2408B and MSOs only. How many cycles it puts out at each trigger; 0 starts it at the first and leaves it running |
 
 **On the scope's trigger** needs the scope to be triggering itself, which it does when
 reading **blocks** with a trigger chosen. Streaming, the trigger is found by pyscopegui in
@@ -207,7 +208,7 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
 
 ## What the Event Log may say
 
-- *Pico's ps2000 library was not found* --- install Pico's software, as above.
+- *Pico's ps2000 library was not found* --- install the PicoSDK, as above.
 - *No PicoScope was found* --- it is not plugged in, or another program has it open.
 - *Pico's driver failed while opening the scope* --- the scope left the USB bus part way
   through. Unplug it, plug it in again and press Open.
@@ -234,17 +235,17 @@ Connecting the output to channel A is a quick check of the whole chain. A 1000 H
   arriving; never while samples are arriving, which say it is there. Once unplugged it is
   closed, since the driver needs it opened afresh: plug it in again and press **Open**.
 
-## The newer scopes, on ps2000a
+## The 2206 to 2408B, and the MSOs
 
-Choose **PicoScope 2000 series (ps2000a)**. The library is `ps2000a`, which the same PicoSDK
-installs; to use a copy somewhere else, set `PYSCOPEGUI_PS2000A` to its full path.
+Choose **PicoScope 2206 to 2408B, and MSOs**. To use a copy of its library somewhere else, set
+`PYSCOPEGUI_PS2000A` to its full path.
 
 The scope is asked what it has when it is opened, and that is what the Instrument pane then
 offers: the ranges it has, channels C and D on a four-channel scope, and the logic inputs
 on a mixed-signal one. Before a scope has been opened the pane offers two channels and the
 generator, which every one of them has.
 
-| | Older scopes, on `ps2000` | Newer scopes, on `ps2000a` |
+| | 2202 to 2205A | 2206 to 2408B, and MSOs |
 |---|---|---|
 | Channels | A and B | A and B; C and D too on a 24xx, off until ticked |
 | Logic inputs | None | D0 to D15 on an MSO |
@@ -275,7 +276,7 @@ less of it may be in the range. So for 3 V to 4 V, the useful setting is the sma
 whose range takes an offset of about 3.5 V.
 
 **Offset** is offered once the scope is open, and only if it has one: not every model does,
-and the older scopes on `ps2000` have none at all. It is taken up as the scope runs, and the
+and the 2202 to 2205A have none at all. It is taken up as the scope runs, and the
 channel list says it beside the scale.
 
 ### Logic inputs
@@ -321,9 +322,9 @@ scope's full rate, and nothing has to keep up.
 
 ### Blocks
 
-These scopes have far more memory than the older ones -- tens of thousands of samples on the
-smallest, tens of millions on the largest -- so a block is not the few thousand samples it
-is on the older ones. pyscopegui reads **up to a million samples a block**, and has the scope
+These scopes have far more memory than the 2202 to 2205A -- tens of thousands of samples on
+the smallest, tens of millions on the largest -- so a block is not the few thousand samples
+it is there. pyscopegui reads **up to a million samples a block**, and has the scope
 sample as fast as it can for the block length within that: a 1 ms block at 250 MS/s is
 250,000 samples.
 

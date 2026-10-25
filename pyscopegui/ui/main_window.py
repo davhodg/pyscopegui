@@ -92,6 +92,9 @@ CAPTURE_FOLDER = "capture.folder"
 #: The instruments in the Instrument pane, by name, and the one chosen.
 ADDED_KEY = "instruments.added"
 CHOSEN_KEY = "instrument.name"
+#: The model each instrument said it was when it was last opened, by name: what its
+#: tab and its channels are called, before it is opened again.
+MODELS_KEY = "instruments.model"
 WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dragged."
 #: In QSettings: whether decoded CAN frames sent by UDP multicast reach the
 #: local network. The computer's, not the workspace's: it is about where this
@@ -380,7 +383,7 @@ class MainWindow(QMainWindow):
     def _unit(self, name: str) -> Unit:
         """The unit for the instrument called this, made and wired up if it is new."""
         new = name not in self.session.units
-        unit = self.session.unit(name, backends.short(name))
+        unit = self.session.unit(name, self._short(name))
         if new:
             unit.capture.gap.connect(self._on_gap)
             unit.capture.decoded.connect(self._on_decoded)
@@ -401,6 +404,12 @@ class MainWindow(QMainWindow):
             for each in unit.capture.decodings:
                 each.pause(isinstance(paused, list) and each.key in paused)
         return unit
+
+    def _short(self, name: str) -> str:
+        """A word for an instrument: the model it was when last opened, or its kind's."""
+        models = self.ctx.settings.get(MODELS_KEY)
+        model = models.get(name) if isinstance(models, dict) else None
+        return backends.short(name, model if isinstance(model, str) else "")
 
     def _saved_instruments(self) -> tuple[list[str], str]:
         """The instruments that were in the pane last time, and the one chosen.
@@ -597,7 +606,7 @@ class MainWindow(QMainWindow):
             [
                 (
                     name,
-                    backends.short(name),
+                    units[name].short if name in units else self._short(name),
                     self._described(name),
                     name in units and (units[name].wanted_open or units[name].is_open),
                 )
@@ -997,12 +1006,28 @@ class MainWindow(QMainWindow):
             unit.acquisition.set_mode(STOP)
             self._settle_mode()
         else:
+            self._name_for_model(unit, instrument.model)
             if unit is self.unit:
                 self._show_settings()
             if self._as_is(unit):
                 self._show_whole_snapshots()
         self._show_open()
         self._update_status()
+
+    def _name_for_model(self, unit: Unit, model: str) -> None:
+        """Call an instrument by the model it says it is, and its channels with it,
+        and remember the model for the next time it is started."""
+        if not model:
+            return
+        models = self.ctx.settings.get(MODELS_KEY)
+        models = dict(models) if isinstance(models, dict) else {}
+        if models.get(unit.name) != model:
+            models[unit.name] = model
+            self.ctx.settings.set(MODELS_KEY, models)
+        short = backends.short(unit.name, model)
+        if short != unit.short:
+            unit.short = short
+            self.session.channels_changed.emit()
 
     def _on_state(self, unit: Unit, instrument: Instrument, running: bool) -> None:
         if unit.instrument is not instrument:

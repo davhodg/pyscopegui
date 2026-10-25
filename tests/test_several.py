@@ -82,15 +82,16 @@ def test_a_second_instrument_opens_beside_the_first(both):
     units = window.session.units
     assert units["demo"].is_open and units[RIGOL].is_open
     bar = window.instrument_view.instruments
-    assert [bar.tabText(i) for i in range(bar.count())] == ["Demo" + OPEN_MARK, "Rigol" + OPEN_MARK]
-    assert "Demo:" in window.status.text() and "Rigol:" in window.status.text()
+    tabs = [bar.tabText(i) for i in range(bar.count())]
+    assert tabs == ["Demo" + OPEN_MARK, "DS1054Z" + OPEN_MARK]
+    assert "Demo:" in window.status.text() and "DS1054Z:" in window.status.text()
 
 
 def test_the_plot_lists_the_channels_of_both_and_says_whose_each_is(both):
     window = both
     assert set(window.scope._curves) >= {"demo:A", "demo:D0", f"{RIGOL}:CH1"}
     names = window.scope._names
-    assert names["demo:A"].startswith("Demo ") and names[f"{RIGOL}:CH1"].startswith("Rigol CH1")
+    assert names["demo:A"].startswith("Demo ") and names[f"{RIGOL}:CH1"].startswith("DS1054Z CH1")
 
 
 def test_one_instrument_by_itself_is_not_named(window):
@@ -165,7 +166,7 @@ def test_single_waits_for_each_to_have_its_capture(both, app):
 # --- the trigger -------------------------------------------------------------------------------
 def test_each_instrument_has_a_trigger_of_its_own(both):
     window = both
-    assert window.trigger_bar.label.text() == " Trigger, Rigol: "
+    assert window.trigger_bar.label.text() == " Trigger, DS1054Z: "
     assert [window.trigger_bar.source.itemData(i) for i in range(2)] == [None, "CH1"]
     choose_source(window, "CH1")
     window.trigger_bar.level.setValue(1.5)
@@ -213,7 +214,7 @@ def choose_lead(window, name):
 def test_a_lead_is_offered_with_two_or_more_and_kept(both):
     bar = both.trigger_bar
     assert bar.lead.isVisibleTo(bar) and bar.lead_label.isVisibleTo(bar)
-    assert [bar.lead.itemText(i) for i in range(bar.lead.count())] == [EACH, "Demo", "Rigol"]
+    assert [bar.lead.itemText(i) for i in range(bar.lead.count())] == [EACH, "Demo", "DS1054Z"]
     assert both.session.lead is None
     choose_lead(both, "demo")
     assert both.session.lead == "demo" and both.ctx.settings.get(LEAD_KEY) == "demo"
@@ -302,7 +303,7 @@ def test_each_is_drawn_around_its_own_trigger_at_nought(both, fake, app):  # noq
     wait_for(app, lambda: window.session.units[RIGOL].acquisition.sweep is not None)
     feed_demo(window)
     window.scope.redraw()
-    assert window.scope.state.text() == f"Demo: {TRIGGERED}   Rigol: {TRIGGERED}"
+    assert window.scope.state.text() == f"Demo: {TRIGGERED}   DS1054Z: {TRIGGERED}"
     assert window.scope.trigger_lines[0].isVisible()
     low, high = window.scope.analog.getViewBox().viewRange()[0]
     assert low == pytest.approx(-0.01) and high == pytest.approx(0.01)
@@ -317,7 +318,7 @@ def test_each_is_drawn_around_its_own_trigger_at_nought(both, fake, app):  # noq
     assert values[times < -0.0001][-1] < 0 < values[times > 0.0001][0]
     window.set_mode("stop")
     window.scope.redraw()
-    assert window.scope.state.text() == f"Demo: {STOPPED}   Rigol: {STOPPED}"
+    assert window.scope.state.text() == f"Demo: {STOPPED}   DS1054Z: {STOPPED}"
 
 
 def test_one_with_no_trigger_is_drawn_as_it_arrives_beside_one_that_has(both, app):
@@ -373,7 +374,7 @@ def test_diagnostics_tell_of_every_instrument_in_use(both):
     report = diagnostics(both)
     assert "chosen=Rigol DS1000Z series (rigol1000z)" in report
     assert "also in use=Demo signals (demo)" in report
-    assert "Samples held, Demo" in report and "Samples held, Rigol" in report
+    assert "Samples held, Demo" in report and "Samples held, DS1054Z" in report
 
 
 # --- how each channel is set, and changing it ----------------------------------------------------
@@ -510,8 +511,25 @@ def test_the_pane_has_a_tab_for_each_instrument_in_use(both):
     window = both
     bar = window.instrument_view.instruments
     assert not bar.isHidden()
-    assert tab_names(window) == ["Demo", "Rigol"]
-    assert bar.tabText(bar.currentIndex()) == "Rigol" + OPEN_MARK
+    assert tab_names(window) == ["Demo", "DS1054Z"]
+    assert bar.tabText(bar.currentIndex()) == "DS1054Z" + OPEN_MARK
+
+
+def test_an_instrument_is_called_by_its_model_once_it_has_said_it(both):
+    from pyscopegui.ui.main_window import MODELS_KEY
+
+    window = both
+    assert window.ctx.settings.get(MODELS_KEY) == {RIGOL: "DS1054Z"}, "kept for next time"
+    bar = window.instrument_view.instruments
+    assert bar.tabToolTip(1).startswith("Rigol DS1000Z series"), "and the tip says which in full"
+    assert window._short(RIGOL) == "DS1054Z", "what its tab says before it is opened again"
+
+
+def test_a_model_is_put_in_a_word_numbered_as_its_instrument_is():
+    assert backends.short("picoscope2000") == "ps2000"
+    assert backends.short("picoscope2000a", "2206BMSO") == "2206B MSO"
+    assert backends.short("tektronix2000", "TPS 2014") == "TPS2014"
+    assert backends.short("rigol1000z#2", "DS1054Z") == "DS1054Z 2"
 
 
 def test_a_tab_chooses_its_instrument_as_the_list_does(both):
@@ -521,20 +539,20 @@ def test_a_tab_chooses_its_instrument_as_the_list_does(both):
     assert window.chosen == "demo"
     assert "address" not in window.instrument_view.controls
     assert window.trigger_bar.label.text() == " Trigger, Demo: "
-    assert tab_names(window) == ["Demo", "Rigol"], "still both"
+    assert tab_names(window) == ["Demo", "DS1054Z"], "still both"
     assert bar.currentIndex() == 0
     choose(window, RIGOL)
-    assert bar.tabText(bar.currentIndex()).startswith("Rigol"), "and choosing moves the tab"
+    assert bar.tabText(bar.currentIndex()).startswith("DS1054Z"), "and choosing moves the tab"
 
 
 def test_an_instrument_added_stays_in_the_pane_until_it_is_removed(both):
     window = both
     window.add_instrument("picoscope2000")
-    assert tab_names(window) == ["Demo", "Rigol", "Pico"]
+    assert tab_names(window) == ["Demo", "DS1054Z", "ps2000"]
     choose(window, "demo")
-    assert tab_names(window) == ["Demo", "Rigol", "Pico"], "opened or not"
+    assert tab_names(window) == ["Demo", "DS1054Z", "ps2000"], "opened or not"
     window.remove_instrument("picoscope2000")
-    assert tab_names(window) == ["Demo", "Rigol"]
+    assert tab_names(window) == ["Demo", "DS1054Z"]
 
 
 # --- how an instrument is reached, which cannot change while it is open ------------------------
@@ -571,7 +589,7 @@ def test_add_instrument_lists_every_kind_and_puts_one_in_the_pane(window):
     assert [action.data() for action in bar.kinds.actions()] == backends.names()
     bar.add_kind("picoscope2000")
     assert window.added == ["demo", "picoscope2000"] and window.chosen == "picoscope2000"
-    assert tab_names(window) == ["Demo", "Pico"]
+    assert tab_names(window) == ["Demo", "ps2000"]
     assert window.instrument is None, "added, and not opened: how it is reached may come first"
     assert window.instrument_view.open.text() == "Open"
 

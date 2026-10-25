@@ -257,6 +257,12 @@ class Instrument(QObject):
         return False
 
     @property
+    def model(self) -> str:
+        """The model it says it is, once it has been opened: "2206B", "DS1054Z". Empty
+        before then, and for an instrument that does not say."""
+        return ""
+
+    @property
     def reference(self) -> bool:
         """Whether what it holds is to be drawn as a reference: faded, behind the
         others, to compare them with. A capture opened from a file can be."""
