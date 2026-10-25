@@ -115,7 +115,8 @@ def short(name: str, model: str = "") -> str:
     """A word for an instrument, for its tab and before its channels' names: the model it
     said it was, once it has been opened -- "2206B", "TPS2014" -- and its kind's until then."""
     said = re.sub(r"^([A-Z]+) (?=\d)", r"\1", " ".join(model.split()))
-    said = re.sub(r"(?<=\w)MSO$", " MSO", said)
+    # Not "2206B MSO": "2206B MSO A" would read as a channel of the MSO's own.
+    said = re.sub(r" ?MSO$", "", said)
     return _numbered(said or BACKENDS[kind(name)].short, name)
 
 

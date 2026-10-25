@@ -527,7 +527,8 @@ def test_an_instrument_is_called_by_its_model_once_it_has_said_it(both):
 
 def test_a_model_is_put_in_a_word_numbered_as_its_instrument_is():
     assert backends.short("picoscope2000") == "ps2000"
-    assert backends.short("picoscope2000a", "2206BMSO") == "2206B MSO"
+    assert backends.short("picoscope2000a", "2206BMSO") == "2206B", "not 2206B MSO A"
+    assert backends.short("picoscope2000a", "2206B MSO") == "2206B"
     assert backends.short("tektronix2000", "TPS 2014") == "TPS2014"
     assert backends.short("rigol1000z#2", "DS1054Z") == "DS1054Z 2"
 
