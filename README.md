@@ -13,7 +13,7 @@
 
 Oscilloscopes and logic analysers in one view: analog and logic channels from separate instruments, on one time axis. Apache-2.0.
 
-For a bench with more than one scope: the channels of each, side by side on one plot. pyscopegui reads the scopes live, triggers on any channel, measures between cursors, decodes CAN, UART, SPI and I²C, and keeps the last seconds or minutes of everything to go back over, export to CSV, or save and open again later. Every scope is set up the same way -- volts a division, probe, coupling -- whoever made it.
+For a bench with more than one scope: the channels of each, side by side on one plot. pyscopegui reads the scopes live, triggers on any channel, measures between cursors, decodes CAN, UART, SPI and I²C, and keeps the last seconds or minutes of everything to go back over, export to CSV, or save and open again later. Every scope is set up the same way -- volts a division, probe, coupling.
 
 **Works with** the PicoScope  2000 series (including the MSO variants), the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
 
