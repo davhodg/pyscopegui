@@ -188,6 +188,8 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- A Rigol waiting for a held logic pattern is told how long it is held: its Duration trigger
+  kept its own 1 µs, whatever was asked for.
 - **Additional Channels and Plot** brings back a plot that was put away before it opens a
   new one: each one closed and asked for again was one more, out of sight, until something
   showed them all at once.

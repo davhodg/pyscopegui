@@ -422,13 +422,15 @@ def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
             "X" if key not in levels else "H" if levels[key] else "L" for key in CHANNELS
         )
         if condition.held:
-            # Held for at least this long: the scope's Duration trigger.
-            wanted[":TRIG:MODE"] = "DUR"
-            wanted[":TRIG:DUR:SOUR"] = "CHAN" + next(iter(levels))[2:]
-            wanted[":TRIG:DUR:TYP"] = pattern
-            wanted[":TRIG:DUR:WHEN"] = "GRE"
-            wanted[":TRIG:DUR:TUPP"] = f"{DURATIONS[1]:g}"
-            wanted[":TRIG:DUR:TLOW"] = f"{condition.held:g}"
+            # Held for at least this long: the scope's Duration trigger. In
+            # full: its short form is DURAT, and DUR is not taken -- found on a
+            # DS1054Z, which kept its 1 us however long was asked for.
+            wanted[":TRIG:MODE"] = "DURATion"
+            wanted[":TRIGger:DURATion:SOURce"] = "CHAN" + next(iter(levels))[2:]
+            wanted[":TRIGger:DURATion:TYPe"] = pattern
+            wanted[":TRIGger:DURATion:WHEn"] = "GREater"
+            wanted[":TRIGger:DURATion:TUPPer"] = f"{DURATIONS[1]:g}"
+            wanted[":TRIGger:DURATion:TLOWer"] = f"{condition.held:g}"
         else:
             wanted[":TRIG:PATT:PATT"] = pattern
         # Each channel's level, as the pattern trigger has them.
@@ -514,7 +516,7 @@ LIMITS = (
     (":TRIG:PULS:LWID", ":TRIG:PULS:UWID"),
     (":TRIG:RUNT:BLEV", ":TRIG:RUNT:ALEV"),
     (":TRIG:WIND:BLEV", ":TRIG:WIND:ALEV"),
-    (":TRIG:DUR:TLOW", ":TRIG:DUR:TUPP"),
+    (":TRIGger:DURATion:TLOWer", ":TRIGger:DURATion:TUPPer"),
 )
 
 

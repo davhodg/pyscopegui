@@ -315,9 +315,11 @@ def test_a_pattern_of_channels_each_with_the_level():
 def test_a_pattern_held_a_while_is_the_scopes_duration_trigger():
     held = Condition(PATTERN, pattern=(("CH2", 1), ("CH1", 0)), held=2e-3)
     wanted = trigger_of(held, source=None)
-    assert wanted[":TRIG:MODE"] == "DUR" and ":TRIG:PATT:PATT" not in wanted
-    assert wanted[":TRIG:DUR:TYP"] == "L,H,X,X" and wanted[":TRIG:DUR:SOUR"] == "CHAN2"
-    assert (wanted[":TRIG:DUR:WHEN"], wanted[":TRIG:DUR:TLOW"]) == ("GRE", "0.002")
+    assert wanted[":TRIG:MODE"] == "DURATion" and ":TRIG:PATT:PATT" not in wanted
+    assert wanted[":TRIGger:DURATion:TYPe"] == "L,H,X,X"
+    assert wanted[":TRIGger:DURATion:SOURce"] == "CHAN2"
+    assert wanted[":TRIGger:DURATion:WHEn"] == "GREater"
+    assert wanted[":TRIGger:DURATion:TLOWer"] == "0.002"
     assert wanted[":TRIG:PATT:LEV CHAN1,"] == wanted[":TRIG:PATT:LEV CHAN2,"] == "1"
 
 
@@ -325,8 +327,13 @@ def test_a_durations_limits_are_sent_upper_lower_upper(fake):
     scope = opened(fake)
     held = Condition(PATTERN, pattern=(("CH1", 1),), held=5e-4)
     scope.start(scope.settings, rigol.Trigger(None, condition=held))
-    sent = [line for line in fake.heard if line.startswith((":TRIG:DUR:TUPP", ":TRIG:DUR:TLOW"))]
-    assert sent == [":TRIG:DUR:TUPP 10", ":TRIG:DUR:TLOW 0.0005", ":TRIG:DUR:TUPP 10"]
+    limits = (":TRIGger:DURATion:TUPPer", ":TRIGger:DURATion:TLOWer")
+    sent = [line for line in fake.heard if line.startswith(limits)]
+    assert sent == [
+        ":TRIGger:DURATion:TUPPer 10",
+        ":TRIGger:DURATion:TLOWer 0.0005",
+        ":TRIGger:DURATion:TUPPer 10",
+    ]
     scope.close()
 
 

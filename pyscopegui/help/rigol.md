@@ -68,7 +68,7 @@ The trigger's [types](instruments.md) are the scope's own, each tried on a DS105
 | Window | Entering or leaving: an option on a DS1000Z |
 | Timeout | High, low or either for longer than a time: an option on a DS1000Z |
 | Logic pattern | Channels together, each at the level, as soon as they are so |
-| Logic pattern, held | The scope's Duration trigger: an option on a DS1000Z, and not yet tried on one |
+| Logic pattern, held | The scope's Duration trigger: an option on a DS1000Z, still to be tried on one for its time |
 | Protocol | Greyed out |
 
 Each with a **holdoff**, which the scope has too -- all but a timeout, which has none. A

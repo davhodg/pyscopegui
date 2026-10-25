@@ -304,9 +304,8 @@ channels are, so it starts the run again.
 ### Streaming faster
 
 **Sample rate** goes on past 1 MS/s: 2, 5, 10, 15.625, 20 and 25 MS/s, and 31.25 MS/s, which
-is a sample every 32 ns. Each is a whole number of nanoseconds a sample: 15.625 MS/s is 64 ns. Whether a rate is kept depends on the scope, on USB and on the computer,
-and on how much is switched on -- the fastest rates are for one channel. Nothing is hidden
-when it is not kept:
+is a sample every 32 ns. Each is a whole number of nanoseconds a sample: 15.625 MS/s is 64 ns.
+When the setup cannot keep up with the rate asked for, the rate it does get is said:
 
 - The scope may give the nearest rate it has, which the Event Log says, and time on the
   plot is counted at that.
