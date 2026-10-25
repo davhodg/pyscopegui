@@ -15,7 +15,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 
 For a bench with more than one scope: the channels of each, side by side on one plot. pyscopegui reads the scopes live, triggers on any channel, measures between cursors, decodes CAN, UART, SPI and I²C, and keeps the last seconds or minutes of everything to go back over, export to CSV, or save and open again later. Every scope is set up the same way -- volts a division, probe, coupling -- whoever made it.
 
-**Works with** the PicoScope 2202 to 2205A, the PicoScope 2206 to 2408B and the MSOs, the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
+**Works with** the PicoScope 2000 series (including the MSO variants), the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
 
 ![pyscopegui with a Rigol and a PicoScope open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](https://raw.githubusercontent.com/davhodg/pyscopegui/master/pyscopegui/help/main-window.png)
 
@@ -62,7 +62,7 @@ sudo apt install libxcb-cursor0
 - **Export to CSV**, all of it or between the cursors, and **save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments; and CSV files from other tools opened the same way.
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered.
-- **Light and dark** themes, or whichever the system is set to.
+- **Light and dark** themes.
 
 The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md) covers each of these, and is also under **Help > Documentation** in the application.
 

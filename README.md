@@ -15,7 +15,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 
 For a bench with more than one scope: the channels of each, side by side on one plot. pyscopegui reads the scopes live, triggers on any channel, measures between cursors, decodes CAN, UART, SPI and I²C, and keeps the last seconds or minutes of everything to go back over, export to CSV, or save and open again later. Every scope is set up the same way -- volts a division, probe, coupling -- whoever made it.
 
-**Works with** the PicoScope 2202 to 2205A, the PicoScope 2206 to 2408B and the MSOs, the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
+**Works with** the PicoScope  2000 series (including the MSO variants), the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
 
 ![pyscopegui with a Rigol and a PicoScope open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](pyscopegui/help/main-window.png)
 
@@ -35,10 +35,10 @@ For a bench with more than one scope: the channels of each, side by side on one 
 - **Export to CSV**: every sample of what the plot shows, or of what is between the cursors, with time measured from the trigger, one file for each instrument.
 - **Save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments; and CSV files -- pyscopegui's own, or another tool's, with lines to skip and columns to choose -- opened the same way.
 - **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has. A scope's channels are set one at a time, and how every channel is set is read beside its name in the plot's list: click one there to change it.
-- **The same settings on every scope**: volts a division, probe, coupling and offset, whichever maker's it is.
+- **The same settings on every scope**: volts a division, probe, coupling and offset.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
 - **Event Log**: everything the application has to say, with warnings and errors in their own colours; and **Instrument traffic**, every command sent to an instrument and every answer, while it is open.
-- **Light and dark** themes, or whichever the system is set to.
+- **Light and dark** themes.
 
 Full details are in [the manual](pyscopegui/help/manual.md), which is also under **Help > Documentation** in the application. What each version added, changed and fixed is in [the changelog](pyscopegui/help/changelog.md), which is part of the manual too.
 
