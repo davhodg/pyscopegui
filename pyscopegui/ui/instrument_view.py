@@ -207,6 +207,10 @@ class InstrumentView(QWidget):
             if name == chosen:
                 bar.setCurrentIndex(index)
         bar.blockSignals(False)
+        # A tab bar not yet on screen does not say its size has changed, so the
+        # pane kept the height it had with no tabs -- none -- and the tabs
+        # restored on starting could not be seen until another was added.
+        bar.updateGeometry()
 
     def listed(self) -> list[str]:
         """The instruments there are tabs for, by name, in order."""

@@ -188,6 +188,9 @@ since the last version, and comes out in the next one.
 
 ### Fixed
 
+- The instruments' tabs are seen again on starting: they were restored but drawn no height,
+  so only adding another instrument brought them back. *Help > Diagnostics* names every
+  instrument in the pane, those whose tab has not been chosen since starting too.
 - A Rigol waiting for a held logic pattern is told how long it is held: its Duration trigger
   kept its own 1 µs, whatever was asked for.
 - **Additional Channels and Plot** brings back a plot that was put away before it opens a

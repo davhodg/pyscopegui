@@ -665,6 +665,19 @@ def test_diagnostics_tell_no_samples_from_samples_not_shown(app, window):
     window.stop()
 
 
+def test_diagnostics_name_every_instrument_in_the_pane_made_or_not(app, window):
+    from pyscopegui.ui.diagnostics import instruments
+
+    window.add_instrument("rigol1000z")
+    window.add_instrument("picoscope2000a")
+    window.choose("rigol1000z")
+    window.session.forget("picoscope2000a")  # as on starting: not chosen since
+    said = instruments(window)
+    assert said[0].endswith("(rigol1000z):"), "the one chosen first"
+    at = said.index("PicoScope 2000 series (ps2000a) (picoscope2000a):")
+    assert said[at + 1] == "  not made: its tab has not been chosen since starting"
+
+
 def test_a_pip_installation_finds_its_licence_among_its_own_metadata(tmp_path, monkeypatch):
     """A wheel carries LICENSE and NOTICE in its dist-info, and nowhere else."""
     from importlib import metadata
@@ -742,6 +755,10 @@ def test_the_trigger_says_who_finds_it(app, window):
     from pyscopegui.core.triggers import EDGE, Condition
     from pyscopegui.ui.help_menu import diagnostics
 
+    window.acquisition.set_trigger(source="A", level=0.5, condition=Condition(EDGE, nth=3))
+    assert "who finds it is not known until it is opened" in diagnostics(window)
+    window.open_instrument()
+    app.processEvents()
     window.acquisition.set_trigger(source="A", level=0.5, condition=Condition(EDGE, nth=3))
     report = diagnostics(window)
     assert "demo: edge on A, 3rd time; level 0.5" in report

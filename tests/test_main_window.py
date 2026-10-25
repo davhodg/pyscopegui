@@ -169,6 +169,26 @@ def test_the_instrument_chosen_is_remembered(window):
     assert window.ctx.settings.get("instruments.added") == [backends.DEFAULT, "picoscope2000"]
 
 
+def test_the_instruments_tabs_are_seen_on_starting_again(app, window):
+    """They were there and none high: the pane laid out before it had tabs."""
+    from pyscopegui.ui.main_window import MainWindow
+
+    window.add_instrument("picoscope2000a")
+    window.add_instrument("rigol1000z")
+    window.remove_instrument(backends.DEFAULT)
+    window.close()
+    again = MainWindow()
+    again.show()
+    app.processEvents()
+    try:
+        assert again.added == ["picoscope2000a", "rigol1000z"] and again.chosen == "rigol1000z"
+        bar = again.instrument_view.instruments
+        assert bar.height() >= bar.sizeHint().height() > 0
+    finally:
+        again.close()
+        again.deleteLater()
+
+
 # --- open and close, and the four a scope has --------------------------------------------------
 def press(window, mode):
     """Press a mode's button the way somebody does."""

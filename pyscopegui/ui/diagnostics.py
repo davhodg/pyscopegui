@@ -40,10 +40,14 @@ from pyscopegui.ui import fonts
 RECENT_PROBLEMS = 20
 
 
+def _names(window) -> list[str]:
+    """The instruments in the pane, the chosen one first."""
+    return list(dict.fromkeys(n for n in [window.chosen, *window.added] if n in window.added))
+
+
 def _units(window) -> list:
-    """The instruments in the pane, the chosen one first, as their units."""
-    names = [window.chosen, *(n for n in window.added if n != window.chosen)]
-    return [window.session.units[n] for n in names if n in window.session.units]
+    """The instruments in the pane that have been made, the chosen one first."""
+    return [window.session.units[n] for n in _names(window) if n in window.session.units]
 
 
 def _megabytes(count: int | None) -> str:
@@ -57,12 +61,15 @@ def _megabytes(count: int | None) -> str:
 def instruments(window) -> list[str]:
     """What each instrument says of itself beyond what every instrument has."""
     lines = []
-    for unit in _units(window):
-        lines.append(f"{backends.title(unit.name)} ({unit.name}):")
-        if unit.instrument is None:
+    for name in _names(window):
+        lines.append(f"{backends.title(name)} ({name}):")
+        unit = window.session.units.get(name)
+        if unit is None:
+            lines.append("  not made: its tab has not been chosen since starting")
+        elif unit.instrument is None:
             lines.append("  not made: it has not been opened")
-            continue
-        lines += [f"  {line}" for line in unit.instrument.diagnostics() or ["nothing more"]]
+        else:
+            lines += [f"  {line}" for line in unit.instrument.diagnostics() or ["nothing more"]]
     return lines
 
 
@@ -76,17 +83,20 @@ def triggers(window) -> list[str]:
             lines.append(f"{unit.name}: no trigger")
             continue
         said = condition.summary() or f"{'rising' if acquisition.rising else 'falling'} edge"
-        sweeps = instrument is not None and instrument.sweeps
-        if sweeps:
+        if instrument is None:
+            found = "who finds it is not known until it is opened"
+        elif instrument.sweeps:
             itself = instrument.triggers_itself(condition, acquisition.source)
-            finder = "the instrument, in its own hardware" if itself else "nobody: it cannot"
+            found = "found by " + (
+                "the instrument, in its own hardware" if itself else "nobody: it cannot"
+            )
         else:
-            finder = "pyscopegui, in what is streamed"
+            found = "found by pyscopegui, in what is streamed"
         lines.append(
             f"{unit.name}: {condition.kind} on {acquisition.source or 'its pattern or bus'}, "
             f"{said}; level {acquisition.level:g}; holdoff {condition.holdoff:g} s"
         )
-        lines.append(f"  found by {finder}; {len(acquisition._triggers):,} found and kept")
+        lines.append(f"  {found}; {len(acquisition._triggers):,} found and kept")
         if acquisition.sweep is not None:
             sweep = acquisition.sweep
             lines.append(
