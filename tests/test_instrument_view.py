@@ -320,9 +320,45 @@ def test_the_axis_set_by_hand_from_its_menu_is_manual(window):
     assert y_range(window.scope)[0] < -2.9
 
 
-def test_the_choice_of_voltage_axis_is_remembered(window):
+def started_again_with(app, choice):
+    """The Y chosen after starting pyscopegui with this chosen last time."""
+    from pyscopegui.ui.main_window import MainWindow
+
+    window = MainWindow()
+    try:
+        window.scope.y_mode.setCurrentText(choice)
+    finally:
+        window.close()
+        window.deleteLater()
+    again = MainWindow()
+    try:
+        return again.scope.y_mode.currentText()
+    finally:
+        again.close()
+        again.deleteLater()
+
+
+def test_range_is_remembered_and_an_axis_held_by_hand_fits_again_next_time(app):
+    assert started_again_with(app, "Range") == "Range"
+    assert started_again_with(app, "Manual") == "Auto"
+
+
+def test_an_axis_held_by_hand_stays_so_from_one_run_to_the_next(window):
+    window.set_mode("auto")
+    window.set_mode("stop")
     y_mode(window, "Manual")
-    assert window.ctx.settings.get("scope.y") == "Manual"
+    window.set_mode("auto")
+    window.set_mode("stop")
+    assert window.scope.y_mode.currentText() == "Manual"
+
+
+def test_another_instrument_added_is_fitted_and_range_is_left_as_it_is(window):
+    y_mode(window, "Manual")
+    window.add_instrument("rigol1000z")
+    assert window.scope.y_mode.currentText() == "Auto"
+    y_mode(window, "Range")
+    window.add_instrument("picoscope2000")
+    assert window.scope.y_mode.currentText() == "Range"
 
 
 def test_auto_y_unticked_from_before_is_range(app):

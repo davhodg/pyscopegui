@@ -457,6 +457,10 @@ class MainWindow(QMainWindow):
             return ""
         name = backends.another(kind, self._added)
         self._added.append(name)
+        # Its signals, whatever they are, fitted: not held where another's were.
+        for view in (self.panes.view(each) for each in self.panes.instances("scope")):
+            if view is not None:
+                view.fit_y_again()
         self.choose(name)
         self.panes.show("instrument")
         return name

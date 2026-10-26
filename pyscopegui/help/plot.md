@@ -259,6 +259,11 @@ dragging the voltage axis, chooses Manual by itself; so does setting the axis by
 the plot's right-click menu, under *Y axis*, which is where to type the limits you want.
 Dragging along the time axis leaves Y as it is, and zooming the voltage axis leaves Time.
 
+Manual stays from one run to the next, so a measurement repeated after changing a setting
+is drawn where you put it. It goes back to **Auto** when another instrument is added, and
+the next time pyscopegui starts, so that new signals are fitted. **Auto** and **Range** are
+kept as they are, from one start to the next too.
+
 In **Range**, when the channels shown are on different ranges the axis takes in all of
 them, since they share it. An offset moves a channel's range: with a 1 V offset on ±5 V,
 what is read is -6 V to 4 V, and that is what the axis shows. What is read is still the

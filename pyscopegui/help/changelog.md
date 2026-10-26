@@ -9,6 +9,13 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Changed
+
+- **Y** held at **Manual** goes back to **Auto** when another instrument is added, and the
+  next time pyscopegui starts, so that new signals are fitted rather than held where the
+  last ones were zoomed to. From one run to the next it stays where it was put, and Auto
+  and Range are remembered as before.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

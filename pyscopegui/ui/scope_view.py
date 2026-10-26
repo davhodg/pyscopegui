@@ -567,6 +567,9 @@ class ScopeView(QWidget):
             if ctx.settings.get(f"{key}.y") is None and ctx.settings.get(f"{key}.auto_y") is False:
                 self.y_mode.setCurrentText(Y_RANGE)
             remember(ctx, f"{key}.y", self.y_mode)
+            # Held where it was zoomed to last time is no use to the next
+            # session's signals: they are fitted. Auto and Range are kept.
+            self.fit_y_again()
             remember(ctx, f"{key}.cursors", self.cursors)
         # After what was chosen last time is put back, which is not a choice.
         self.cursors.currentIndexChanged.connect(self._on_cursor_count)
@@ -901,6 +904,12 @@ class ScopeView(QWidget):
         return [key for key in self._curves if key not in self._hidden]
 
     # --- which stretch of time ------------------------------------------------------------
+    def fit_y_again(self) -> None:
+        """A voltage axis held by hand fits the signal again: on starting, and when
+        another instrument is added. Range, or Auto, is left as it is."""
+        if self.y_mode.currentText() == MANUAL:
+            self.y_mode.setCurrentText(Y_AUTO)
+
     def _on_y_state(self, *_args) -> None:
         """Auto that has stopped fitting -- the right-click menu's Y axis, set by
         hand -- is Manual now: held where it was put."""
