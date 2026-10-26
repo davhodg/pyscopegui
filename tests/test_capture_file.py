@@ -222,16 +222,26 @@ def test_a_layout_survives_being_saved_in_the_settings():
 def test_saving_and_opening_puts_it_back_beside_the_instruments(held, tmp_path, app):
     window = held
     written = window.scope.save_captures(tmp_path / "shot")
-    assert written == [tmp_path / "shot.npz"]
+    assert written == [tmp_path / "shot.pyscp"]
     before = window.session.units["demo"].capture.records["A"].view().copy()
-    name = window.open_capture(tmp_path / "shot.npz")
+    name = window.open_capture(tmp_path / "shot.pyscp")
     app.processEvents()  # it arrives from the event loop, as an instrument's block does
     assert name == "file" and window.chosen == "file"
     unit = window.session.units["file"]
     assert set(unit.capture.records) == {"A", "B", "D0", "D1", "D2", "D3", "CAN"}
     assert np.array_equal(unit.capture.records["A"].view(), before)
-    assert "Opened shot.npz: 7 channels" in window.log.toPlainText()
+    assert "Opened shot.pyscp: 7 channels" in window.log.toPlainText()
     assert not unit.running, "it is all there, and stops"
+
+
+def test_a_capture_saved_as_npz_before_still_opens(held, tmp_path, app):
+    window = held
+    written = window.scope.save_captures(tmp_path / "shot")
+    older = written[0].rename(tmp_path / "shot.npz")
+    assert capture_file.is_own(older) and capture_file.is_own(tmp_path / "SHOT.PYSCP")
+    window.open_capture(older)
+    app.processEvents()
+    assert "A" in window.session.units["file"].capture.records
 
 
 def test_a_save_cancelled_part_way_leaves_no_file(held, tmp_path, monkeypatch):
@@ -245,8 +255,8 @@ def test_a_save_cancelled_part_way_leaves_no_file(held, tmp_path, monkeypatch):
         return job(progress)
 
     monkeypatch.setattr(scope_view, "with_progress", cancelled_at_once)
-    assert held.scope.save_captures(tmp_path / "gone.npz") == []
-    assert not (tmp_path / "gone.npz").exists()
+    assert held.scope.save_captures(tmp_path / "gone.pyscp") == []
+    assert not (tmp_path / "gone.pyscp").exists()
     assert "Saving was cancelled" in held.log.toPlainText()
 
 
@@ -257,8 +267,8 @@ def test_the_capture_file_is_not_offered_under_add_instrument(window):
 
 def test_a_file_has_a_tab_and_a_read_button_and_no_trigger(held, tmp_path):
     window = held
-    window.scope.save_captures(tmp_path / "shot.npz")
-    window.open_capture(tmp_path / "shot.npz")
+    window.scope.save_captures(tmp_path / "shot.pyscp")
+    window.open_capture(tmp_path / "shot.pyscp")
     assert window.instrument_bar.reads() and not window.trigger_bar.source.isEnabled()
     assert "File" in window.instrument_view.listed() or "file" in window.instrument_view.listed()
     assert window.scope.time.currentText() == "All", "shown whole, as a snapshot is"
@@ -286,7 +296,7 @@ def test_a_file_that_is_gone_says_so(window, tmp_path):
 
 
 def test_nothing_on_the_plot_saves_nothing(window, tmp_path):
-    assert window.scope.save_captures(tmp_path / "x.npz") == []
+    assert window.scope.save_captures(tmp_path / "x.pyscp") == []
     assert "nothing on the plot to save" in window.log.toPlainText()
 
 
@@ -298,8 +308,8 @@ def test_a_saved_capture_is_one_file_for_each_instrument(held, tmp_path):
         unit.instrument._started -= 0.2
         unit.instrument._tick()
     window.set_mode("stop")
-    written = window.scope.save_captures(tmp_path / "both.npz")
-    assert sorted(p.name for p in written) == ["both-Demo 2.npz", "both-Demo.npz"]
+    written = window.scope.save_captures(tmp_path / "both.pyscp")
+    assert sorted(p.name for p in written) == ["both-Demo 2.pyscp", "both-Demo.pyscp"]
 
 
 # --- the dialog ---------------------------------------------------------------------------------

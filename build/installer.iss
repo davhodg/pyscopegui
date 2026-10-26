@@ -57,12 +57,35 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Setup asks who it is for: everybody, which needs administrator rights and
 ; is what it suggests, or only the person running it, which needs none.
 PrivilegesRequiredOverridesAllowed=dialog commandline
+; For the fileassoc task: Explorer is told to look again.
+ChangesAssociations=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
+Name: "fileassoc"; Description: "Open .pyscp captures with pyscopegui"; GroupDescription: "File types:"
+
+; A .pyscp is pyscopegui's own, so pyscopegui opens it. A .npz, as captures
+; were saved before, is numpy's and many another program's: pyscopegui is only
+; offered in Open with for it, and whatever opens them now keeps them. The
+; same values as pyscopegui/core/file_types.py writes from Tools > Settings.
+; HKA is HKCU for a per-user install and HKLM for an all-users one. A capture
+; double-clicked while pyscopegui is open goes to that one
+; (pyscopegui/ui/handoff.py).
+[Registry]
+Root: HKA; Subkey: "Software\Classes\.pyscp"; ValueType: string; ValueName: ""; ValueData: "pyscopegui.capture"; Flags: uninsdeletevalue; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\.pyscp\OpenWithProgids"; ValueType: string; ValueName: "pyscopegui.capture"; ValueData: ""; Flags: uninsdeletevalue; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.capture"; ValueType: string; ValueName: ""; ValueData: "pyscopegui capture"; Flags: uninsdeletekey; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.capture\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.capture\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\.npz\OpenWithProgids"; ValueType: string; ValueName: "pyscopegui.npz"; ValueData: ""; Flags: uninsdeletevalue; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.npz"; ValueType: string; ValueName: ""; ValueData: "pyscopegui capture or NumPy archive"; Flags: uninsdeletekey; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.npz\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\pyscopegui.npz\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".pyscp"; ValueData: ""; Flags: uninsdeletekey; Tasks: fileassoc
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".npz"; ValueData: ""; Tasks: fileassoc
 
 [Files]
 Source: "..\dist\pyscopegui\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

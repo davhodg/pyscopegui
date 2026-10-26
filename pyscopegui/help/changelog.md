@@ -9,6 +9,14 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Added
+
+- **Double-click a capture to open it**: captures are saved as `.pyscp`, a name of
+  pyscopegui's own, and the installer offers to make pyscopegui what opens them, as *Tools >
+  Settings > Open captures with pyscopegui* does however it was installed. On Windows it is
+  offered under *Open with* for a `.npz`, as captures were saved before, which still open. A
+  capture double-clicked while pyscopegui is open goes to that window.
+
 ### Changed
 
 - **Y** held at **Manual** goes back to **Auto** when another instrument is added, and the

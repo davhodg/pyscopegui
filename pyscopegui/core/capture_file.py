@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """Captures in files: pyscopegui's own, and CSV.
 
-pyscopegui's own is a numpy ``.npz``: each channel's samples as they were held,
+pyscopegui's own is a ``.pyscp``, which is a numpy ``.npz`` under a name of its
+own, so that it can be double-clicked: each channel's samples as they were held,
 and one line of JSON saying what they are: names, units, colours, the rate,
 and which sample the plot measured time from. A PicoScope's channels are the
 scope's own 16-bit counts, with what each stretch of them is in volts -- the
@@ -11,7 +12,8 @@ are packed eight to a byte in their port, as the scope sent them: half the
 size of volts, and an eighth of a byte each. Anything else is volts as 32-bit
 floats, or a logic level as a byte. It comes back exactly as it went, and
 anything that reads numpy can read it. A file of the first version, all
-volts and bytes, still opens.
+volts and bytes, still opens, and so does one saved as ``.npz`` before there
+was a name of its own.
 
 A CSV is any table of numbers, with a column of time or without one: what
 pyscopegui's own Export CSV writes, or what a scope, a spreadsheet or a
@@ -41,7 +43,9 @@ FORMAT = "pyscopegui capture"
 #: The version written; and those read, the first of them all volts and bytes.
 VERSION = 2
 READ = (1, 2)
-SUFFIX = ".npz"
+SUFFIX = ".pyscp"
+#: What is read as pyscopegui's own: its name, and the one before there was one.
+SUFFIXES = (SUFFIX, ".npz")
 #: Samples of a channel written at a time.
 PIECE = 1 << 20
 #: Rows shown to choose columns by.
@@ -442,4 +446,4 @@ def read_csv(path: Path, layout: CsvLayout) -> Loaded:
 
 def is_own(path: Path) -> bool:
     """Whether a file is to be read as pyscopegui's own, by its name."""
-    return path.suffix.lower() == SUFFIX
+    return path.suffix.lower() in SUFFIXES

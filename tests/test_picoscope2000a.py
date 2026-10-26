@@ -1209,7 +1209,7 @@ def test_a_mixed_signal_run_in_the_window_holds_its_ports_packed(
     window.set_mode("stop")
     written = window.scope.export_csv(tmp_path / "run.csv")
     assert written and written[0].rows >= 500
-    saved = window.scope.save_captures(tmp_path / "run.npz")
+    saved = window.scope.save_captures(tmp_path / "run.pyscp")
     loaded = capture_file.load(saved[0])
     keys = [channel.key for channel in loaded.channels]
     assert "D0" in keys and "port0" not in keys

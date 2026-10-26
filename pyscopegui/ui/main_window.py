@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import capture_file, decoding, memory, shortcut, workspaces
+from pyscopegui.core import capture_file, decoding, file_types, memory, shortcut, workspaces
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -351,10 +351,13 @@ class MainWindow(QMainWindow):
         self.udp_network_action.setChecked(on)
         self.sharer.set_local_network(on)
         self.udp_network_action.toggled.connect(self._share_on_network)
+        # Below the line: not how pyscopegui behaves, but how this copy of it
+        # is set up on this machine. Neither is offered on macOS.
+        if shortcut.start() is not None or file_types.command() is not None:
+            settings_menu.addSeparator()
         # For a source folder and for pip: the installer makes its own entries.
         self.shortcut_action = self.desktop_action = None
         if shortcut.start() is not None:
-            settings_menu.addSeparator()
             for place in shortcut.places():
                 name = shortcut.place_name(place)
                 action = settings_menu.addAction(
@@ -370,6 +373,18 @@ class MainWindow(QMainWindow):
                     self.desktop_action = action
                 else:
                     self.shortcut_action = action
+        # For every way of getting pyscopegui: the installer offers it as a
+        # task, and this is for a source folder, pip, or a task left unticked.
+        self.file_types_action = None
+        if file_types.command() is not None:
+            self.file_types_action = settings_menu.addAction(
+                f"Open captures with {APP_NAME}", self._register_file_types
+            )
+            self.file_types_action.setToolTip(
+                f"Open a .pyscp capture by double-clicking it, in this {APP_NAME}.\n"
+                f"A .npz saved before has {APP_NAME} under Open with on Windows, and\n"
+                "whatever opens .npz files now keeps them. For you only."
+            )
 
         self.help_menu = HelpMenu(self)
 
@@ -664,8 +679,8 @@ class MainWindow(QMainWindow):
             self,
             "Open capture",
             folder if isinstance(folder, str) else "",
-            "Captures (*.npz *.csv *.txt);;pyscopegui captures (*.npz);;CSV (*.csv *.txt);;"
-            "All files (*)",
+            "Captures (*.pyscp *.npz *.csv *.txt);;pyscopegui captures (*.pyscp *.npz);;"
+            "CSV (*.csv *.txt);;All files (*)",
         )
         for text in chosen:
             path = Path(text)
@@ -676,6 +691,24 @@ class MainWindow(QMainWindow):
             dialog = ImportDialog(path, self)
             if dialog.exec() == QDialog.Accepted:
                 self.open_capture(path, dialog.layout())
+
+    def open_files(self, paths: list[Path]) -> None:
+        """Captures given to pyscopegui when it was started, or handed to it by
+        another pyscopegui since: a double-click in the file manager. Brought
+        forward, so that what was double-clicked is seen."""
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        for path in paths:
+            if not path.is_file():
+                self.events.error(f"Could not open {path}: it is not there.")
+            elif capture_file.is_own(path):
+                self.open_capture(path)
+            else:
+                dialog = ImportDialog(path, self)
+                if dialog.exec() == QDialog.Accepted:
+                    self.open_capture(path, dialog.layout())
 
     def open_capture(self, path: Path, layout=None) -> str:
         """Open a capture file as an instrument of its own, and put it on the plot.
@@ -693,9 +726,10 @@ class MainWindow(QMainWindow):
 
     def ask_save_capture(self) -> None:
         folder = self.ctx.settings.get(CAPTURE_FOLDER)
-        start = str(Path(folder) / "capture.npz") if isinstance(folder, str) else "capture.npz"
+        name = "capture" + capture_file.SUFFIX
+        start = str(Path(folder) / name) if isinstance(folder, str) else name
         chosen, _filter = QFileDialog.getSaveFileName(
-            self, "Save capture", start, "pyscopegui captures (*.npz)"
+            self, "Save capture", start, f"pyscopegui captures (*{capture_file.SUFFIX})"
         )
         if chosen:
             self.ctx.settings.set(CAPTURE_FOLDER, str(Path(chosen).parent))
@@ -1497,6 +1531,15 @@ class MainWindow(QMainWindow):
             self.events.warning(f"Could not add {APP_NAME} to the {name}: {exc}")
             return
         self.events.information(f"Added {APP_NAME} to the {name}: {path}")
+
+    def _register_file_types(self) -> None:
+        """Tools > Settings > Open captures with pyscopegui."""
+        try:
+            where = file_types.register()
+        except OSError as exc:
+            self.events.error(f"Could not have {APP_NAME} open captures: {exc}")
+            return
+        self.events.good(f"A .pyscp capture now opens in {APP_NAME} when double-clicked: {where}")
 
     def _say_how_to_add_a_shortcut(self) -> None:
         """Once for each person on a machine, for a source folder or pip: the

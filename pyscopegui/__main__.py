@@ -5,6 +5,7 @@
 import importlib
 import os
 import sys
+from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
@@ -17,6 +18,8 @@ SELFTEST_MODULES = (
     "pyqtgraph",
     "numpy",
     "pyscopegui.ui.main_window",
+    # Opening a double-clicked capture in the window already open.
+    "pyscopegui.ui.handoff",
 )
 
 
@@ -145,6 +148,12 @@ def missing_xcb_packages(load=None) -> list[str]:
     return missing
 
 
+def files_given(arguments: list[str]) -> list[Path]:
+    """The files pyscopegui was started with -- a capture double-clicked in the
+    file manager -- from what is left once Qt has taken its own arguments."""
+    return [Path(arg).resolve() for arg in arguments[1:] if arg and not arg.startswith("-")]
+
+
 def main() -> int:
     if "--selftest" in sys.argv:
         return selftest()
@@ -163,6 +172,16 @@ def main() -> int:
     from pyscopegui.ui import theme
 
     theme.apply(theme.chosen())
+
+    # Before the libraries: a capture double-clicked while pyscopegui is open
+    # goes to that one, and this one has nothing more to do.
+    from pyscopegui.ui import handoff
+
+    files = files_given(app.arguments())
+    if files and handoff.hand_over(files):
+        return 0
+    listener = handoff.Listener(parent=app)
+    listener.waiting += files
 
     # Imported here rather than at the top of the file so that a library
     # which is not installed becomes a dialog. Started from pyscopegui.cmd
@@ -184,7 +203,11 @@ def main() -> int:
     # replaces the window rather than reconfiguring it.
     windows = Windows(MainWindow)
     windows.open()
-    return app.exec()
+    # The window of the moment: switching workspace replaces it.
+    listener.deliver(lambda paths: windows.window and windows.window.open_files(paths))
+    finished = app.exec()
+    listener.close()
+    return finished
 
 
 def why_it_cannot_start(failed: BaseException) -> str:

@@ -7,7 +7,7 @@
 *File > Save capture...* keeps everything held, of every instrument on the first plot, in a
 file to open again later exactly as it is: every sample as it was held, each channel's name,
 unit and colour, the sample rate, and where the trigger was. With several instruments there
-is a file for each, named for it -- `capture-Rigol.npz`, `capture-Pico.npz` -- as
+is a file for each, named for it -- `capture-DS1054Z.pyscp`, `capture-2204A.pyscp` -- as
 [Export CSV](plot.md) does. A large one is written while the instruments go on running,
 with a bar showing how far it has got, and **Cancel**.
 
@@ -18,12 +18,13 @@ a tenth of what it took before, or less. Opened again, a mixed-signal scope's in
 in their ports, eight to a byte, as the scope sent them. A file saved by an earlier
 pyscopegui, all volts and bytes, still opens.
 
-The file is a numpy `.npz`, so a script can read it too:
+A capture is a `.pyscp`, a name of pyscopegui's own so that it can be double-clicked. It is
+a numpy `.npz` under that name, so a script can read it too:
 
 ```python
 import json, numpy as np
 
-held = np.load("capture.npz")
+held = np.load("capture.pyscp")
 meta = json.loads(str(held["meta"]))
 first = meta["channels"][0]
 if first["kind"] == "analog":
@@ -50,7 +51,21 @@ It is read as a snapshot of a scope's screen is: all of it is put on the plot, t
 trigger to set, and **Read** puts it there again. The file is read again each time it is
 opened, so one written since is seen as it is now.
 
-A file of pyscopegui's own opens as it was saved. A **CSV** opens through a dialog first.
+A file of pyscopegui's own opens as it was saved: a `.pyscp`, or a `.npz`, as captures were
+saved before. A **CSV** opens through a dialog first.
+
+### By double-clicking it
+
+A `.pyscp` opens in pyscopegui when it is double-clicked, once pyscopegui has been made what
+opens it: by ticking *Open .pyscp captures with pyscopegui* when installing, or with *Tools >
+Settings > Open captures with pyscopegui* however it was installed -- a source folder, pip, or
+the installer with that left unticked. It is for you only, so no administrator is asked.
+
+A `.npz` is numpy's, and other programs' too, so pyscopegui is not made what opens one: on
+Windows it is offered under *Open with*, and whatever opens them now keeps them.
+
+With pyscopegui already open, a capture double-clicked goes to that window, which comes to the
+front, rather than to a second pyscopegui.
 
 ## As a reference
 

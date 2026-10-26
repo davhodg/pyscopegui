@@ -1361,7 +1361,8 @@ class ScopeView(QWidget):
         own with a progress bar, while the instruments go on running."""
         self.redraw()  # so that time is measured from where the plot has it now
         units = [unit for unit in self.session.shown() if unit.capture.stored()]
-        if path.suffix.lower() != capture_file.SUFFIX:
+        # A name of its own, unless .npz was asked for, as it was before.
+        if path.suffix.lower() not in capture_file.SUFFIXES:
             path = path.with_name(path.name + capture_file.SUFFIX)
         files = export.paths_for(path, [unit.short or unit.name or "capture" for unit in units])
         jobs = []
