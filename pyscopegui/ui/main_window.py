@@ -54,7 +54,7 @@ from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.measurements_view import MeasurementsView
 from pyscopegui.ui.panes import PaneKind, Panes
-from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.scope_view import LABELS, ScopeView
 from pyscopegui.ui.scripting import Scripting
 from pyscopegui.ui.scripts_menu import ScriptsMenu
 from pyscopegui.ui.traffic_view import TrafficView
@@ -210,6 +210,12 @@ class MainWindow(QMainWindow):
         #: one that pane, Open and the trigger toolbar are about; Stop,
         #: Single, Normal and Auto are for all that are open.
         self.session = Session(history_s=self._saved_history(), parent=self)
+        # The names channels were given, as they were left.
+        given = self.ctx.settings.get(LABELS)
+        if isinstance(given, dict):
+            self.session.labels = {
+                str(k): v.strip() for k, v in given.items() if isinstance(v, str) and v.strip()
+            }
         #: How much of what is free a run's history may take.
         self.memory_share = self._saved_share()
         #: Sends decoded CAN frames on, to pycangui and any other python-can program.
@@ -1045,12 +1051,26 @@ class MainWindow(QMainWindow):
             self._settle_mode()
         else:
             self._name_for_model(unit, instrument.model)
+            self._take_labels(unit, getattr(instrument, "labels", {}))
             if unit is self.unit:
                 self._show_settings()
             if self._as_is(unit):
                 self._show_whole_snapshots()
         self._show_open()
         self._update_status()
+
+    def _take_labels(self, unit: Unit, labels: dict[str, str]) -> None:
+        """The names a capture's channels were given when it was saved, where they
+        have not been given one here since."""
+        missing = {
+            unit.id(key): label
+            for key, label in labels.items()
+            if unit.id(key) not in self.session.labels
+        }
+        if missing:
+            self.session.labels.update(missing)
+            self.ctx.settings.set(LABELS, dict(self.session.labels))
+            self.session.channels_changed.emit()
 
     def _name_for_model(self, unit: Unit, model: str) -> None:
         """Call an instrument by the model it says it is, and its channels with it,

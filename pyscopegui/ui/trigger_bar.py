@@ -307,7 +307,7 @@ class TriggerBar(QToolBar):
         self.source.clear()
         self.source.addItem(NONE, None)
         for channel in channels:
-            self.source.addItem(channel.name, channel.key)
+            self.source.addItem(self.session.name_of(unit, channel, whose=False), channel.key)
         self.source.setCurrentIndex(max(self.source.findData(chosen), 0))
         self.source.blockSignals(False)
         self.show_usable()

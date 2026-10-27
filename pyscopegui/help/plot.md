@@ -49,6 +49,19 @@ in the colour its trace is drawn in. With a [cursor](#cursors) on the plot there
 column for what each channel read there; with none there is no such column, and the list is
 narrower so that the plot has the room.
 
+### Names
+
+**Right-click a channel** in the list and choose **Rename...** to give it a name of its own:
+what it is measuring, *5V rail* or *Clock*. It is shown with which channel it is, in
+brackets -- *5V rail (CH1)*, or *5V rail (DS1054Z CH1)* with more than one instrument on the
+plot -- so the input it is on is never lost. The name is used wherever the channel is: the
+plot's list, the cursors, *Measurements*, *Data*, the trigger's **Source**, and the headings
+of an [export](#exporting-to-csv).
+
+Leave the name empty to call the channel what its instrument calls it again. Names are kept
+with the [workspace](files.md), for each instrument's channels, and in a
+[saved capture](captures.md), which opens with them.
+
 ### Colours
 
 Each channel is drawn in **the colour its scope draws it in**, so that the plot and the

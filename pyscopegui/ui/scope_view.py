@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMenu,
     QPushButton,
@@ -90,6 +91,8 @@ REFERENCE_Z = -10
 MATHS_KEY = "maths"
 #: Channel id -> a colour chosen for it here, kept in the workspace, for every plot.
 CHOSEN_COLOURS = "channel.colours"
+#: In the workspace: a channel's id -> the name it was given, as Session.labels.
+LABELS = "channel.labels"
 COLOUR_TIP = "Right-click a channel to choose the colour it is drawn in."
 
 
@@ -226,6 +229,8 @@ class ChannelList(QTreeWidget):
     #: or to stop: its id.
     decode_asked = Signal(str, str)
     decode_removed = Signal(str)
+    #: Asked to give a channel a name of its own: its id.
+    rename_asked = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -257,6 +262,8 @@ class ChannelList(QTreeWidget):
             return
         key = item.data(NAME, Qt.UserRole)
         menu = QMenu(self)
+        menu.addAction("Rename...", lambda: self.rename_asked.emit(key))
+        menu.addSeparator()
         menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
         back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
         back.setEnabled(bool(item.data(NAME, Qt.UserRole + 1)))
@@ -443,6 +450,7 @@ class ScopeView(QWidget):
         self.channel_list.shown_changed.connect(self._on_shown)
         self.channel_list.picked.connect(self._on_picked)
         self.channel_list.colour_asked.connect(self._on_colour_asked)
+        self.channel_list.rename_asked.connect(self._on_rename_asked)
         self.channel_list.maths_asked.connect(self._on_maths_asked)
         self.channel_list.maths_removed.connect(self._on_maths_removed)
         self.channel_list.decode_asked.connect(self._on_decode_asked)
@@ -873,6 +881,29 @@ class ScopeView(QWidget):
             half = (x_to - x_from) / 2
             self.analog.setXRange(seconds - half, seconds + half, padding=0)
         self.set_cursor(0, seconds)
+
+    def _on_rename_asked(self, key: str) -> None:
+        """A name of its own for a channel, shown with which it is: *5V rail (CH1)*.
+        Left empty, it is called what its instrument calls it again."""
+        if (owner := self._owners.get(key)) is None:
+            return
+        unit, channel = owner
+        record = unit.capture.records.get(channel)
+        own = record.channel.name if record is not None else channel
+        text, ok = QInputDialog.getText(
+            self,
+            "Rename channel",
+            f"A name for {own}, shown with {own} in brackets. Empty for {own} alone:",
+            text=self.session.labels.get(key, ""),
+        )
+        if ok:
+            self.rename(key, text)
+
+    def rename(self, key: str, label: str) -> None:
+        """Give a channel, by its id, a name of its own, kept with the workspace."""
+        self.session.set_label(key, label)
+        if self._ctx is not None:
+            self._ctx.settings.set(LABELS, dict(self.session.labels))
 
     def _on_colour_asked(self, key: str, how: str) -> None:
         if not how:
@@ -1376,6 +1407,11 @@ class ScopeView(QWidget):
             zero = round((timing.origin if timing is not None else 0.0) * rate) - first
             loaded = _as_held(records, first, last, rate)
             loaded.zero = zero if 0 <= zero < last - first else None
+            loaded.labels = {
+                r.channel.key: label
+                for r in records
+                if (label := self.session.labels.get(unit.id(r.channel.key)))
+            }
             where = files[unit.short or unit.name or "capture"]
             jobs.append((unit, where, loaded))
         if not units:
@@ -1448,7 +1484,8 @@ class ScopeView(QWidget):
         for key, (unit, channel) in self._owners.items():
             record = unit.capture.records.get(channel)
             if key not in self._hidden and record is not None and record.count:
-                wanted.setdefault(unit.name, {})[record.channel.name] = record
+                said = self.session.name_of(unit, record.channel, whose=False)
+                wanted.setdefault(unit.name, {})[said] = record
         if not wanted:
             self._say("There is nothing on the plot to export.", problem=True)
             return []

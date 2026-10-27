@@ -104,6 +104,11 @@ class CaptureFile(Instrument):
         ]
 
     @property
+    def labels(self) -> dict[str, str]:
+        """The names its channels were given when it was saved, by key."""
+        return dict(self._loaded.labels) if self._loaded is not None else {}
+
+    @property
     def reference(self) -> bool:
         return self._options.get("reference") is True
 
