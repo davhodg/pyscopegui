@@ -71,6 +71,8 @@ class Session(QObject):
         #: The instrument whose trigger holds every plot, the others shown at
         #: the same moment by their clocks; None for each held by its own.
         self.lead: str | None = None
+        #: A channel's id -> the name it was given: "5V rail" for a Rigol's CH1.
+        self.labels: dict[str, str] = {}
 
     @classmethod
     def of(cls, capture: Capture, acquisition: Acquisition | None = None) -> Session:
@@ -123,11 +125,26 @@ class Session(QObject):
             for key, record in unit.capture.records.items()
         ]
 
-    def name_of(self, unit: Unit, channel: Channel) -> str:
-        """What to call a channel: with whose it is, when there is more than one to tell apart."""
-        if unit.short and len(self.shown()) > 1:
-            return f"{unit.short} {channel.name}"
-        return channel.name
+    def name_of(self, unit: Unit, channel: Channel, whose: bool = True) -> str:
+        """What to call a channel: with whose it is, when there is more than one to tell
+        apart -- unless ``whose`` is False, for a place that is one instrument's alone --
+        and the name it was given first, with which it is in brackets: "5V rail (CH1)"."""
+        own = channel.name
+        if whose and unit.short and len(self.shown()) > 1:
+            own = f"{unit.short} {own}"
+        given = self.labels.get(unit.id(channel.key))
+        return f"{given} ({own})" if given else own
+
+    def set_label(self, key: str, label: str) -> None:
+        """Give a channel, by its id, a name of its own; an empty one takes it away."""
+        label = " ".join(label.split())
+        if label == self.labels.get(key, ""):
+            return
+        if label:
+            self.labels[key] = label
+        else:
+            self.labels.pop(key, None)
+        self.channels_changed.emit()
 
     def clear(self) -> None:
         for unit in self.units.values():
