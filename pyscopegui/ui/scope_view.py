@@ -136,6 +136,11 @@ Y_ITEM_TIPS = (
 #: Above and below the range when the axis is the range, as a share of the
 #: whole of it, so a signal at full scale is not drawn on the edge of the plot.
 RANGE_MARGIN = 0.05
+#: Auto fits the axis again only when a trace has gone past it, or has come
+#: to take less than this share of it. Fitted every time it is drawn, it is
+#: never still: the ticks and their labels are worked out again for every
+#: frame, which took about as long as drawing the traces themselves.
+REFIT_BELOW = 0.5
 
 EXPORT_TIP = (
     "Write what the plot shows as CSV: every sample of the channels that are\n"
@@ -405,6 +410,12 @@ class ScopeView(QWidget):
         self._colours: dict[str, str] = {}
         #: Digital channel key -> the bottom of its lane.
         self._lanes: dict[str, float] = {}
+        #: The voltage axis as it was last seen, so that one set by hand is told
+        #: from one fitted here; whether it is being fitted now; and whether it
+        #: has been fitted to a signal since Auto was chosen.
+        self._y_seen: tuple[float, float] | None = None
+        self._y_fitting = False
+        self._y_fitted = False
         #: Channels unticked, kept by key so they stay hidden across a restart.
         saved = ctx.settings.get(f"{key}.hidden") if ctx is not None else None
         self._hidden: set[str] = {str(k) for k in saved} if isinstance(saved, list) else set()
@@ -722,7 +733,16 @@ class ScopeView(QWidget):
             and channel.full_scale > 0
         ]
         if choice == Y_AUTO or not reaches:
-            self.analog.enableAutoRange(axis=pg.ViewBox.YAxis)
+            # Fitted here, from what is drawn, and not by pyqtgraph every frame.
+            # Turning pyqtgraph's own off says the axis changed: not by hand.
+            self._y_fitting = True
+            try:
+                self.analog.getViewBox().disableAutoRange(axis=pg.ViewBox.YAxis)
+            finally:
+                self._y_fitting = False
+            self._y_seen = tuple(self.analog.getViewBox().viewRange()[1])
+            self._y_fitted = False
+            self._fit_y(again=True)
         else:
             low = min(low for low, _high in reaches)
             high = max(high for _low, high in reaches)
@@ -941,11 +961,53 @@ class ScopeView(QWidget):
         if self.y_mode.currentText() == MANUAL:
             self.y_mode.setCurrentText(Y_AUTO)
 
+    def _fit_y(self, again: bool = False) -> None:
+        """With Auto, fit the voltage axis to the traces drawn: when one has gone
+        past it, or they have come to take up too little of it, or ``again``.
+        Otherwise it is left as it is, so that a steady signal leaves it still."""
+        if self.y_mode.currentText() != Y_AUTO:
+            return
+        lows, highs = [], []
+        for key, curve in self._curves.items():
+            if key in self._hidden or key in self._lanes:
+                continue
+            values = curve.yData
+            if values is None or not len(values):
+                continue
+            with np.errstate(invalid="ignore"):
+                low, high = np.nanmin(values), np.nanmax(values)
+            if np.isfinite(low) and np.isfinite(high):
+                lows.append(float(low))
+                highs.append(float(high))
+        if not lows:
+            return
+        low, high = min(lows), max(highs)
+        (_x, (shown_low, shown_high)) = self.analog.getViewBox().viewRange()
+        span = shown_high - shown_low
+        past = low < shown_low or high > shown_high
+        small = span > 0 and (high - low) < REFIT_BELOW * span
+        if not (again or past or small or not self._y_fitted):
+            return
+        if high - low <= 1e-12:  # a flat line: a little either side of it
+            spare = max(abs(high) * RANGE_MARGIN, 1e-3)
+            low, high = low - spare, high + spare
+        self._y_fitting = True
+        try:
+            self.analog.setYRange(low, high, padding=RANGE_MARGIN)
+        finally:
+            self._y_fitting = False
+        self._y_seen = tuple(self.analog.getViewBox().viewRange()[1])
+        self._y_fitted = True
+
     def _on_y_state(self, *_args) -> None:
-        """Auto that has stopped fitting -- the right-click menu's Y axis, set by
-        hand -- is Manual now: held where it was put."""
-        fitting = self.analog.getViewBox().autoRangeEnabled()[1]
-        if self.y_mode.currentText() == Y_AUTO and not fitting:
+        """Auto whose axis has been set by hand -- the right-click menu's Y axis --
+        is Manual now: held where it was put."""
+        if self.y_mode.currentText() != Y_AUTO or self._y_fitting or self._y_seen is None:
+            return
+        if self.analog.getViewBox().autoRangeEnabled()[1]:
+            return  # pyqtgraph's own fitting, from its menu: still fitted to the signal
+        now = tuple(self.analog.getViewBox().viewRange()[1])
+        if not np.allclose(now, self._y_seen, rtol=1e-6, atol=1e-12):
             self.y_mode.setCurrentText(MANUAL)
 
     def _on_dragged(self, mask=None) -> None:
@@ -1357,6 +1419,7 @@ class ScopeView(QWidget):
             if key in self._lanes:
                 values = values.astype(np.float32) * LANE_HEIGHT + self._lanes[key]
             curve.setData(times, values)
+        self._fit_y()
 
     # --- writing it out -------------------------------------------------------------------
     def _ask_where(self, title: str, name: str, kinds: str) -> Path | None:

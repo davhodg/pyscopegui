@@ -23,6 +23,9 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **Y** at **Auto** fits the axis again only when a trace goes past it, or comes to take
+  less than half of it, rather than every time the plot is drawn: a steady signal leaves
+  the axis still, and the plot is drawn in about a tenth less time.
 - **Y** held at **Manual** goes back to **Auto** when another instrument is added, and the
   next time pyscopegui starts, so that new signals are fitted rather than held where the
   last ones were zoomed to. From one run to the next it stays where it was put, and Auto
