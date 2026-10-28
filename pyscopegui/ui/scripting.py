@@ -65,6 +65,7 @@ class Scripting:
                     "wait",
                     "trigger",
                     "channels",
+                    "rename",
                     "data",
                     "measure",
                     "maths",
@@ -251,6 +252,19 @@ class Scripting:
         scope.redraw()
         return list(scope._names.values())
 
+    def rename(self, channel: str, name: str = "") -> str:
+        """Give a channel a name of its own, as Rename... in the channel list does,
+        and give back what the plot now calls it: rename("CH1", "5V rail") is
+        "5V rail (CH1)". An empty name puts back what its instrument calls it.
+
+        ``channel`` is as data() takes it, or the name it was given before.
+        """
+        key = self._key(channel)
+        scope = self._window.scope
+        scope.rename(key, name)
+        scope.redraw()
+        return scope._names.get(key, channel)
+
     def data(self, channel: str) -> tuple[np.ndarray, np.ndarray]:
         """A channel's times and samples, all that is held of it, as numpy arrays.
 
@@ -333,8 +347,9 @@ class Scripting:
 
     def _key(self, channel: str) -> str:
         scope = self._window.scope
+        labels = self._window.session.labels
         for key, name in scope._names.items():
-            if name == channel or key == channel:
+            if channel in (name, key, labels.get(key)):
                 return key
         unit = self._window.unit
         chosen = unit.id(channel) if unit is not None else None

@@ -14,7 +14,8 @@ since the last version, and comes out in the next one.
 - **A channel can be given a name of its own**: right-click it in the list for
   **Rename...**. It is shown with which channel it is, *5V rail (CH1)*, on the plot, the
   cursors, Measurements, Data, the trigger's Source and the headings of an export, and is
-  kept with the workspace and in a saved capture.
+  kept with the workspace and in a saved capture. `rename("CH1", "5V rail")` does the same
+  from the Python Console or a script.
 - **Double-click a capture to open it**: captures are saved as `.pyscp`, a name of
   pyscopegui's own, and the installer offers to make pyscopegui what opens them, as *Tools >
   Settings > Open captures with pyscopegui* does however it was installed. On Windows it is
