@@ -263,7 +263,7 @@ from the trigger. Choosing a trigger, or going back to none, puts it back to **F
 
 | Y | The axis |
 |---|----------|
-| **Auto** | Fitted to what is being measured. What it is to start with |
+| **Auto** | Fitted to what is being measured, and fitted again when a trace goes past it or comes to take less than half of it: a steady signal leaves it still. What it is to start with |
 | **Range** | The range the channels are set to, as a scope's screen is: a small signal on a large range is then drawn small |
 | **Manual** | Held where it is, until you move it |
 

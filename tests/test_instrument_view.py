@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """The Instrument pane, and what the window does with a change made in it."""
 
+import numpy as np
 import pytest
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox
@@ -235,9 +236,65 @@ def y_mode(window, choice):
     window.scope.y_mode.setCurrentText(choice)
 
 
+def drawn_between(scope):
+    """The lowest and highest of the analog traces drawn."""
+    values = [
+        curve.yData
+        for key, curve in scope._curves.items()
+        if key not in scope._lanes and key not in scope._hidden and curve.yData is not None
+    ]
+    return min(float(np.nanmin(v)) for v in values), max(float(np.nanmax(v)) for v in values)
+
+
+def run_demo(window, seconds=0.2):
+    window.set_mode("auto")
+    window.instrument._started -= seconds
+    window.instrument._tick()
+    window.scope.redraw()
+
+
 def test_the_voltage_axis_fits_the_signal_to_start_with(window):
     assert window.scope.y_mode.currentText() == "Auto"
-    assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
+    run_demo(window)
+    low, high = drawn_between(window.scope)
+    shown_low, shown_high = y_range(window.scope)
+    assert shown_low <= low and high <= shown_high, "all of it in view"
+    assert (high - low) > 0.8 * (shown_high - shown_low), "and filling it"
+    window.stop()
+
+
+def test_auto_leaves_the_axis_still_while_the_signal_stays_in_it(window):
+    """Fitted every frame, the axis was never still, and drawing its ticks again
+    for each one took as long as the traces."""
+    run_demo(window)
+    fitted = y_range(window.scope)
+    for _ in range(5):
+        window.instrument._started -= 0.05
+        window.instrument._tick()
+        window.scope.redraw()
+    assert y_range(window.scope) == fitted
+    window.stop()
+
+
+def test_auto_fits_again_when_the_signal_goes_past_or_shrinks(window):
+    scope = window.scope
+    run_demo(window)
+    low, high = drawn_between(scope)
+    curve = next(c for k, c in scope._curves.items() if k not in scope._lanes)
+    # Twice as tall: past the axis.
+    curve.setData(curve.xData, curve.yData * 2)
+    scope._fit_y()
+    shown_low, shown_high = y_range(scope)
+    assert shown_high >= 2 * high - 1e-9 and shown_low <= 2 * low + 1e-9
+    # A tenth of that: lost in the middle of it.
+    for key, each in scope._curves.items():
+        if key not in scope._lanes:
+            each.setData(each.xData, each.yData * 0.05)
+    scope._fit_y()
+    small_low, small_high = drawn_between(scope)
+    assert (small_high - small_low) > 0.8 * (y_range(scope)[1] - y_range(scope)[0])
+    assert scope.y_mode.currentText() == "Auto", "fitted here, not set by hand"
+    window.stop()
 
 
 def test_range_is_the_largest_range_shown(window, monkeypatch, app):
@@ -255,7 +312,8 @@ def test_range_is_the_largest_range_shown(window, monkeypatch, app):
     low, high = y_range(window.scope)
     assert -1.15 < low < -1 and 1 < high < 1.15
     y_mode(window, "Auto")
-    assert window.scope.analog.getViewBox().autoRangeEnabled()[1]
+    window.scope.redraw()
+    assert window.scope.y_mode.currentText() == "Auto", "fitting it is not setting it by hand"
     window.stop()
 
 
