@@ -222,3 +222,24 @@ def test_every_command_says_what_it_does(names):
 
 def test_the_demo_has_the_channels_the_examples_use():
     assert "A: sine" in [channel.name for channel in demo.CHANNELS]
+
+
+def test_rename_gives_a_channel_a_name_and_back(names, window):
+    names["run"]("auto")
+    # Until something is held, however busy the computer, as test_exports does.
+    deadline = time.monotonic() + 10
+    while not window.capture.stored() and time.monotonic() < deadline:
+        names["wait"](0.05)
+    names["stop"]()
+    assert names["rename"]("A", "5V rail") == "5V rail (A: sine)"
+    assert window.session.labels == {"demo:A": "5V rail"}
+    assert "5V rail (A: sine)" in names["channels"]()
+    times, samples = names["data"]("5V rail")  # found by the name it was given
+    assert len(times) == len(samples) > 0
+    assert names["rename"]("5V rail", "") == "A: sine"
+    assert window.session.labels == {}
+
+
+def test_rename_says_which_channels_there_are(names):
+    with pytest.raises(ScriptError, match="No channel 'Nowhere'"):
+        names["rename"]("Nowhere", "x")

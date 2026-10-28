@@ -31,6 +31,7 @@ is taken.
 | `read()` | **Read**, for a scope read as it is, and waits for it |
 | `trigger("CH1", level=0.5, rising=True, position=0.5)` | The chosen instrument's trigger. `None` for no trigger |
 | `channels()` | Every channel's name, as the plot gives it |
+| `rename("CH1", "5V rail")` | A [name of its own](plot.md) for a channel, as *Rename...* gives it: shown as *5V rail (CH1)*, and kept with the workspace. Gives what the plot now calls it; `""` puts back the instrument's own. The channel can be named by the name it was given, too |
 | `data("Rigol CH1")` | A channel's times and samples, all that is held of it, as numpy arrays |
 | `maths("CH1", "-", "CH2")` | A [maths channel](plot.md) of the chosen instrument: `"+"`, `"-"`, `"*"` or `"/"`. Of one channel: `maths("CH1", "ddt")`, with `"neg"`, `"abs"`, `"sq"`, `"sqrt"`, `"ddt"` or `"int"`; `maths("CH1", "scale", k=10, c=0, unit="A")`; `maths("CH1", "avg", over=1e-3)`. Gives its name |
 | `measure("Rigol CH1")` | What the [Measurements](plot.md) pane says of it, as numbers: `["frequency"]`, `["rms"]` and the rest |
