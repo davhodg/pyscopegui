@@ -148,10 +148,33 @@ def missing_xcb_packages(load=None) -> list[str]:
     return missing
 
 
-def files_given(arguments: list[str]) -> list[Path]:
-    """The files pyscopegui was started with -- a capture double-clicked in the
-    file manager -- from what is left once Qt has taken its own arguments."""
-    return [Path(arg).resolve() for arg in arguments[1:] if arg and not arg.startswith("-")]
+def tell(text: str, problem: bool) -> int:
+    """Say something about the command line before there is a window: on the
+    terminal if there is one, or in a message box if there is not -- pip's
+    launcher and the installed pyscopegui.exe have none."""
+    stream = sys.stderr if problem else sys.stdout
+    if stream is not None:
+        stream.write(text + "\n")
+    else:
+        from pyscopegui.ui import messages
+
+        (messages.critical if problem else messages.information)(None, APP_NAME, text)
+    return 2 if problem else 0
+
+
+def run_when_started(windows, script: Path, stay: bool, ran: dict) -> None:
+    """Run ``--run``'s script once the window is up, then close it, unless
+    ``stay``. The exit code is kept for main to return."""
+    from PySide6.QtCore import QTimer
+
+    def run() -> None:
+        window = windows.window
+        ran["exit code"] = window.run_script(script)
+        if not stay:
+            window.close()
+
+    # Once the event loop has the window on screen, not while it is being built.
+    QTimer.singleShot(0, run)
 
 
 def main() -> int:
@@ -168,6 +191,15 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)  # QSettings uses these two for the registry/ini path
     set_icon(app)
+    from pyscopegui.core import cli
+
+    options = cli.parse(sys.argv)
+    if options.help or options.problem:
+        return tell(options.problem or cli.USAGE, problem=bool(options.problem))
+    if options.workspace:
+        from pyscopegui.core import workspaces
+
+        workspaces.use(options.workspace)
     # Before anything is drawn, so the window opens in the colours chosen.
     from pyscopegui.ui import theme
 
@@ -177,11 +209,10 @@ def main() -> int:
     # goes to that one, and this one has nothing more to do.
     from pyscopegui.ui import handoff
 
-    files = files_given(app.arguments())
-    if files and handoff.hand_over(files):
+    if options.hand_over and handoff.hand_over(options.files):
         return 0
     listener = handoff.Listener(parent=app)
-    listener.waiting += files
+    listener.waiting += options.files
 
     # Imported here rather than at the top of the file so that a library
     # which is not installed becomes a dialog. Started from pyscopegui.cmd
@@ -205,9 +236,12 @@ def main() -> int:
     windows.open()
     # The window of the moment: switching workspace replaces it.
     listener.deliver(lambda paths: windows.window and windows.window.open_files(paths))
+    ran: dict = {}
+    if options.run is not None:
+        run_when_started(windows, options.run, options.stay, ran)
     finished = app.exec()
     listener.close()
-    return finished
+    return ran.get("exit code", finished)
 
 
 def why_it_cannot_start(failed: BaseException) -> str:

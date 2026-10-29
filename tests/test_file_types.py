@@ -108,10 +108,10 @@ def test_tools_settings_registers_them(app, tmp_path, monkeypatch):
 
 # --- started with a file --------------------------------------------------------------------
 def test_the_files_are_what_is_not_an_option(tmp_path):
-    from pyscopegui.__main__ import files_given
+    from pyscopegui.core import cli
 
-    given = files_given(["pyscopegui", str(tmp_path / "shot.pyscp"), "--selftest", ""])
-    assert given == [(tmp_path / "shot.pyscp").resolve()]
+    given = cli.parse(["pyscopegui", str(tmp_path / "shot.pyscp"), "--selftest", ""])
+    assert given.files == [(tmp_path / "shot.pyscp").resolve()] and given.hand_over
 
 
 def test_a_capture_given_is_opened_and_the_window_brought_forward(window, tmp_path, app):

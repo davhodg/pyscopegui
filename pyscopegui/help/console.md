@@ -67,6 +67,34 @@ is done. Use `wait` instead.
 A loop of commands holds the window as long as it runs, between its waits; so does anything
 slow of your own.
 
+## From the command line
+
+A script can be run as pyscopegui starts, to take the same measurement the same way each time
+-- from a batch file, a test bench, or a CI job:
+
+```
+pyscopegui --run measure.py
+```
+
+The window opens as it always does, the script runs with the same names as one run here,
+and pyscopegui closes when it is done. What it prints goes to the
+[Event Log](event-log.md), and to the terminal when there is one. The exit code is the
+script's: 0 when it runs to its end, `n` for `sys.exit(n)`, and 1 for an exception, a
+failed `assert` or `sys.exit("a message")`, so whatever started it can tell whether it
+passed.
+
+| Option | What it does |
+|--------|--------------|
+| `--run SCRIPT` | Runs the script once the window is up, then closes |
+| `--stay` | With `--run`: leaves the window open when the script is done, to look at what it did |
+| `--workspace NAME` | Opens that [workspace](files.md), this time only: the next start opens the one it would have |
+| `FILE` | A capture or a CSV to open. Given alone, it goes to the pyscopegui already open, as a double-click does |
+| `--help` | Says all this |
+
+A mistake on the command line -- an option it does not know, a script or a workspace that is
+not there -- is said before anything opens, and nothing is run. The options are the same as
+pycangui's.
+
 ## What a script can do
 
 A script run here can do whatever Python can, as you: that is what it is for. Run only
