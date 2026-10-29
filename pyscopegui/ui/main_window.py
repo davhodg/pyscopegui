@@ -34,7 +34,15 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
-from pyscopegui.core import capture_file, decoding, file_types, memory, shortcut, workspaces
+from pyscopegui.core import (
+    capture_file,
+    decoding,
+    file_types,
+    memory,
+    script_run,
+    shortcut,
+    workspaces,
+)
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
@@ -670,6 +678,17 @@ class MainWindow(QMainWindow):
         ran = [unit for unit in self._in_use() if unit is chosen or unit.wanted_open]
         self.instrument_bar.set_triggered(not ran or not all(self._as_is(u) for u in ran))
         self.trigger_bar.show_usable()
+
+    def run_script(self, path: Path) -> int:
+        """Run a script given with ``--run``, with what the Python Console has, saying
+        so in the Event Log. Returns its exit code."""
+        self.events.information(f"Running {path}")
+        code = script_run.run(
+            path, Scripting(self).names(), self.events.information, self.events.warning
+        )
+        said = self.events.good if code == 0 else self.events.error
+        said(f"{path.name} finished: exit code {code}")
+        return code
 
     def run_script_in_console(self, path: str) -> None:
         """File > Run script... and Recent scripts: in the console, shown, so

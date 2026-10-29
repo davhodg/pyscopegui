@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **`pyscopegui --run script.py`** runs a script as pyscopegui starts, with what the Python
+  Console has, then closes with the script's exit code: 0, `sys.exit(n)`'s `n`, or 1 for an
+  exception. `--stay` leaves the window open afterwards, and `--workspace NAME` opens a
+  workspace for that run only. The same options as pycangui's.
 - **A channel can be given a name of its own**: right-click it in the list for
   **Rename...**. It is shown with which channel it is, *5V rail (CH1)*, on the plot, the
   cursors, Measurements, Data, the trigger's Source and the headings of an export, and is
