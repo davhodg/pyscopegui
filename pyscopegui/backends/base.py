@@ -176,6 +176,10 @@ class Block:
     #: Logic input's key -> (its port's key in ``data``, its bit), for inputs
     #: sent packed: see Channel.port.
     bits: dict[str, tuple[str, int]] = field(default_factory=dict)
+    #: When sample nought was, on the computer's clock, for an instrument that
+    #: knows it exactly -- pycangui's signals come with their times -- rather
+    #: than its being worked out from when blocks arrive. None where it does not.
+    zero: float | None = None
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))

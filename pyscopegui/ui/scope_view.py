@@ -1140,11 +1140,11 @@ class ScopeView(QWidget):
             values = curve.yData
             if values is None or not len(values):
                 continue
-            with np.errstate(invalid="ignore"):
-                low, high = np.nanmin(values), np.nanmax(values)
-            if np.isfinite(low) and np.isfinite(high):
-                lows.append(float(low))
-                highs.append(float(high))
+            # Nothing to fit to in a gap: a signal before its first value is all gap.
+            values = values[np.isfinite(values)]
+            if len(values):
+                lows.append(float(values.min()))
+                highs.append(float(values.max()))
         if not lows:
             return
         low, high = min(lows), max(highs)

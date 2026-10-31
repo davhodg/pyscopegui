@@ -50,6 +50,11 @@ class SampleClock:
     def saw(self, block: Block, arrived: float | None = None) -> None:
         """A block arrived, now or at this time on the computer's clock."""
         arrived = now() if arrived is None else arrived
+        if block.zero is not None:
+            # Known exactly, so nothing to work out from when it arrived.
+            self._seen.clear()
+            self.zero = block.zero
+            return
         if block.sweep:
             # Complete in itself, and numbered from its own start.
             self._seen.clear()

@@ -18,6 +18,7 @@
 ## Instruments
 
 - [PicoScope 2000 series](picoscope.md) --- the 2202 to 2205A, the 2206 to 2408B and the MSOs, their logic inputs and signal generator
+- [pycangui signals](pycangui.md) --- the signals pycangui decodes from a CAN bus, as channels
 - [Rigol DS1000Z](rigol.md) --- Rigol's DS1000Z and MSO1000Z scopes, over the network or USB
 - [Tektronix TDS and TPS 2000](tektronix.md) --- Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port or USB
 

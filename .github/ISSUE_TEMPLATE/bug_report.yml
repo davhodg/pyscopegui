@@ -37,10 +37,11 @@ body:
       label: Instrument
       options:
         - None -- Demo signals
-        - PicoScope 2000 series on the ps2000 driver (2204A and the like)
-        - PicoScope 2000 series on the ps2000a driver (2206B, 2206B MSO, 2406B and the like)
-        - Rigol DS1000Z series (DS1054Z and the like)
-        - Tektronix TDS or TPS 2000 series, on a serial port
+        - PicoScope 2202 to 2205A
+        - PicoScope 2206 to 2408B, and MSOs
+        - pycangui signals
+        - Rigol DS1000Z series
+        - Tektronix TDS/TPS 2000 series, on a serial port or USB
         - Another -- say which above
     validations:
       required: true

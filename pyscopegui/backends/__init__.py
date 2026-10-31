@@ -52,6 +52,9 @@ BACKENDS: dict[str, Backend] = {
         "PicoScope 2206 to 2408B, and MSOs",
         "ps2000a",
     ),
+    "pycangui": Backend(
+        "pyscopegui.backends.pycangui", "PycanguiSignals", "pycangui signals", "pycangui"
+    ),
     "rigol1000z": Backend(
         "pyscopegui.backends.rigol1000z", "Rigol1000Z", "Rigol DS1000Z series", "Rigol"
     ),

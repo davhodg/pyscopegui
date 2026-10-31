@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **pycangui signals**, under *Add instrument*: the signals pycangui decodes from a CAN bus
+  and sends over UDP multicast, a channel each, in their own units, each value placed at
+  the time of its frame on the clock the instruments are lined up by. A step at each new
+  value, read out at a steady rate, so a signal can be triggered on, measured and exported
+  like any channel (#1).
 - **A second voltage axis, Y2**, on the right of the plot, with a scale of its own: a
   channel in amps, or a maths channel in a unit of its own, goes on it by itself, and
   **Plot on Y2** in the channel list puts any channel there, kept with the workspace. **Y**

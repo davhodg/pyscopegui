@@ -45,6 +45,7 @@ PAGES = (
     "plot.md",
     "instruments.md",
     "picoscope.md",
+    "pycangui.md",
     "rigol.md",
     "tektronix.md",
     "event-log.md",
