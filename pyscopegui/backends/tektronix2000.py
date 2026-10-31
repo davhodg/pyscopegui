@@ -324,9 +324,11 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
                 "Enabled",
                 number == 1,
                 group=group,
+                needs=("read", SET_UP),
                 tip=(
                     f"Whether channel {number} is read. Set up from here, it is also\n"
-                    "switched on or off on the scope."
+                    "switched on or off on the scope. Read as it is, the channels read\n"
+                    "are the ones the scope is showing."
                 ),
             ),
             Setting(
@@ -646,6 +648,10 @@ class Scope:
         #: What the scope said it is, and how many channels that has.
         self.model = ""
         self.channels = 4
+        #: Read as it is: the channels the scope is showing, and whether that has
+        #: changed since pyscopegui was last told.
+        self.shown: list[str] = []
+        self.view_changed = False
         self.running = False
         #: (text, whether it is a warning), for whoever is listening.
         self.notes: list[tuple[str, bool]] = []
@@ -697,6 +703,9 @@ class Scope:
         self.model = parts[1]
         self.channels = channels_of(self.model)
         self.notes.append((f"{parts[0]} {self.model}: {self.channels} channels.", False))
+        if self.settings.as_is:
+            # Before the first reading, which its channels are made for.
+            self.read_view()
         if not re.match(r"T[DP]S ?[12]\d\d", self.model):
             self.notes.append(
                 (
@@ -742,6 +751,7 @@ class Scope:
         self._read_once = False
         self.running = True
         if settings.as_is:
+            self.read_view()
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
             return
         if not self._set_up():
@@ -858,6 +868,13 @@ class Scope:
         """Whether a channel is on the scope's screen: it has no waveform to send if not."""
         return self._link.ask(f"SELECT:{key}?") in ("1", "ON")
 
+    def read_view(self) -> None:
+        """Which channels the scope is showing: read as it is, they are the ones read."""
+        shown = [key for key in CHANNELS[: self.channels] if self._shown(key)]
+        if shown != self.shown:
+            self.view_changed = True
+        self.shown = shown
+
     def _read(self) -> Block:
         settings, link = self.settings, self._link
         data: dict[str, np.ndarray] = {}
@@ -867,9 +884,11 @@ class Scope:
         link.write("DATA:START 1")
         link.write(f"DATA:STOP {POINTS}")
         keys = settings.keys(self.channels)
+        if settings.as_is:
+            # Read as it is, the channels are the ones the scope is showing, now.
+            self.read_view()
+            keys = self.shown
         for number, key in enumerate(keys, start=1):
-            if settings.as_is and not self._shown(key):
-                continue
             self.doing(
                 f"reading {key} ({number} of {len(keys)})" if len(keys) > 1 else f"reading {key}"
             )
@@ -896,8 +915,7 @@ class Scope:
         shortest = min((len(samples) for samples in data.values()), default=0)
         if not shortest:
             raise ScopeError(
-                "None of the channels ticked here is on the scope's screen, so there was "
-                "nothing to read."
+                "The scope is showing none of its channels, so there was nothing to read."
             )
         data = {key: samples[:shortest] for key, samples in data.items()}
         if not self._said_reading:
@@ -940,6 +958,8 @@ class _Reader(QThread):
     doing = Signal(str)
     started_run = Signal(int)
     stopped_run = Signal(int)
+    #: Read as it is, the scope is showing other channels than it was.
+    view_changed = Signal()
 
     def __init__(self, scope: Scope, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -962,6 +982,9 @@ class _Reader(QThread):
         notes, self._scope.notes = self._scope.notes, []
         for text, is_warning in notes:
             (self.warning if is_warning else self.note).emit(text)
+        if self._scope.view_changed:
+            self._scope.view_changed = False
+            self.view_changed.emit()
 
     def run(self) -> None:
         scope = self._scope
@@ -1090,7 +1113,11 @@ class Tektronix2000(Instrument):
                 group=f"Channel {key[2:]}",
                 colour=COLOURS.get(key, ""),
             )
-            for key in settings.keys(self._channels)
+            for key in (
+                (list(self._scope.shown) if self._scope is not None else [])
+                if settings.as_is
+                else settings.keys(self._channels)
+            )
         ]
 
     def _detail(self, key: str) -> str:
@@ -1134,6 +1161,7 @@ class Tektronix2000(Instrument):
         reader.doing.connect(self.activity)
         reader.started_run.connect(self._on_started)
         reader.stopped_run.connect(self._on_stopped)
+        reader.view_changed.connect(self._on_view_changed)
         reader.finished.connect(self._on_finished)
         self._reader = reader
         reader.start()
@@ -1149,6 +1177,10 @@ class Tektronix2000(Instrument):
     @property
     def model(self) -> str:
         return self._scope.model if self._scope is not None else ""
+
+    def _on_view_changed(self) -> None:
+        if self.settings.as_is:
+            self.channels_changed.emit()
 
     def _on_opened(self, channels: int) -> None:
         self._is_open = True

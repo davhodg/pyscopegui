@@ -69,6 +69,11 @@ CHUNK = 250_000
 
 SCREEN = "screen"
 MEMORY = "memory"
+#: Set up from here and run from here, or read as the scope was set up at the bench.
+SET_UP, AS_IS = "setup", "asis"
+_ONLY_SET_UP = "\nUsed when the scope is set up from here, and not when it is read as it is."
+#: What the scope says a channel is measured in, as :CHANn:UNIT? answers.
+SCOPE_UNITS = {"VOLT": "V", "AMP": "A", "WATT": "W", "UNKN": ""}
 LAN, USB = "lan", "usb"
 #: Rigol's number as a maker of USB devices, as a VISA resource names it:
 #: in hexadecimal, or by some libraries in decimal.
@@ -196,6 +201,19 @@ def make_settings() -> tuple[Setting, ...]:
             ),
         ),
         Setting(
+            "control",
+            "Control",
+            SET_UP,
+            choices=((SET_UP, "Set it up from here"), (AS_IS, "As it is, set up on the scope")),
+            group="Sampling",
+            tip=(
+                "Set up from here, the scope is put as this pane says and the trigger\n"
+                "toolbar is its trigger. As it is, nothing on the scope is changed:\n"
+                "set it up and trigger it at the bench, and Read takes what it shows --\n"
+                "its screen, or every point in its memory -- with its own scales."
+            ),
+        ),
+        Setting(
             "read",
             "Reading",
             SCREEN,
@@ -214,7 +232,8 @@ def make_settings() -> tuple[Setting, ...]:
             choices=tuple((t, _engineering(t, "s/div")) for t in TIMES),
             group="Sampling",
             live=True,
-            tip="Seconds a division, of the twelve across the scope's screen.",
+            needs=("control", SET_UP),
+            tip="Seconds a division, of the twelve across the scope's screen." + _ONLY_SET_UP,
         ),
         Setting(
             "acquire",
@@ -223,11 +242,13 @@ def make_settings() -> tuple[Setting, ...]:
             choices=ACQUISITIONS,
             group="Sampling",
             live=True,
+            needs=("control", SET_UP),
             tip=(
                 "How the scope makes each point from the samples it takes.\n"
                 "Normal keeps one sample for each. High resolution averages the\n"
                 "samples either side, which is quieter and slower to follow an edge.\n"
                 "Peak detect keeps the lowest and highest, so nothing narrow is missed."
+                + _ONLY_SET_UP
             ),
         ),
     ]
@@ -239,7 +260,11 @@ def make_settings() -> tuple[Setting, ...]:
                 "Enabled",
                 number == 1,
                 group=group,
-                tip=f"Whether channel {number} is on, and read.",
+                needs=("control", SET_UP),
+                tip=(
+                    f"Whether channel {number} is on, and read. Read as it is, the\n"
+                    "channels read are the ones the scope is showing."
+                ),
             ),
             Setting(
                 f"scale_{number}",
@@ -248,6 +273,7 @@ def make_settings() -> tuple[Setting, ...]:
                 choices=tuple((v, _engineering(v, "V/div")) for v in SCALES),
                 group=group,
                 live=True,
+                needs=("control", SET_UP),
                 tip="Volts a division, of the eight up the scope's screen, with the probe counted.",
             ),
             Setting(
@@ -261,11 +287,18 @@ def make_settings() -> tuple[Setting, ...]:
                 step=0.1,
                 group=group,
                 live=True,
+                needs=("control", SET_UP),
                 beside=f"scale_{number}",
                 tip="Added to the signal before it is drawn: it moves nought volts up the screen.",
             ),
             Setting(
-                f"coupling_{number}", "Coupling", "DC", choices=COUPLINGS, group=group, live=True
+                f"coupling_{number}",
+                "Coupling",
+                "DC",
+                choices=COUPLINGS,
+                group=group,
+                live=True,
+                needs=("control", SET_UP),
             ),
             Setting(
                 f"limit_{number}",
@@ -273,13 +306,14 @@ def make_settings() -> tuple[Setting, ...]:
                 False,
                 group=group,
                 live=True,
+                needs=("control", SET_UP),
                 beside=f"coupling_{number}",
                 tip=(
                     "Leave out what is above 20 MHz, which for a slow signal is\n"
                     "noise. Off, the channel has the scope's full bandwidth."
                 ),
             ),
-            *probes.settings(str(number), group),
+            *probes.settings(str(number), group, needs=("control", SET_UP), tip=_ONLY_SET_UP),
         ]
     return tuple(made)
 
@@ -308,6 +342,8 @@ class Settings:
         self.usb = options.get("connection") == USB
         self.usb_device = str(options.get("usb") or "").strip()
         self.memory = options.get("read") == MEMORY
+        #: Read what the scope shows, as it was set up at the bench, and change nothing.
+        self.as_is = options.get("control") == AS_IS
         self.time_div = _nearest(options.get("time_div"), TIMES, 1e-3)
         acquire = options.get("acquire")
         self.acquire = acquire if acquire in dict(ACQUISITIONS) else "NORM"
@@ -637,6 +673,14 @@ class Scope:
         self._beeper_silenced = False
         #: When it was last asked anything, stopped: see check_there.
         self._heard = 0.0
+        #: Read as it is: the channels the scope is showing, what it says each is
+        #: in, whether either has changed since pyscopegui was last told, and
+        #: whether the reading asked for has been taken.
+        self.shown: list[str] = []
+        self.units: dict[str, str] = {}
+        self.view_changed = False
+        self._read_once = False
+        self._said_stopping = False
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -672,14 +716,39 @@ class Scope:
                     True,
                 )
             )
+        if self.settings.as_is:
+            # Before the first reading, which its channels are made for.
+            self.read_view()
 
     # --- running ---------------------------------------------------------------------------
     def start(self, settings: Settings, trigger: Trigger) -> None:
         self.settings, self.trigger = settings, trigger
         self._said_reading = False
+        self._read_once = False
+        if settings.as_is:
+            # Set up at the bench: nothing is sent, and what was sent before is
+            # not what the scope has now, so all of it goes again when it is.
+            self._sent.clear()
+            self.read_view()
+            self.running = True
+            self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
+            return
         self._set_up()
         self.running = True
         self._arm()
+
+    def read_view(self) -> None:
+        """Which channels the scope is showing -- they are the ones read, as it is --
+        and what it says each is in: volts, or amps for a current probe."""
+        shown, units = [], {}
+        for key in CHANNELS:
+            if self._link.ask(f":CHAN{key[2:]}:DISP?").strip() in ("1", "ON"):
+                shown.append(key)
+                said = self._link.ask(f":CHAN{key[2:]}:UNIT?").strip().upper()
+                units[key] = SCOPE_UNITS.get(said, "V")
+        if (shown, units) != (self.shown, self.units):
+            self.view_changed = True
+        self.shown, self.units = shown, units
 
     def _set_up(self) -> None:
         """Send whatever of the setup is not what was last sent."""
@@ -738,9 +807,12 @@ class Scope:
             settings, self.wanted = self.wanted or self.settings, None
             trigger, self.wanted_trigger = self.wanted_trigger or self.trigger, None
             self.settings, self.trigger = settings, trigger
-            self._set_up()
-            self._arm()
+            if not settings.as_is:
+                self._set_up()
+                self._arm()
             return None
+        if self.settings.as_is:
+            return self._poll_as_is()
         waited = self._clock() - self._armed_at
         if waited < SETTLE_S:
             return None
@@ -767,11 +839,52 @@ class Scope:
         self._arm()
         return block
 
+    def _poll_as_is(self) -> Block | None:
+        """What the scope shows, read once for Read -- and again and again for Auto.
+
+        Its memory can be read only while it is stopped. One left running is
+        stopped for as long as that takes, and set running again after, so it
+        is as it was found."""
+        if self._read_once and not self.trigger.auto:
+            return None  # read, and nothing more asked for
+        stopped_here = False
+        if self.settings.memory and self._link.ask(":TRIG:STAT?") != "STOP":
+            self._link.write(":STOP")
+            stopped_here = True
+            if not self._said_stopping:
+                self._said_stopping = True
+                self.notes.append(
+                    (
+                        "The scope was running: it is stopped while its memory is read, "
+                        "and set running again after. Stop it at the bench, or press "
+                        "Single there, to read just what it caught.",
+                        False,
+                    )
+                )
+        try:
+            block = self._read()
+        except (NotReadyError, GivenUpError):
+            return None
+        finally:
+            if stopped_here:
+                self._link.write(":RUN")
+        self._read_once = True
+        return block
+
     def _read(self) -> Block:
         settings, link = self.settings, self._link
         data: dict[str, np.ndarray] = {}
         rate, at = 0.0, None
-        for key in settings.keys():
+        keys = settings.keys()
+        if settings.as_is:
+            # Read as it is, the channels are the ones the scope is showing, now.
+            self.read_view()
+            keys = self.shown
+            if not keys:
+                raise ScopeError(
+                    "The scope is showing none of its channels, so there was nothing to read."
+                )
+        for key in keys:
             link.write(f":WAV:SOUR CHAN{key[2:]}")
             link.write(":WAV:MODE RAW" if settings.memory else ":WAV:MODE NORM")
             link.write(":WAV:FORM BYTE")
@@ -796,8 +909,10 @@ class Scope:
                 link.write(f":WAV:STOP {points}")
                 raw = link.ask_bytes(":WAV:DATA?")
             counts = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
-            # Volts at the probe's tip; amps, through a current probe.
-            y_step *= settings.probe[key].from_scope
+            if not settings.as_is:
+                # Volts at the probe's tip; amps, through a current probe. Read
+                # as it is, the scope has counted its own probe already.
+                y_step *= settings.probe[key].from_scope
             data[key] = (counts - (y_origin + y_reference)) * np.float32(y_step)
             rate = 1.0 / x_step
             # Nought on the scope's time axis is its trigger.
@@ -811,6 +926,11 @@ class Scope:
             self.notes.append(
                 (f"Sweeps of {shortest} points at {rate:,.0f} a second, from each channel.", False)
             )
+        if settings.as_is:
+            # Whatever the scope triggered on is its own business: where, it says.
+            if at is None or not 0 <= at < shortest:
+                return Block(0, rate, data, sweep=True)
+            return Block(0, rate, data, sweep=True, trigger=at, triggered=True)
         if not waits(settings, self.trigger) or at is None or not 0 <= at < shortest:
             return Block(0, rate, data, sweep=True)
         return Block(0, rate, data, sweep=True, trigger=at, triggered=not self._forced)
@@ -873,6 +993,8 @@ class _Reader(QThread):
     opened = Signal(str)
     started_run = Signal(int)
     stopped_run = Signal(int)
+    #: Read as it is, the scope is showing other channels than it was.
+    view_changed = Signal()
 
     def __init__(self, scope: Scope, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -888,6 +1010,9 @@ class _Reader(QThread):
         notes, self._scope.notes = self._scope.notes, []
         for text, is_warning in notes:
             (self.warning if is_warning else self.note).emit(text)
+        if self._scope.view_changed:
+            self._scope.view_changed = False
+            self.view_changed.emit()
 
     def run(self) -> None:
         scope = self._scope
@@ -963,7 +1088,11 @@ class Rigol1000Z(Instrument):
         )
         scope = self._scope
         said = scope.model if scope is not None and scope.model else "not opened"
-        return [f"connection: {where}", f"scope: {said}; sweeps at {self._sweep_rate:,.0f} S/s"]
+        how = "as it is, set up on the scope" if settings.as_is else "set up from here"
+        return [
+            f"connection: {where}",
+            f"scope: {said}; sweeps at {self._sweep_rate:,.0f} S/s; read {how}",
+        ]
 
     def triggers_itself(self, condition: Condition, source: str | None) -> bool:
         return triggers_itself(condition, source, self.settings.keys())
@@ -993,20 +1122,41 @@ class Rigol1000Z(Instrument):
             self._scope.wanted = self.settings
 
     def channels(self) -> list[Channel]:
+        settings = self.settings
+        if settings.as_is:
+            # The channels the scope is showing, with its own scales, which are
+            # not known here: only its units.
+            scope = self._scope
+            units = scope.units if scope is not None else {}
+            return [
+                Channel(
+                    key,
+                    key,
+                    unit=units.get(key, "V"),
+                    detail="as the scope has it",
+                    group=f"Channel {key[2:]}",
+                    colour=COLOURS.get(key, ""),
+                )
+                for key in (list(scope.shown) if scope is not None else [])
+            ]
         return [
             Channel(
                 key,
                 key,
-                unit=self.settings.probe[key].unit,
-                full_scale=self.settings.scale[key] * UP / 2,
+                unit=settings.probe[key].unit,
+                full_scale=settings.scale[key] * UP / 2,
                 # The offset moves nought up the screen: the middle is minus it.
-                middle=-self.settings.offset[key],
+                middle=-settings.offset[key],
                 detail=self._detail(key),
                 group=f"Channel {key[2:]}",
                 colour=COLOURS.get(key, ""),
             )
-            for key in self.settings.keys()
+            for key in settings.keys()
         ]
+
+    @property
+    def reads_as_is(self) -> bool:
+        return self.settings.as_is
 
     def _detail(self, key: str) -> str:
         settings = self.settings
@@ -1046,6 +1196,7 @@ class Rigol1000Z(Instrument):
         reader.opened.connect(self._on_opened)
         reader.started_run.connect(self._on_started)
         reader.stopped_run.connect(self._on_stopped)
+        reader.view_changed.connect(self._on_view_changed)
         reader.finished.connect(self._on_finished)
         self._reader = reader
         reader.start()
@@ -1055,6 +1206,10 @@ class Rigol1000Z(Instrument):
             return
         self._reader.ask("close")
         self._reader.wait(int((CONNECT_S + ANSWER_S) * 1000) + 2000)
+
+    def _on_view_changed(self) -> None:
+        if self.settings.as_is:
+            self.channels_changed.emit()
 
     @property
     def model(self) -> str:

@@ -229,6 +229,10 @@ class Instrument(QObject):
     note = Signal(str)
     #: It is still running, but what it is sending is not what was asked for.
     warning = Signal(str)
+    #: The channels it has are not the ones there were -- a scope read as it is
+    #: showing others, pycangui sending other signals -- and are to be made again:
+    #: a run in progress starts again with them.
+    channels_changed = Signal()
     #: What it is busy with at this moment, in a few words, for an instrument
     #: slow enough that a silence looks like a fault: "reading CH2 (2 of 4)".
     #: Empty when it is busy with nothing in particular.

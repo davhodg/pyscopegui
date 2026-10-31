@@ -105,6 +105,14 @@ def test_the_tektronix_is_told_1x_for_a_ratio_the_older_ones_have_not_got():
     assert tek.setup(tek.Settings({"probe_1": 100}), tek.Trigger())["CH1:PROBE"] == "100"
 
 
+def showing_ch1(instrument):
+    """A Tektronix read as it is, as though it had been opened showing CH1 alone."""
+    from types import SimpleNamespace
+
+    instrument._scope = SimpleNamespace(shown=["CH1"], model="")
+    return instrument
+
+
 def test_the_channel_says_it_is_in_amps(app):
     from pyscopegui import backends
 
@@ -114,8 +122,8 @@ def test_the_channel_says_it_is_in_amps(app):
         assert channel.unit == "A" and channel.full_scale == pytest.approx(2.0)
         assert channel.detail.startswith("500 mA/div, 100 mV/A, DC")
         assert "offset 1 A" in channel.detail
-    as_is = backends.create("tektronix2000", None, options | {"read": tek.AS_IS}).channels()[0]
-    assert as_is.unit == "V", "read as it is, the scope's own probe setting is all there is"
+    as_is = showing_ch1(backends.create("tektronix2000", None, options | {"read": tek.AS_IS}))
+    assert as_is.channels()[0].unit == "V", "read as it is, the scope's own probe is all there is"
 
 
 def test_an_offset_moves_the_middle_of_what_a_channel_reads(app):
@@ -124,7 +132,8 @@ def test_an_offset_moves_the_middle_of_what_a_channel_reads(app):
     for name in ("rigol1000z", "tektronix2000"):
         channel = backends.create(name, None, {"offset_1": 2.0}).channels()[0]
         assert channel.middle == -2.0, name
-    as_is = backends.create("tektronix2000", None, {"offset_1": 2.0, "read": tek.AS_IS})
+    options = {"offset_1": 2.0, "read": tek.AS_IS}
+    as_is = showing_ch1(backends.create("tektronix2000", None, options))
     assert as_is.channels()[0].middle == 0.0, "its offset is the scope's own business"
 
 

@@ -99,6 +99,33 @@ the memory, and puts it back as it was when the run stops: one beep as a run sta
 as it stops is what is left. If pyscopegui is ended in the
 middle of a run, turn it back on at the scope: *Utility > Sound*.
 
+## Read as it is, set up at the bench
+
+Choose **As it is, set up on the scope** under **Control** to set the scope up and trigger
+it with its own knobs, and have pyscopegui only read what it shows. Nothing on the scope is
+changed: this is the one for fetching something caught at the bench. Set it up, let it
+trigger -- or press **Single** on it -- and press **Read** here: the trace is on the plot
+with every point **Reading** says, the screen's 1200 or the whole of the memory.
+
+The channels read are the ones the scope is showing -- switch one on or off at the scope,
+and the next reading has it or not -- each in the unit the scope has for it: amps for a
+channel it has set to a current probe, which then goes on [Y2](plot.md). Their scale,
+timebase, probe and trigger are the scope's own, so those settings, and **Enabled**, are not
+shown in the pane while it is read this way, and the trigger toolbar is greyed out: nought
+on the time axis is wherever the scope triggered.
+
+The memory can be read only while the scope is stopped. A scope left running is stopped for
+as long as reading it takes and set running again after, which the [Event Log](event-log.md)
+says the first time; stop it at the bench, or press **Single** there, to read just what it
+caught. The screen is read whether it is running or not.
+
+**Read** takes one reading and stops; **Auto** reads it over and over, which follows a
+running scope without touching it. What is read is a snapshot, so the plot's **Time** is
+set to **All**, as it is for a Tektronix read the same way.
+
+Going back to **Set it up from here** sends the whole of the pane's setup again at the next
+run, since the knobs may have been turned in between.
+
 ## Settings
 
 | Setting | What it is |
@@ -106,10 +133,11 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 | Connection | Network, or USB. Set while the scope is closed |
 | Address | For the network: where the scope is. Set while the scope is closed |
 | USB device | For USB: which scope, where there are several. Set while the scope is closed |
+| Control | Set it up from here, or read it as it is, set up on the scope: see above |
 | Reading | The screen, or the memory: see above |
 | Time | Seconds a division, of the twelve across the screen |
 | Acquisition | How each point is made from the samples taken: see below |
-| Enabled | Whether the channel is on, and read |
+| Enabled | Whether the channel is on, and read. Read as it is, the scope's own switches say |
 | Scale | Volts a division, of the eight up the screen, with the probe counted |
 | Offset | Moves nought volts up or down the screen |
 | Coupling | DC, AC or ground |
@@ -117,7 +145,8 @@ middle of a run, turn it back on at the scope: *Utility > Sound*.
 | Probe | What is on the end of the channel: a voltage probe, 1x to 1000x, or a current probe. See [Probes](instruments.md) |
 | Sensitivity | For a current probe: volts it gives an amp. The channel is then in amps |
 
-**Reading** and **Enabled** start the run again. The rest are taken up between two sweeps.
+**Control**, **Reading** and **Enabled** start the run again. The rest are taken up between
+two sweeps, and are used only when the scope is set up from here.
 
 **Acquisition** is the scope's own *Acquire > Mode*:
 
@@ -134,8 +163,8 @@ A trace that looks noisy beside another scope's is often only showing more: the 
 the memory at full bandwidth has noise in it that a slower scope never sees. The 20 MHz
 limit and High resolution are the two things that take it out.
 
-pyscopegui sets the scope up from this pane when a run starts, so the knobs on the scope
-are overridden for these settings. Everything else -- memory depth, and a signal generator
+Set up from here, pyscopegui sets the scope up from this pane when a run starts, so the
+knobs on the scope are overridden for these settings. Everything else -- memory depth, and a signal generator
 if the scope has one -- stays as the scope has it.
 
 ## When it does not work
