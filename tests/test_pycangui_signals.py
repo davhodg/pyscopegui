@@ -159,7 +159,7 @@ def test_it_is_offered_under_add_instrument():
 
 def test_its_channels_are_what_pycangui_describes(signals, app):
     changed = []
-    signals.signals_changed.connect(lambda: changed.append(1))
+    signals.channels_changed.connect(lambda: changed.append(1))
     send(description())
     assert until(app, lambda: changed)
     speed, state = signals.channels()

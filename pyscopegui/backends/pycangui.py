@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer
 from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QUdpSocket
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
@@ -58,9 +58,6 @@ SETTINGS = (
 
 class PycanguiSignals(Instrument):
     SETTINGS = SETTINGS
-
-    #: The signals pycangui sends are not the ones there were: a run starts again.
-    signals_changed = Signal()
 
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
@@ -183,7 +180,7 @@ class PycanguiSignals(Instrument):
             self._held = {key: self._held.get(key, Held()) for key in self._keys()}
             names = ", ".join(s.name for s in self.receiver.signals) or "none"
             self.note.emit(f"pycangui is sending {len(self.receiver.signals)} signals: {names}.")
-            self.signals_changed.emit()
+            self.channels_changed.emit()
 
     def _heard_now(self) -> None:
         self._heard = time.monotonic()

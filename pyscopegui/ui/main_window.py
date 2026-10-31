@@ -576,10 +576,9 @@ class MainWindow(QMainWindow):
         instrument.note.connect(self.events.information)
         instrument.warning.connect(self.events.warning)
         instrument.activity.connect(lambda text, u=unit: self._on_activity(u, text))
-        if hasattr(instrument, "signals_changed"):  # pycangui's: its channels come and go
-            instrument.signals_changed.connect(
-                lambda u=unit, i=instrument: self._on_signals_changed(u, i)
-            )
+        instrument.channels_changed.connect(
+            lambda u=unit, i=instrument: self._on_channels_changed(u, i)
+        )
         unit.instrument = instrument
         # Its channels, empty: to be looked at, and to choose a trigger
         # from, before anything is run.
@@ -931,12 +930,14 @@ class MainWindow(QMainWindow):
         unit.capture.add(block)
         unit.acquisition.examine(block)
 
-    def _on_signals_changed(self, unit: Unit, instrument: Instrument) -> None:
-        """An instrument's channels are not the ones there were: a run starts again
-        with the new ones, and one that is not running has them to show."""
+    def _on_channels_changed(self, unit: Unit, instrument: Instrument) -> None:
+        """An instrument's channels are not the ones there were. One that sends
+        sweeps has its records made again for the sweep on its way, which takes
+        the place of what was held anyway; one that streams starts its run again,
+        counting from nought with the new channels."""
         if unit.instrument is not instrument:
             return
-        if instrument.running:
+        if instrument.running and not instrument.sweeps:
             self._restart(unit)
         elif self._make_records(unit):
             self.session.channels_changed.emit()

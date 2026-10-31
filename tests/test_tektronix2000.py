@@ -454,12 +454,24 @@ def test_read_as_it_is_nothing_on_the_scope_is_changed(port):
     scope.close()
 
 
-def test_read_as_it_is_a_channel_not_on_the_screen_is_left_out(port):
-    port.state.update({"SELECT:CH1": "ON", "SELECT:CH2": "OFF"})
-    scope = opened(port, read="asis", enabled_2=True)
+def test_read_as_it_is_the_channels_are_the_ones_the_scope_shows(port):
+    port.state.update({"SELECT:CH1": "OFF", "SELECT:CH3": "ON"})
+    scope = opened(port, read="asis")  # CH1 ticked here, and not shown there
+    assert scope.shown == ["CH3"] and scope.view_changed
     scope.start(scope.settings, tek.Trigger())
-    assert list(sweep_of(scope).data) == ["CH1"]
+    assert list(sweep_of(scope).data) == ["CH3"]
     scope.close()
+
+
+def test_read_as_it_is_a_channel_switched_on_at_the_bench_is_read_with_the_rest(
+    as_is_window, port, app
+):
+    window = as_is_window
+    port.state["SELECT:CH3"] = "ON"
+    window.instrument_bar.read.click()
+    wait_for(app, lambda: "CH3" in window.capture.records and not window.unit.running)
+    wait_for(app, lambda: window.capture.records["CH3"].count > 0)
+    assert set(window.capture.records) == {"CH1", "CH2", "CH3"}
 
 
 def test_read_as_it_is_with_nothing_on_the_screen_says_so(port):
@@ -485,8 +497,7 @@ def test_the_channels_say_how_each_is_set(app):
         ("CH1", "1 V/div, 10x, DC, 20 MHz, offset 1 V", "Channel 1")
     ]
     as_is = backends.create("tektronix2000", None, {"read": "asis"})
-    assert as_is.channels()[0].detail == "as the scope has it"
-    assert as_is.channels()[0].full_scale == 0.0, "its scale is not known here"
+    assert as_is.channels() == [], "the ones the scope is showing, once it is open"
 
 
 @pytest.fixture
@@ -557,7 +568,7 @@ def test_what_only_matters_when_setting_up_is_greyed_out_as_it_is(scope_window, 
     box.activated.emit(box.currentIndex())
     assert not view.controls["scale_1"].isEnabled()
     assert not view.controls["time_div"].isEnabled()
-    assert view.controls["enabled_1"].isEnabled(), "which channels to read is still asked"
+    assert not view.controls["enabled_1"].isEnabled(), "the scope's own switches say which"
 
 
 def test_no_port_says_so_and_goes_back_to_closed(window, app):

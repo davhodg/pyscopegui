@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **A Rigol read as it is**, set up and triggered at the bench: *Control > As it is, set up
+  on the scope* changes nothing on it, and **Read** takes what it shows -- its screen, or
+  every point in its memory -- of the channels it is showing, in the units it has for each,
+  as a Tektronix can be read. A running scope is stopped only while its memory is read, and
+  set running again.
 - **pycangui signals**, under *Add instrument*: the signals pycangui decodes from a CAN bus
   and sends over UDP multicast, a channel each, in their own units, each value placed at
   the time of its frame on the clock the instruments are lined up by. A step at each new
@@ -38,6 +43,8 @@ since the last version, and comes out in the next one.
 
 ### Changed
 
+- **A Tektronix read as it is** reads the channels its screen shows, switched on and off at
+  the scope: **Enabled** is not asked, and a channel switched on there is in the next reading.
 - **Y** at **Auto** fits the axis again only when a trace goes past it, or comes to take
   less than half of it, rather than every time the plot is drawn: a steady signal leaves
   the axis still, and the plot is drawn in about a tenth less time.

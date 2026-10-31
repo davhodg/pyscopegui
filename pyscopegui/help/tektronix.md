@@ -87,8 +87,9 @@ acquiring as it was found.
 **What it shows, as it is.** Nothing on the scope is changed, and nothing is asked of it
 but what is on its screen. This is the one for fetching something that was captured at the
 bench: stop the scope on what you want, press **Read** here, and it is on the plot. The
-channels read are the ones ticked **Enabled** here that are also on the scope's screen;
-their scale, their timebase and their trigger are the scope's own.
+channels read are the ones on the scope's screen -- switch one on or off at the scope, and
+the next reading has it or not -- so **Enabled** is not shown in the pane while it is read
+this way; their scale, their timebase and their trigger are the scope's own.
 
 What is read is a snapshot of the screen, so the plot's **Time** is set to **All** when the
 scope is set to be read this way, or is opened already set so: **Follow**, with another
@@ -120,7 +121,7 @@ trigger.
 | Time | Seconds a division, of the ten across the screen |
 | Acquisition | Sample, peak detect, or an average of several sweeps |
 | Averages | How many sweeps go into each average: 4, 16, 64 or 128 |
-| Enabled | Whether the channel is read, and when setting up, whether it is on |
+| Enabled | When setting up, whether the channel is on, and read. Read as it is, the scope's own switches say |
 | Scale | Volts a division, of the eight up the screen, with the probe counted |
 | Offset | Moves nought volts up or down the screen |
 | Coupling | DC, AC or ground |

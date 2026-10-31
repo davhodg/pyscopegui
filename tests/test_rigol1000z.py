@@ -75,6 +75,12 @@ class FakeScope(socketserver.ThreadingTCPServer):
             self.status = "STOP"
         elif what == ":STOP":
             self.status = "STOP"
+        elif what == ":RUN":
+            self.status = "RUN"
+        elif what.endswith(":UNIT?") and what[:-1] not in self.state:
+            return b"VOLT\n"
+        elif what.endswith(":DISP?") and what[:-1] not in self.state:
+            return b"1\n" if what.startswith(":CHAN1") else b"0\n"
         elif what == ":TRIG:STAT?":
             return self.status.encode() + b"\n"
         elif what == ":SYST:BEEP?":
@@ -959,3 +965,117 @@ def test_opening_over_usb_says_which_device(visa):
     scope = over_usb()
     assert ("On USB: USB0::0x1AB1::0x04CE::DS1ZA000000001::INSTR.", False) in scope.notes
     scope.close()
+
+
+# --- read as it is, set up at the bench ---------------------------------------------------
+SETUP_WRITES = (":CHAN1:SCAL", ":CHAN1:OFFS", ":CHAN1:PROB", ":TIM:MAIN:SCAL", ":ACQ:TYPE", ":SING")
+
+
+def as_is(fake, **options):
+    """Read as it is, and once: Read, not Auto."""
+    scope = opened(fake, control=rigol.AS_IS, **options)
+    scope.start(scope.settings, rigol.Trigger(auto=False))
+    return scope
+
+
+def heard_by(fake, command, seconds=2.0):
+    """Whether the stand-in has had this, which is written and not answered."""
+    deadline = time.monotonic() + seconds
+    while not fake.sent(command) and time.monotonic() < deadline:
+        time.sleep(0.005)
+    return fake.sent(command)
+
+
+def test_read_as_it_is_nothing_on_the_scope_is_changed_and_it_is_read_once(fake):
+    scope = as_is(fake)
+    block = sweep_of(scope)
+    assert list(block.data) == ["CH1"] and len(block) == rigol.SCREEN_POINTS
+    assert block.sweep and block.triggered
+    assert not [h for h in fake.heard if h.split(" ")[0] in SETUP_WRITES]
+    assert scope.poll() is None, "one reading for Read"
+    assert ("Reading what the scope shows, with nothing on it changed.", False) in scope.notes
+
+
+def test_read_as_it_is_auto_reads_again_and_again(fake):
+    scope = opened(fake, control=rigol.AS_IS)
+    scope.start(scope.settings, rigol.Trigger(auto=True))
+    sweep_of(scope)
+    sweep_of(scope)
+    assert fake.sent(":WAV:DATA?") >= 2
+
+
+def test_the_channels_read_are_the_ones_the_scope_shows(fake):
+    fake.state.update({":CHAN1:DISP": "0", ":CHAN3:DISP": "1"})
+    scope = as_is(fake)  # CH1 ticked here, and not shown there
+    assert scope.shown == ["CH3"]
+    assert list(sweep_of(scope).data) == ["CH3"]
+    fake.state[":CHAN3:DISP"] = "0"
+    scope = as_is(fake)
+    with pytest.raises(rigol.ScopeError, match="showing none of its channels"):
+        scope.poll()
+
+
+def test_a_channel_switched_on_at_the_bench_is_said_and_read(fake):
+    scope = as_is(fake)
+    assert scope.shown == ["CH1"]
+    scope.view_changed = False
+    fake.state[":CHAN2:DISP"] = "1"
+    scope._read_once = False
+    assert list(sweep_of(scope).data) == ["CH1", "CH2"]
+    assert scope.view_changed, "for its channels to be made again"
+
+
+def test_its_units_are_the_scopes_and_its_probe_is_counted_by_the_scope(fake):
+    fake.state[":CHAN1:UNIT"] = "AMP"
+    scope = as_is(fake, probe_1=10)
+    assert scope.units["CH1"] == "A"
+    block = sweep_of(scope)
+    y_step = 1.0 / 25  # the stand-in's, at 1 a division
+    lowest = (27 - 127) * y_step
+    assert abs(float(block.data["CH1"][0]) - lowest) < 1e-6, "not multiplied again by the probe"
+
+
+def test_its_memory_is_read_stopped_and_a_running_scope_set_running_again(fake):
+    fake.status = "RUN"
+    fake.depth = 30_000
+    scope = as_is(fake, read=rigol.MEMORY)
+    block = sweep_of(scope)
+    assert len(block) == 30_000, "every point it took"
+    assert heard_by(fake, ":RUN") == 1 and fake.sent(":STOP") == 1
+    assert fake.heard.index(":STOP") < fake.heard.index(":WAV:DATA?") < fake.heard.index(":RUN")
+    assert fake.status == "RUN", "as it was found"
+    assert any("set running again" in text for text, _warn in scope.notes)
+
+
+def test_a_stopped_scope_is_read_as_it_is_and_left_stopped(fake):
+    fake.depth = 30_000
+    scope = as_is(fake, read=rigol.MEMORY)
+    sweep_of(scope)
+    assert fake.sent(":STOP") == 0 and fake.sent(":RUN") == 0
+
+
+def test_set_up_from_here_again_after_it_everything_is_sent(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    sent = fake.sent(":TIM:MAIN:SCAL 0.001")
+    scope.stop()
+    scope.start(rigol.Settings({"address": fake.address, "control": rigol.AS_IS}), rigol.Trigger())
+    scope.stop()
+    scope.start(rigol.Settings({"address": fake.address}), rigol.Trigger())
+    assert fake.sent(":TIM:MAIN:SCAL 0.001") == sent + 1, "the bench may have changed it"
+
+
+def test_read_as_it_is_the_pane_shows_only_what_has_a_say():
+    by_key = {s.key: s for s in rigol.SETTINGS}
+    scope_s_own = ("time_div", "acquire", "enabled_1", "scale_1", "offset_1", "limit_1", "probe_1")
+    for key in scope_s_own:
+        assert by_key[key].needs == ("control", rigol.SET_UP), key
+    for key in ("read", "control", "connection"):
+        assert by_key[key].needs is None, key
+
+
+def test_read_as_it_is_the_instrument_is_read_and_its_channels_are_the_scopes(app):
+    instrument = rigol.Rigol1000Z(options={"control": rigol.AS_IS})
+    assert instrument.reads_as_is
+    assert instrument.channels() == [], "the ones the scope is showing, once it is open"
+    assert not rigol.Rigol1000Z(options={}).reads_as_is
