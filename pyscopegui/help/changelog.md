@@ -11,6 +11,11 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **A second voltage axis, Y2**, on the right of the plot, with a scale of its own: a
+  channel in amps, or a maths channel in a unit of its own, goes on it by itself, and
+  **Plot on Y2** in the channel list puts any channel there, kept with the workspace. **Y**
+  fits or ranges each axis to its own channels; `axis("CH2", 2)` does the same from the
+  Python Console. Built so that more axes can follow (#8).
 - **`pyscopegui --run script.py`** runs a script as pyscopegui starts, with what the Python
   Console has, then closes with the script's exit code: 0, `sys.exit(n)`'s `n`, or 1 for an
   exception. `--stay` leaves the window open afterwards, and `--workspace NAME` opens a

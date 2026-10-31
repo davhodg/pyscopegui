@@ -66,6 +66,7 @@ class Scripting:
                     "trigger",
                     "channels",
                     "rename",
+                    "axis",
                     "data",
                     "measure",
                     "maths",
@@ -264,6 +265,17 @@ class Scripting:
         scope.rename(key, name)
         scope.redraw()
         return scope._names.get(key, channel)
+
+    def axis(self, channel: str, which: int | None = None) -> int:
+        """The voltage axis a channel is drawn against, 1 for Y1 or 2 for Y2, and with
+        ``which``, put it there first, as *Plot on Y2* does: axis("CH2", 2)."""
+        key = self._key(channel)
+        scope = self._window.scope
+        if which is not None:
+            if which not in (1, 2):
+                raise ScriptError(f"An axis is 1 or 2, for Y1 or Y2: not {which!r}.")
+            scope.set_axis(key, which - 1)
+        return scope.axis_of(key) + 1
 
     def data(self, channel: str) -> tuple[np.ndarray, np.ndarray]:
         """A channel's times and samples, all that is held of it, as numpy arrays.

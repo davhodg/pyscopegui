@@ -277,10 +277,29 @@ is drawn where you put it. It goes back to **Auto** when another instrument is a
 the next time pyscopegui starts, so that new signals are fitted. **Auto** and **Range** are
 kept as they are, from one start to the next too.
 
-In **Range**, when the channels shown are on different ranges the axis takes in all of
-them, since they share it. An offset moves a channel's range: with a 1 V offset on ±5 V,
+In **Range**, when the channels shown on an axis are on different ranges it takes in all
+of them, since they share it. An offset moves a channel's range: with a 1 V offset on ±5 V,
 what is read is -6 V to 4 V, and that is what the axis shows. What is read is still the
 signal itself, offset and all taken off, so a cursor on a 3.5 V signal says 3.5 V.
+
+### Y1 and Y2
+
+A channel in a unit other than volts -- a current probe's amps, or a
+[maths channel](#maths-channels) with a unit of its own -- is drawn against a second axis,
+**Y2**, on the right of the plot, with a scale of its own; volts are on **Y1**, on the left.
+Right-click a channel in the list and choose **Plot on Y2** to give any channel the second
+axis -- 100 mV of ripple beside a 5 V rail, say -- and **Plot on Y1** to put it back. Which
+axis was chosen for a channel is kept with the [workspace](files.md).
+
+Y2 is there only while a channel shown is on it, and its channels are marked *(Y2)* in the
+list. Each axis says the unit of what is on it, and Y2 is in its channel's colour where it
+has only the one. With nothing shown on Y1, Y2's channels are drawn on Y1, so a plot of
+currents alone has the one axis.
+
+**Y** is for both: **Auto** fits each to its own channels, **Range** sets each to its own
+channels' ranges, and **Manual** holds both. The wheel over the plot zooms Y1, and over
+Y2's axis zooms Y2; either holds them at Manual. The grid is Y1's. A trigger's level is
+drawn against the axis of the channel it is the level of.
 
 ## How much is kept
 

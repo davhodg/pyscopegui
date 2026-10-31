@@ -141,6 +141,12 @@ RANGE_MARGIN = 0.05
 #: never still: the ticks and their labels are worked out again for every
 #: frame, which took about as long as drawing the traces themselves.
 REFIT_BELOW = 0.5
+#: The voltage axes, by where they are in the list: Y1, on the left, and Y2,
+#: on the right. More can follow Y2; two for now.
+Y1, Y2 = 0, 1
+AXES = (Y1, Y2)
+#: The unit Y1 is for, to begin with: a channel in any other is put on Y2.
+Y1_UNIT = "V"
 
 EXPORT_TIP = (
     "Write what the plot shows as CSV: every sample of the channels that are\n"
@@ -236,6 +242,8 @@ class ChannelList(QTreeWidget):
     decode_removed = Signal(str)
     #: Asked to give a channel a name of its own: its id.
     rename_asked = Signal(str)
+    #: Asked to put a channel on another voltage axis: its id, and Y1 or Y2.
+    axis_asked = Signal(str, int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -251,6 +259,10 @@ class ChannelList(QTreeWidget):
         #: channel: each instrument with an analog channel, as its first
         #: analog channel's id and what to call the instrument.
         self.makers: list[tuple[str, str]] = []
+        #: The analog channels, by id -> the voltage axis each is on.
+        self.axes: dict[str, int] = {}
+        #: What each channel is called, without what is added to it here.
+        self._called: dict[str, str] = {}
         self.itemChanged.connect(self._on_changed)
         self.itemClicked.connect(
             lambda item, _column: self.picked.emit(item.data(NAME, Qt.UserRole))
@@ -268,6 +280,11 @@ class ChannelList(QTreeWidget):
         key = item.data(NAME, Qt.UserRole)
         menu = QMenu(self)
         menu.addAction("Rename...", lambda: self.rename_asked.emit(key))
+        if key in self.axes:
+            other = Y1 if self.axes[key] == Y2 else Y2
+            menu.addAction(
+                f"Plot on Y{other + 1}", lambda: self.axis_asked.emit(key, other)
+            ).setToolTip("Draw it against the other voltage axis, with a scale of its own")
         menu.addSeparator()
         menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
         back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
@@ -322,6 +339,7 @@ class ChannelList(QTreeWidget):
         self.blockSignals(True)
         self.clear()
         self._items = {}
+        self._called = dict(names)
         for key, name in names.items():
             item = QTreeWidgetItem([name, "", "", "", (details or {}).get(key, "")])
             item.setToolTip(DETAIL, PICK_TIP)
@@ -336,6 +354,15 @@ class ChannelList(QTreeWidget):
                 item.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
             self.addTopLevelItem(item)
             self._items[key] = item
+        self.blockSignals(False)
+
+    def mark_axes(self, axes: dict[str, int]) -> None:
+        """Say which channels are drawn against Y2: *CH2 (Y2)*."""
+        self.axes = dict(axes)
+        self.blockSignals(True)
+        for key, item in self._items.items():
+            called = self._called.get(key, item.text(NAME))
+            item.setText(NAME, f"{called} (Y2)" if axes.get(key) == Y2 else called)
         self.blockSignals(False)
 
     def _on_changed(self, item: QTreeWidgetItem, column: int) -> None:
@@ -410,12 +437,12 @@ class ScopeView(QWidget):
         self._colours: dict[str, str] = {}
         #: Digital channel key -> the bottom of its lane.
         self._lanes: dict[str, float] = {}
-        #: The voltage axis as it was last seen, so that one set by hand is told
-        #: from one fitted here; whether it is being fitted now; and whether it
-        #: has been fitted to a signal since Auto was chosen.
-        self._y_seen: tuple[float, float] | None = None
+        #: Each voltage axis as it was last seen, so that one set by hand is told
+        #: from one fitted here; whether one is being fitted now; and whether
+        #: each has been fitted to a signal since Auto was chosen.
+        self._y_seen: list[tuple[float, float] | None] = [None for _ in AXES]
         self._y_fitting = False
-        self._y_fitted = False
+        self._y_fitted = [False for _ in AXES]
         #: Channels unticked, kept by key so they stay hidden across a restart.
         saved = ctx.settings.get(f"{key}.hidden") if ctx is not None else None
         self._hidden: set[str] = {str(k) for k in saved} if isinstance(saved, list) else set()
@@ -446,6 +473,34 @@ class ScopeView(QWidget):
             plot.getViewBox().sigRangeChangedManually.connect(self._on_dragged)
             # The same width, so that the same time is at the same place in both.
             plot.getAxis("left").setWidth(60)
+            plot.getAxis("right").setWidth(60)
+        # Y2: a view of its own over the plot's, on the same time axis, with
+        # its axis on the right. Under the plot's own, so that the wheel over
+        # the plot is still Y1's; the wheel over its axis is its own.
+        main = self.analog.getPlotItem()
+        y2 = pg.ViewBox(enableMenu=False)
+        main.scene().addItem(y2)
+        y2.setXLink(main.getViewBox())
+        main.getAxis("right").linkToView(y2)
+        # One grid, Y1's: Y2's over it would be a second set of lines to read.
+        main.getAxis("right").setGrid(False)
+        main.getViewBox().sigResized.connect(self._lay_over)
+        y2.sigRangeChangedManually.connect(self._on_dragged)
+        #: Each voltage axis's view, Y1's first.
+        self._y_boxes = [main.getViewBox(), y2]
+        # Under the logic lanes too, with no numbers: the time axis lines up.
+        self.digital.getAxis("right").setStyle(showValues=False)
+        #: The axis chosen for a channel by hand, by id; the rest go by unit.
+        saved = ctx.settings.get(f"{key}.axes") if ctx is not None else None
+        self._chosen_axes: dict[str, int] = (
+            {str(k): v for k, v in saved.items() if v in AXES} if isinstance(saved, dict) else {}
+        )
+        #: The axis each analog channel is drawn against now, and the one its
+        #: curve is in.
+        self._axis: dict[str, int] = {}
+        self._curve_axis: dict[str, int] = {}
+        #: Which axis each trigger level line is drawn against.
+        self._line_axis: dict[int, int] = {}
 
         self._follow_theme()
 
@@ -462,6 +517,7 @@ class ScopeView(QWidget):
         self.channel_list.picked.connect(self._on_picked)
         self.channel_list.colour_asked.connect(self._on_colour_asked)
         self.channel_list.rename_asked.connect(self._on_rename_asked)
+        self.channel_list.axis_asked.connect(self.set_axis)
         self.channel_list.maths_asked.connect(self._on_maths_asked)
         self.channel_list.maths_removed.connect(self._on_maths_removed)
         self.channel_list.decode_asked.connect(self._on_decode_asked)
@@ -487,7 +543,8 @@ class ScopeView(QWidget):
             self.y_mode.setItemData(index, tip, Qt.ToolTipRole)
         self.y_mode.currentTextChanged.connect(self._place_y)
         # Its right-click menu can stop it fitting too, with no drag to say so.
-        self.analog.getViewBox().sigStateChanged.connect(self._on_y_state)
+        for index, box in enumerate(self._y_boxes):
+            box.sigStateChanged.connect(lambda *_a, i=index: self._on_y_state(i))
         clear = QPushButton("Clear history")
         clear.setToolTip("Throw away the samples collected so far, for every channel")
         clear.clicked.connect(self.session.clear)
@@ -616,7 +673,7 @@ class ScopeView(QWidget):
         text = self.palette().color(QPalette.Text)
         for plot in (self.analog, self.digital):
             plot.setBackground(background)
-            for side in ("left", "bottom"):
+            for side in ("left", "bottom", "right"):
                 axis = plot.getAxis(side)
                 axis.setPen(text)
                 axis.setTextPen(text)
@@ -625,6 +682,8 @@ class ScopeView(QWidget):
         # The theme was changed under Tools > Settings, or by the system.
         if event.type() == QEvent.PaletteChange and hasattr(self, "digital"):
             self._follow_theme()
+            if hasattr(self, "_axis"):
+                self._label_axes()
         super().changeEvent(event)
 
     # --- which channels -------------------------------------------------------------------
@@ -636,7 +695,10 @@ class ScopeView(QWidget):
         """Make a curve for every channel there is now, and lanes for the digital ones."""
         for plot in (self.analog, self.digital):
             plot.clear()
+        for box in self._y_boxes[1:]:
+            box.clear()
         self._curves, self._owners = {}, {}
+        self._curve_axis, self._line_axis = {}, {}
         entries = self.session.entries()
         chosen = self._chosen_colours()
         self._colours = {}
@@ -660,6 +722,7 @@ class ScopeView(QWidget):
             pen = pg.mkPen(colour, width=1)
             if record.channel.kind == ANALOG:
                 curve = self.analog.plot(pen=pen)
+                self._curve_axis[key] = Y1  # put on its own axis by _place_axes
             else:
                 # Held until the next sample, which is what a logic level does.
                 curve = self.digital.plot(pen=pen, stepMode="left")
@@ -667,9 +730,6 @@ class ScopeView(QWidget):
                 curve.setZValue(REFERENCE_Z)
             self._curves[key] = curve
             self._owners[key] = (unit, record.channel.key)
-        channels = [record.channel for _key, _unit, record in entries]
-        units = {c.unit for c in channels if c.kind == ANALOG and c.unit}
-        self.analog.setLabel("left", units=units.pop() if len(units) == 1 else None)
         details = {key: record.channel.detail for key, _unit, record in entries}
         self.channel_list.decoded = {
             unit.id(decoded.setup.main): decoded.setup.protocol
@@ -703,6 +763,7 @@ class ScopeView(QWidget):
             if record.channel.kind == DIGITAL and key not in self._hidden
         ]
         self._lanes = {key: float(len(shown) - 1 - i) for i, key in enumerate(shown)}
+        self._place_axes()
         ticks = [(self._lanes[key] + LANE_HEIGHT / 2, self._names[key]) for key in shown]
         self.digital.getAxis("left").setTicks([ticks])
         self.digital.setYRange(-0.15, max(len(shown), 1), padding=0)
@@ -710,6 +771,98 @@ class ScopeView(QWidget):
             curve.setVisible(key not in self._hidden)
         self.digital.setVisible(bool(shown) or not self._curves)
         self._place_y()
+
+    # --- the voltage axes ------------------------------------------------------------------
+    def _lay_over(self) -> None:
+        """Keep Y2's view exactly over the plot's own, as the window is resized."""
+        main = self._y_boxes[Y1]
+        for box in self._y_boxes[1:]:
+            box.setGeometry(main.sceneBoundingRect())
+            box.linkedViewChanged(main, box.XAxis)
+
+    def _wanted_axis(self, key: str) -> int:
+        """The axis a channel goes on: the one chosen for it, or by its unit --
+        volts on Y1, anything else, a current probe's amps say, on Y2."""
+        if key in self._chosen_axes:
+            return self._chosen_axes[key]
+        unit, own = self._owners[key]
+        record = unit.capture.records.get(own)
+        said = record.channel.unit if record is not None else Y1_UNIT
+        return Y1 if said in (Y1_UNIT, "") else Y2
+
+    def _place_axes(self) -> None:
+        """Put each analog channel's trace against its axis, and show Y2 only while
+        a channel shown is on it. With nothing shown on Y1, Y2's are drawn on Y1:
+        a plot of currents alone has the one axis."""
+        analog = [k for k, (u, own) in self._owners.items() if k not in self._lanes_keys()]
+        wanted = {key: self._wanted_axis(key) for key in analog}
+        shown = [k for k in analog if k not in self._hidden]
+        if not any(wanted[k] == Y1 for k in shown):
+            wanted = dict.fromkeys(analog, Y1)
+        self._axis = wanted
+        for key, axis in wanted.items():
+            if self._curve_axis.get(key, Y1) != axis:
+                self._move_item(self._curves[key], self._curve_axis.get(key, Y1), axis)
+                self._curve_axis[key] = axis
+        on_y2 = any(wanted[k] == Y2 for k in shown)
+        self.analog.getPlotItem().showAxis("right", on_y2)
+        self.digital.getPlotItem().showAxis("right", on_y2)
+        self.channel_list.mark_axes(wanted)
+        self._label_axes()
+
+    def _lanes_keys(self) -> set[str]:
+        """The logic channels, which are drawn in lanes and on no voltage axis."""
+        return {
+            key
+            for key, (unit, own) in self._owners.items()
+            if (record := unit.capture.records.get(own)) is None or record.channel.kind != ANALOG
+        }
+
+    def _move_item(self, item, was: int, now: int) -> None:
+        """Move a curve, or a level line, from one axis's view to another's."""
+        if was == Y1:
+            self.analog.removeItem(item)
+        else:
+            self._y_boxes[was].removeItem(item)
+        if now == Y1:
+            self.analog.addItem(item, ignoreBounds=isinstance(item, pg.InfiniteLine))
+        else:
+            self._y_boxes[now].addItem(item, ignoreBounds=isinstance(item, pg.InfiniteLine))
+
+    def _label_axes(self) -> None:
+        """Each axis says the unit of what is on it, where they share one, and is in
+        the colour of its channel where it has only the one."""
+        text = self.palette().color(QPalette.Text)
+        for axis, side in ((Y1, "left"), (Y2, "right")):
+            keys = [k for k, a in self._axis.items() if a == axis and k not in self._hidden]
+            units = set()
+            for key in keys:
+                unit, own = self._owners[key]
+                record = unit.capture.records.get(own)
+                if record is not None and record.channel.unit:
+                    units.add(record.channel.unit)
+            item = self.analog.getAxis(side)
+            item.setLabel(units=units.pop() if len(units) == 1 else None)
+            colour = QColor(self._colours[keys[0]]) if len(keys) == 1 and axis == Y2 else text
+            item.setTextPen(colour)
+            item.setPen(colour)
+
+    def set_axis(self, key: str, axis: int) -> None:
+        """Draw a channel, by its id, against Y1 or Y2, and keep that with the workspace."""
+        if axis not in AXES:
+            return
+        self._chosen_axes[key] = axis
+        if self._ctx is not None:
+            self._ctx.settings.set(f"{self._key}.axes", dict(self._chosen_axes))
+        if key in self._owners:
+            self._place_axes()
+            self._show_trigger()
+            self._place_y()
+            self.redraw()
+
+    def axis_of(self, key: str) -> int:
+        """The axis a channel, by its id, is drawn against now."""
+        return self._axis.get(key, Y1)
 
     def _place_y(self, *_args) -> None:
         """Fit the voltage axis to the signal, set it to the channels' range, or
@@ -721,32 +874,39 @@ class ScopeView(QWidget):
         Range fits the axis instead: there is nothing else to set it to.
         """
         choice = self.y_mode.currentText()
-        if choice == MANUAL:
-            # Held where it is now, whatever put it there.
-            self.analog.getViewBox().disableAutoRange(axis=pg.ViewBox.YAxis)
-            return
-        reaches = [
-            (channel.middle - channel.full_scale, channel.middle + channel.full_scale)
-            for key, record in self._records()
-            if (channel := record.channel).kind == ANALOG
-            and key not in self._hidden
-            and channel.full_scale > 0
-        ]
-        if choice == Y_AUTO or not reaches:
-            # Fitted here, from what is drawn, and not by pyqtgraph every frame.
-            # Turning pyqtgraph's own off says the axis changed: not by hand.
-            self._y_fitting = True
-            try:
-                self.analog.getViewBox().disableAutoRange(axis=pg.ViewBox.YAxis)
-            finally:
-                self._y_fitting = False
-            self._y_seen = tuple(self.analog.getViewBox().viewRange()[1])
-            self._y_fitted = False
-            self._fit_y(again=True)
-        else:
-            low = min(low for low, _high in reaches)
-            high = max(high for _low, high in reaches)
-            self.analog.setYRange(low, high, padding=RANGE_MARGIN)
+        for axis, box in enumerate(self._y_boxes):
+            if choice == MANUAL:
+                # Held where it is now, whatever put it there.
+                box.disableAutoRange(axis=pg.ViewBox.YAxis)
+                continue
+            reaches = [
+                (channel.middle - channel.full_scale, channel.middle + channel.full_scale)
+                for key, record in self._records()
+                if (channel := record.channel).kind == ANALOG
+                and key not in self._hidden
+                and self._axis.get(key, Y1) == axis
+                and channel.full_scale > 0
+            ]
+            if choice == Y_AUTO or not reaches:
+                # Fitted here, from what is drawn, and not by pyqtgraph every frame.
+                # Turning pyqtgraph's own off says the axis changed: not by hand.
+                self._y_fitting = True
+                try:
+                    box.disableAutoRange(axis=pg.ViewBox.YAxis)
+                finally:
+                    self._y_fitting = False
+                self._y_seen[axis] = tuple(box.viewRange()[1])
+                self._y_fitted[axis] = False
+                self._fit_y(again=True, only=axis)
+            else:
+                low = min(low for low, _high in reaches)
+                high = max(high for _low, high in reaches)
+                self._y_fitting = True
+                try:
+                    box.setYRange(low, high, padding=RANGE_MARGIN)
+                finally:
+                    self._y_fitting = False
+                self._y_seen[axis] = tuple(box.viewRange()[1])
 
     # --- colours ---------------------------------------------------------------------------
     def _chosen_colours(self) -> dict[str, str]:
@@ -961,15 +1121,21 @@ class ScopeView(QWidget):
         if self.y_mode.currentText() == MANUAL:
             self.y_mode.setCurrentText(Y_AUTO)
 
-    def _fit_y(self, again: bool = False) -> None:
-        """With Auto, fit the voltage axis to the traces drawn: when one has gone
-        past it, or they have come to take up too little of it, or ``again``.
-        Otherwise it is left as it is, so that a steady signal leaves it still."""
+    def _fit_y(self, again: bool = False, only: int | None = None) -> None:
+        """With Auto, fit each voltage axis -- or ``only`` that one -- to the traces
+        drawn against it: when one has gone past it, or they have come to take
+        up too little of it, or ``again``. Otherwise it is left as it is, so that
+        a steady signal leaves it still."""
         if self.y_mode.currentText() != Y_AUTO:
             return
+        for axis in AXES if only is None else (only,):
+            self._fit_axis(axis, again)
+
+    def _fit_axis(self, axis: int, again: bool) -> None:
+        box = self._y_boxes[axis]
         lows, highs = [], []
         for key, curve in self._curves.items():
-            if key in self._hidden or key in self._lanes:
+            if key in self._hidden or key in self._lanes or self._axis.get(key, Y1) != axis:
                 continue
             values = curve.yData
             if values is None or not len(values):
@@ -982,32 +1148,34 @@ class ScopeView(QWidget):
         if not lows:
             return
         low, high = min(lows), max(highs)
-        (_x, (shown_low, shown_high)) = self.analog.getViewBox().viewRange()
+        (_x, (shown_low, shown_high)) = box.viewRange()
         span = shown_high - shown_low
         past = low < shown_low or high > shown_high
         small = span > 0 and (high - low) < REFIT_BELOW * span
-        if not (again or past or small or not self._y_fitted):
+        if not (again or past or small or not self._y_fitted[axis]):
             return
         if high - low <= 1e-12:  # a flat line: a little either side of it
             spare = max(abs(high) * RANGE_MARGIN, 1e-3)
             low, high = low - spare, high + spare
         self._y_fitting = True
         try:
-            self.analog.setYRange(low, high, padding=RANGE_MARGIN)
+            box.setYRange(low, high, padding=RANGE_MARGIN)
         finally:
             self._y_fitting = False
-        self._y_seen = tuple(self.analog.getViewBox().viewRange()[1])
-        self._y_fitted = True
+        self._y_seen[axis] = tuple(box.viewRange()[1])
+        self._y_fitted[axis] = True
 
-    def _on_y_state(self, *_args) -> None:
-        """Auto whose axis has been set by hand -- the right-click menu's Y axis --
-        is Manual now: held where it was put."""
-        if self.y_mode.currentText() != Y_AUTO or self._y_fitting or self._y_seen is None:
+    def _on_y_state(self, axis: int = Y1) -> None:
+        """Auto or Range whose axis has been set by hand -- the right-click menu's
+        Y axis -- is Manual now: held where it was put."""
+        box = self._y_boxes[axis]
+        seen = self._y_seen[axis]
+        if self.y_mode.currentText() == MANUAL or self._y_fitting or seen is None:
             return
-        if self.analog.getViewBox().autoRangeEnabled()[1]:
+        if box.autoRangeEnabled()[1]:
             return  # pyqtgraph's own fitting, from its menu: still fitted to the signal
-        now = tuple(self.analog.getViewBox().viewRange()[1])
-        if not np.allclose(now, self._y_seen, rtol=1e-6, atol=1e-12):
+        now = tuple(box.viewRange()[1])
+        if not np.allclose(now, seen, rtol=1e-6, atol=1e-12):
             self.y_mode.setCurrentText(MANUAL)
 
     def _on_dragged(self, mask=None) -> None:
@@ -1016,7 +1184,7 @@ class ScopeView(QWidget):
         moved = list(mask) if isinstance(mask, list | tuple) and len(mask) == 2 else [True, True]
         if moved[0]:
             self.time.setCurrentText(MANUAL)
-        if moved[1] and self.sender() is self.analog.getViewBox():
+        if moved[1] and self.sender() in self._y_boxes:
             self.y_mode.setCurrentText(MANUAL)
 
     def _show_time(self, *_args) -> None:
@@ -1195,6 +1363,7 @@ class ScopeView(QWidget):
             )
             line.setVisible(on_plot)
             if on_plot:
+                self._line_against(line, self._axis.get(unit.id(record.channel.key), Y1))
                 line.setValue(unit.acquisition.level)
             # A window, or a runt, is between two levels.
             condition = unit.acquisition.condition if unit is not None else None
@@ -1202,7 +1371,17 @@ class ScopeView(QWidget):
             if index < len(self._upper_lines):
                 self._upper_lines[index].setVisible(upper)
                 if upper:
+                    self._line_against(
+                        self._upper_lines[index], self._axis.get(unit.id(record.channel.key), Y1)
+                    )
                     self._upper_lines[index].setValue(condition.upper)
+
+    def _line_against(self, line, axis: int) -> None:
+        """Draw a trigger level against the axis of the channel it is the level of."""
+        was = self._line_axis.get(id(line), Y1)
+        if was != axis:
+            self._move_item(line, was, axis)
+            self._line_axis[id(line)] = axis
 
     def _find_origin(
         self, unit: Unit, timing: _Timing, several: bool
