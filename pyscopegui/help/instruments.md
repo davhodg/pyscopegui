@@ -56,6 +56,7 @@ are held. The instruments in the pane, and the one chosen, are remembered.
 | Demo signals | Two analog and four digital channels at 100 kS/s, with no hardware |
 | [PicoScope 2202 to 2205A](picoscope.md) | Two channels, 25 MHz or less, no logic inputs |
 | [PicoScope 2206 to 2408B, and MSOs](picoscope.md) | Two or four channels, and the logic inputs of an MSO |
+| [pycangui signals](pycangui.md) | The signals pycangui decodes from a CAN bus, a channel each |
 | [Rigol DS1000Z](rigol.md) | Rigol's DS1000Z and MSO1000Z scopes, over the network or USB |
 | [Tektronix TDS and TPS 2000](tektronix.md) | Tektronix's TDS200, TDS1000, TDS2000 and TPS2000 scopes, over a serial port |
 
