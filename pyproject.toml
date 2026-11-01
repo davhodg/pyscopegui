@@ -79,7 +79,7 @@ Changelog = "https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/c
 dev = [
     "pytest",
     "pytest-xdist",
-    "ruff==0.16.*",
+    "ruff==0.17.*",
     # The official list of classifiers, for the test that checks ours against it.
     "trove-classifiers",
 ]
