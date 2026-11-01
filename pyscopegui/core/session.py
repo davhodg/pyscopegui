@@ -42,6 +42,16 @@ class Unit:
         self.restarting = False
         #: What the instrument says it is busy with at this moment, if it says.
         self.doing = ""
+        #: Settings changed and not yet known to be on the instrument: key ->
+        #: when, on the computer's clock.
+        self.pending: dict[str, float] = {}
+        #: The pane's settings the instrument was found not to have: key -> what
+        #: it has instead, or None. See Instrument.checked.
+        self.differs: dict[str, object] = {}
+        #: How long the last setting it took took, and the slowest: (seconds,
+        #: which setting), for Help > Diagnostics.
+        self.last_taken: tuple[float, str] | None = None
+        self.slowest_taken: tuple[float, str] | None = None
 
     def id(self, key: str) -> str:
         """A channel of this instrument, told apart from the same key on another."""

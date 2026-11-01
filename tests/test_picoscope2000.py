@@ -584,6 +584,7 @@ def test_a_range_change_while_running_stops_the_stream_sets_it_and_starts_again(
     ]
     assert ("open",) not in library.calls, "the scope is not opened again for it"
     assert block.after_pause and block.values("A").tolist() == pytest.approx([1.0])
+    assert reading.taken, "and it can be said that it was"
 
 
 def test_a_range_the_scope_refuses_while_running_leaves_it_as_it_was_and_says_so():
@@ -830,6 +831,7 @@ def test_a_range_change_between_blocks_is_taken_up_without_opening_again():
     reading.poll()
     assert ("channel", pico.CHANNEL_A, True, True, 7) in library.calls
     assert ("open",) not in library.calls
+    assert reading.taken
     # The level is now half of the new range, not a fifth.
     assert ("trigger", pico.CHANNEL_A, round(pico.MAX_VALUE / 2), pico.RISING, -50, 100) in (
         library.calls

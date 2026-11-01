@@ -41,8 +41,19 @@ since the last version, and comes out in the next one.
   offered under *Open with* for a `.npz`, as captures were saved before, which still open. A
   capture double-clicked while pyscopegui is open goes to that window.
 
+- **Whether a scope has the pane's settings**, for a Rigol or a Tektronix set up from here:
+  opened, it is asked how it is set, and what it has otherwise is amber in the pane, with
+  what it has in the tip. **Read** takes the scope's settings into the pane and **Write**
+  sends it the pane's. A setting changed in the pane is amber until the scope has it --
+  asked back once it is sent -- and one it would not take is said in the Event Log. One
+  that took over a second is said too, and Help > Diagnostics has the last and the slowest.
+  A PicoScope's change made as it runs is amber until it is taken up (#6).
+
 ### Changed
 
+- **Every run sends a Rigol or a Tektronix the whole of the pane's setup**, rather than
+  only what changed in the pane since the last: a knob turned at the bench while it was
+  stopped is set back.
 - **A Tektronix read as it is** reads the channels its screen shows, switched on and off at
   the scope: **Enabled** is not asked, and a channel switched on there is in the next reading.
 - **Y** at **Auto** fits the axis again only when a trace goes past it, or comes to take

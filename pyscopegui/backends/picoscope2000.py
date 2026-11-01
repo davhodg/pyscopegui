@@ -776,6 +776,8 @@ class Stream:
         self._callback = OverviewCallback(self._on_values)
         #: Lines for the Event Log, as (text, is it a warning).
         self.notes: list[tuple[str, bool]] = []
+        #: Settings asked for while it ran have been taken up since it was last said.
+        self.taken = False
 
     # --- opening ---------------------------------------------------------------------------
     def open(self) -> None:
@@ -1126,6 +1128,7 @@ class Stream:
             self.notes.append((f"{exc} It is still set as it was.", True))
         if wanted.generator != before.generator:
             self.set_generator(wanted.generator)
+        self.taken = True
 
     def _read_block(self) -> Block | None:
         settings, samples = self.settings, self._block_samples
@@ -1191,6 +1194,7 @@ class Stream:
         self._start_streaming()
         self._sent += round((self._clock() - paused_at) * self.settings.rate)
         self._paused = True
+        self.taken = True
 
     def set_generator(self, generator: tuple[str, float, float, float]) -> None:
         """Set the signal generator output: a fixed frequency, no sweep."""
@@ -1387,6 +1391,8 @@ class _Reader(QThread):
     #: The run that has started, or stopped.
     started_run = Signal(int)
     stopped_run = Signal(int)
+    #: See Instrument.checked: a PicoScope has whatever it was sent.
+    checked = Signal(object, bool)
 
     def __init__(self, stream: Stream, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -1439,6 +1445,9 @@ class _Reader(QThread):
         notes, self._stream.notes = self._stream.notes, []
         for text, is_warning in notes:
             (self.warning if is_warning else self.note).emit(text)
+        if self._stream.taken:
+            self._stream.taken = False
+            self.checked.emit({}, True)
 
     def run(self) -> None:
         stream = self._stream
@@ -1497,6 +1506,7 @@ class _Reader(QThread):
 
 class PicoScope2000(Instrument):
     SETTINGS = SETTINGS
+    SAYS_TAKEN = True
 
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
@@ -1652,6 +1662,7 @@ class PicoScope2000(Instrument):
         reader.opened.connect(self._on_opened)
         reader.started_run.connect(self._on_started)
         reader.stopped_run.connect(self._on_stopped)
+        reader.checked.connect(self.checked)
         reader.finished.connect(self._on_finished)
         self._reader = reader
         self.note.emit("Opening the PicoScope, which takes a few seconds...")

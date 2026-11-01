@@ -143,6 +143,35 @@ MEMORY_TIP = (
 )
 
 
+#: A setting that took longer than this to be taken up is said in the Event Log.
+SLOW_TAKEN_S = 1.0
+
+
+def _named(setting, key: str) -> str:
+    """A setting as the Event Log says it: "Time", "Channel 2 scale"."""
+    if setting is None:
+        return key
+    if setting.group.startswith("Channel "):
+        return f"{setting.group} {setting.label.lower()}"
+    return setting.label
+
+
+def _said(setting, value: object) -> str:
+    """A value of a setting as the pane would show it: "2 V/div", "off"."""
+    if value is None:
+        return "something the pane has no way to show"
+    if isinstance(value, bool):
+        return "it on" if value else "it off"
+    if setting is not None and setting.choices:
+        for choice, label in setting.choices:
+            if choice == value:
+                return label
+    if isinstance(value, float):
+        unit = setting.unit if setting is not None else ""
+        return f"{value:g} {unit}".strip()
+    return str(value)
+
+
 def short_time(seconds: float) -> str:
     """600 -> "10 min", 0.001 -> "1 ms": a length of time as it is said."""
     for unit, size in (("min", 60.0), ("s", 1.0), ("ms", 1e-3)):
@@ -258,6 +287,8 @@ class MainWindow(QMainWindow):
         self.instrument_view.instrument_removed.connect(self.remove_instrument)
         self.instrument_view.open_requested.connect(self.open_instrument)
         self.instrument_view.close_requested.connect(self.close_instrument)
+        self.instrument_view.read_requested.connect(self.read_settings)
+        self.instrument_view.write_requested.connect(self.write_settings)
         self._on_chosen()
         self.scope = self.panes.view(self.panes.add("scope"))
         self.panes.add("log")
@@ -578,6 +609,12 @@ class MainWindow(QMainWindow):
         instrument.activity.connect(lambda text, u=unit: self._on_activity(u, text))
         instrument.channels_changed.connect(
             lambda u=unit, i=instrument: self._on_channels_changed(u, i)
+        )
+        instrument.checked.connect(
+            lambda found, sent, u=unit, i=instrument: self._on_checked(u, i, found, sent)
+        )
+        instrument.settings_read.connect(
+            lambda values, u=unit, i=instrument: self._on_settings_read(u, i, values)
         )
         unit.instrument = instrument
         # Its channels, empty: to be looked at, and to choose a trigger
@@ -1012,7 +1049,116 @@ class MainWindow(QMainWindow):
                 f"{type(exc).__name__}: {exc}"
             )
             settings = ()
+        self._show_marks()
         self.instrument_view.show_settings(settings, self._options(name))
+
+    # --- whether the instrument has the pane's settings -------------------------------------
+    def _show_marks(self) -> None:
+        """Mark in amber what the instrument chosen does not have as the pane says,
+        or not yet, and offer Read and Write for one that holds its settings."""
+        unit = self.unit
+        instrument = unit.instrument if unit is not None else None
+        self.instrument_view.set_keeps(instrument is not None and instrument.keeps_settings)
+        if instrument is None:
+            self.instrument_view.mark({})
+            return
+        offered = {setting.key: setting for setting in self._offered_quietly(unit.name)}
+        marks = {}
+        for key in unit.pending:
+            marks[key] = (
+                "On its way to the scope."
+                if instrument.running
+                else "Not on the scope yet: Run, or Write, sends it."
+            )
+        for key, value in unit.differs.items():
+            marks[key] = (
+                f"The scope has {_said(offered.get(key), value)}. Read takes the scope's "
+                "settings into the pane; Write, or Run, sends it the pane's."
+            )
+        self.instrument_view.mark(marks)
+
+    def _on_checked(self, unit: Unit, instrument: Instrument, found: dict, sent: bool) -> None:
+        """What the instrument was found to have of the pane's settings: after a
+        change was sent it, each waiting is taken up or was refused."""
+        if unit.instrument is not instrument:
+            return
+        offered = {setting.key: setting for setting in self._offered_quietly(unit.name)}
+        title = backends.title(unit.name)
+        if sent:
+            now = time.monotonic()
+            for key, since in unit.pending.items():
+                named = _named(offered.get(key), key)
+                if key in found:
+                    self.events.warning(
+                        f"{title}: the scope did not take {named}, and has "
+                        f"{_said(offered.get(key), found[key])}."
+                    )
+                    continue
+                took = now - since
+                unit.last_taken = (took, named)
+                if unit.slowest_taken is None or took > unit.slowest_taken[0]:
+                    unit.slowest_taken = (took, named)
+                if took >= SLOW_TAKEN_S:
+                    self.events.information(f"{title}: {named} took {took:.1f} s to be taken up.")
+            unit.pending.clear()
+        elif found:
+            names = ", ".join(_named(offered.get(key), key) for key in found)
+            self.events.information(
+                f"{title} is not set as the pane says: {names}, marked in amber. Read takes the "
+                "scope's settings into the pane; Write, or Run, sends it the pane's."
+            )
+        unit.differs = dict(found)
+        if unit is self.unit:
+            self._show_marks()
+
+    def read_settings(self) -> None:
+        """Have the instrument chosen say how it is set: _on_settings_read takes it up."""
+        if (instrument := self.instrument) is not None:
+            instrument.read_settings()
+
+    def write_settings(self) -> None:
+        """Send the instrument chosen every one of the pane's settings."""
+        unit = self.unit
+        if unit is None or unit.instrument is None:
+            return
+        self.instrument_view.commit()
+        now = time.monotonic()
+        for key in unit.differs:
+            unit.pending.setdefault(key, now)
+        unit.instrument.write_settings()
+        self._show_marks()
+
+    def _on_settings_read(self, unit: Unit, instrument: Instrument, values: dict) -> None:
+        """The pane's settings as the instrument has them: the pane's now."""
+        if unit.instrument is not instrument:
+            return
+        options = self._options(unit.name)
+        changed = {key: value for key, value in values.items() if options.get(key) != value}
+        options.update(values)
+        self.ctx.settings.set(f"instrument.{unit.name}", options)
+        offered = {setting.key: setting for setting in self._offered_quietly(unit.name)}
+
+        def take() -> None:
+            for key, value in changed.items():
+                instrument.set(key, value)
+
+        restarts = any(key in offered and not offered[key].live for key in changed)
+        if restarts and instrument.running:
+            self._restart(unit, take)
+        else:
+            take()
+            unit.capture.update_channels(instrument.channels())
+        unit.differs = {}
+        for key in values:
+            unit.pending.pop(key, None)
+        title = backends.title(unit.name)
+        if changed:
+            names = ", ".join(_named(offered.get(key), key) for key in changed)
+            self.events.information(f"{title}: the pane has the scope's settings now: {names}.")
+        else:
+            self.events.information(f"{title}: the scope was set as the pane says already.")
+        if unit is self.unit:
+            self._show_settings()
 
     @Slot(str, object, bool)
     def _on_setting(self, key: str, value: object, live: bool) -> None:
@@ -1049,6 +1195,17 @@ class MainWindow(QMainWindow):
                 unit.capture.update_channels(instrument.channels())
         if self._as_is(unit) and not was_as_is:
             self._show_whole_snapshots()
+        # Waiting for the instrument to have it: one that holds its settings
+        # has it once it is sent and asked back; another, once a run takes it up.
+        if instrument.is_open and instrument.keeps(key):
+            unit.pending[key] = time.monotonic()
+            unit.differs.pop(key, None)
+        elif instrument.running and live and instrument.SAYS_TAKEN:
+            unit.pending[key] = time.monotonic()
+        if not instrument.keeps_settings and not instrument.running:
+            unit.pending.clear()
+            unit.differs.clear()
+        self._show_marks()
         # How it is read may be what changed, and with it what the toolbar offers.
         self._show_reading()
 
@@ -1083,6 +1240,11 @@ class MainWindow(QMainWindow):
         if not is_open:
             unit.acquisition.set_mode(STOP)
             self._settle_mode()
+            # Nothing is known of how it is set while it is closed.
+            unit.pending.clear()
+            unit.differs.clear()
+            if unit is self.unit:
+                self._show_marks()
         else:
             self._name_for_model(unit, instrument.model)
             self._take_labels(unit, getattr(instrument, "labels", {}))

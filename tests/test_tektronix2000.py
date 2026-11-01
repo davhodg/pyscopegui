@@ -11,6 +11,18 @@ from pyscopegui import backends
 from pyscopegui.backends import tektronix2000 as tek
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
+#: What it says of a setting it has not been sent, as it is turned on.
+STARTS = {
+    ":PROBE": "10",
+    ":COUPLING": "DC",
+    ":SCALE": "1.0E0",
+    ":POSITION": "0.0E0",
+    ":BANDWIDTH": "OFF",
+    "ACQUIRE:MODE": "SAMPLE",
+    "ACQUIRE:NUMAVG": "16",
+    "HORIZONTAL:MAIN:SCALE": "1.0E-3",
+}
+
 
 class FakePort:
     """Enough of a TPS2014 on a serial port: it remembers what it was sent and answers queries."""
@@ -34,6 +46,13 @@ class FakePort:
         self.closed = False
         #: When set, it has stopped answering.
         self.dead = False
+        #: Commands it keeps what it had through, as one turned to the end of its range.
+        self.refuses: set[str] = set()
+
+    def _as_it_starts(self, what: str) -> str | None:
+        if what in STARTS:
+            return STARTS[what]
+        return next((said for end, said in STARTS.items() if what.endswith(end)), None)
 
     # --- the port ------------------------------------------------------------------------
     def write(self, data: bytes) -> int:
@@ -112,6 +131,10 @@ class FakePort:
         elif what.endswith("?") and what[:-1] in self.state:
             # Whatever it was last set to, asked for back.
             self._say(self.state[what[:-1]])
+        elif what.endswith("?") and (said := self._as_it_starts(what[:-1])) is not None:
+            self._say(said)
+        elif what in self.refuses:
+            pass  # kept as it was
         elif what == "ACQUIRE:STATE" and to == "RUN":
             self.acquiring = True
         elif to:
@@ -381,8 +404,9 @@ def test_a_change_as_it_runs_sends_only_what_changed(port):
     before = len(port.heard)
     scope.wanted = tek.Settings({"port": "COM9", "scale_1": 2.0})
     assert scope.poll() is None
-    sent = [command for command in port.heard[before:] if command.startswith("CH")]
-    assert sent == ["CH1:SCALE 2"]
+    heard = [command for command in port.heard[before:] if command.startswith("CH")]
+    # Sent, and asked back to see that the scope has it.
+    assert heard == ["CH1:SCALE 2", "CH1:SCALE?"]
     assert sweep_of(scope).data["CH1"][0] == pytest.approx(-8.0)
     scope.close()
 
@@ -626,10 +650,12 @@ def test_setting_up_sends_a_setting_once_the_scope_has_done_the_one_before(port)
     del port.heard[:]
     scope.start(scope.settings, tek.Trigger("CH1", auto=False))
     changed = list(tek.setup(scope.settings, scope.trigger, 4).items())
-    sent = port.heard[: 2 * len(changed)]
-    assert sent[0::2] == [f"{what} {to}" for what, to in changed]
-    assert sent[1::2] == ["*OPC?"] * len(changed), "each one waited for"
-    assert waited[: len(changed)] == [tek.SETTING_S] * len(changed)
+    sets = [i for i, command in enumerate(port.heard) if not command.endswith("?")]
+    sent = [port.heard[i] for i in sets[: len(changed)]]
+    assert sent == [f"{what} {to}" for what, to in changed]
+    after = [port.heard[i + 1] for i in sets[: len(changed)]]
+    assert after == ["*OPC?"] * len(changed), "each one waited for"
+    assert waited.count(tek.SETTING_S) == len(changed)
     assert port.timeout == 3.0, "and the ordinary wait is put back"
     assert any("Setting the scope up" in text for text, _warning in scope.notes)
     assert any(text.startswith("Set up in") for text, _warning in scope.notes)
@@ -856,7 +882,8 @@ def test_read_takes_what_the_scope_shows_once_and_stops(as_is_window, port, app)
     wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
     assert set(window.capture.records) == {"CH1", "CH2"}
     assert port.sent("CURVE?") == 2, "each channel once, and not again"
-    assert not any(command.startswith("ACQUIRE") for command in port.heard)
+    # Asked how it was set when it was opened, and set up from here: nothing set.
+    assert not any(c.startswith("ACQUIRE") and not c.endswith("?") for c in port.heard)
     assert window.instrument_bar.mode() == "stop" and window.instrument_bar.read.isEnabled()
     assert window.instrument.is_open, "read, and still open for the next"
 
@@ -1130,3 +1157,66 @@ def test_the_window_greys_out_the_serial_settings_for_usb(window):
     assert controls["usb"].isEnabled()
     for serial_only in ("port", "baud", "flow", "parity", "eol"):
         assert not controls[serial_only].isEnabled(), serial_only
+
+
+# --- whether the scope has the pane's settings ---------------------------------------------
+def test_a_scope_set_otherwise_is_found_to_differ_asking_only_what_would_be_sent(port):
+    port.state.update({"SELECT:CH1": "ON", "CH1:SCALE": "2.0E0", "HORIZONTAL:MAIN:SCALE": "2.5E-3"})
+    scope = opened(port)
+    del port.heard[:]
+    scope.look(scope.settings, tek.Trigger())
+    assert scope.checked == ({"scale_1": 2.0, "time_div": 2.5e-3}, False)
+    assert all(command.endswith("?") for command in port.heard), "only asked"
+    assert "CH2:SCALE?" not in port.heard, "of a channel that is off, only whether it is"
+    scope.close()
+
+
+def test_a_trace_the_scope_moved_a_little_is_the_same(port):
+    port.state.update({"SELECT:CH1": "ON", "CH1:SCALE": "1.0E0", "CH1:POSITION": "1.01E0"})
+    scope = opened(port, offset_1=1.0)
+    scope.look(scope.settings, tek.Trigger())
+    assert scope.checked == ({}, False)
+    scope.close()
+
+
+def test_reading_gives_the_pane_what_the_scope_has(port):
+    port.state.update(
+        {
+            "SELECT:CH2": "ON",
+            "CH2:PROBE": "1",
+            "CH2:SCALE": "5.0E-1",
+            "CH2:POSITION": "-2.0E0",
+            "CH2:COUPLING": "AC",
+            "CH2:BANDWIDTH": "ON",
+            "ACQUIRE:MODE": "PEAKDETECT",
+        }
+    )
+    scope = opened(port)
+    scope.look(scope.settings, tek.Trigger(), everything=True)
+    got = tek.as_set(scope.said, scope.settings)
+    assert got["enabled_2"] is True and got["probe_2"] == 1 and got["scale_2"] == 0.5
+    assert got["offset_2"] == -1.0, "two divisions down at half a volt each"
+    assert got["coupling_2"] == "AC" and got["limit_2"] is True and got["acquire"] == "PEAKDETECT"
+    scope.close()
+
+
+def test_a_ratio_the_scope_has_not_got_is_kept_as_the_pane_has_it(port):
+    port.state.update({"CH1:PROBE": "1", "CH1:SCALE": "1.0E-1"})
+    scope = opened(port, probe_1=20)
+    scope.look(scope.settings, tek.Trigger(), everything=True)
+    got = tek.as_set(scope.said, scope.settings)
+    assert "probe_1" not in got and got["scale_1"] == pytest.approx(2.0)
+    scope.close()
+
+
+def test_every_run_sends_everything_and_a_refused_setting_is_said(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    scope.stop()
+    port.state["CH1:SCALE"] = "5"  # turned at the bench while it was stopped
+    port.refuses.add("HORIZONTAL:MAIN:SCALE")
+    port.state["HORIZONTAL:MAIN:SCALE"] = "5.0E-3"
+    scope.start(tek.Settings({"port": "COM9", "time_div": 1e-3}), tek.Trigger())
+    assert port.state["CH1:SCALE"] == "1"
+    assert scope.checked == ({"time_div": 5e-3}, True)
+    scope.close()

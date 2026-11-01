@@ -133,6 +133,12 @@ Everything from **Time** down is used when the scope is set up from here, and no
 when it is read as it is. **Reading** and **Enabled** start the run again; the rest are
 taken up between two sweeps.
 
+When the scope is opened it is asked how it is set, and a setting it has otherwise than the
+pane is amber. **Read**, beside **Open**, takes the scope's settings into the pane, and
+**Write** sends it the pane's; each is a few seconds, a setting at a time. A change made in
+the pane is amber until the scope has it. See
+[A scope with knobs of its own](instruments.md).
+
 Soft flagging is not offered. A waveform is sent as bytes, any of which soft flagging
 would take for one of its own.
 

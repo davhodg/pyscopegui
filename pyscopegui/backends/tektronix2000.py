@@ -22,6 +22,7 @@ screen read off: the way to fetch something that was captured at the bench.
 
 from __future__ import annotations
 
+import math
 import queue
 import re
 import time
@@ -32,6 +33,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends import probes, visa
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.backends.kept import same
 from pyscopegui.core.traffic import traced
 
 CHANNELS = ("CH1", "CH2", "CH3", "CH4")
@@ -504,6 +506,122 @@ def setup(settings: Settings, trigger: Trigger, channels: int = 4) -> dict[str, 
     return wanted
 
 
+#: What each of a channel's commands sets, by the start of the pane's key for it.
+_CHANNEL_KEYS = {
+    "PROBE": "probe",
+    "COUPLING": "coupling",
+    "SCALE": "scale",
+    "POSITION": "offset",
+    "BANDWIDTH": "limit",
+}
+_SCOPE_KEYS = {
+    "ACQUIRE:MODE": "acquire",
+    "ACQUIRE:NUMAVG": "averages",
+    "HORIZONTAL:MAIN:SCALE": "time_div",
+}
+#: The pane's settings the scope holds: each channel's sensitivity too, which
+#: the scope is not told but which goes into its scale and offset.
+KEPT = frozenset(
+    {
+        *_SCOPE_KEYS.values(),
+        *(
+            f"{what}_{n}"
+            for n in range(1, len(CHANNELS) + 1)
+            for what in (*_CHANNEL_KEYS.values(), "enabled", "sensitivity")
+        ),
+    }
+)
+
+
+def read_back(channels: int = 4) -> tuple[str, ...]:
+    """Every command that sets one of the pane's settings, on a scope with this
+    many channels: what it is asked back, to see how it is set. Not the
+    trigger's, which the toolbar has."""
+    return (
+        *(f"SELECT:{key}" for key in CHANNELS[:channels]),
+        *(f"{key}:{what}" for key in CHANNELS[:channels] for what in _CHANNEL_KEYS),
+        *_SCOPE_KEYS,
+    )
+
+
+def key_of(command: str) -> str | None:
+    """The pane's setting a command sets: "CH2:SCALE" -> "scale_2". None for
+    one that sets none of them -- the trigger's."""
+    if command.startswith("SELECT:CH"):
+        return f"enabled_{command[-1]}"
+    if command.startswith("CH"):
+        key, _, what = command.partition(":")
+        start = _CHANNEL_KEYS.get(what)
+        return f"{start}_{key[2:]}" if start else None
+    return _SCOPE_KEYS.get(command)
+
+
+def as_set(said: dict[str, str], settings: Settings) -> dict[str, object]:
+    """The pane's settings as the scope has them, from what it said when asked
+    read_back: key -> value, as the pane holds it. Its scales are through its
+    own probe setting, and through the pane's probe where the scope has what it
+    was told for that -- a current probe, or a ratio it has not got, is 1x to
+    it. Anything it said that the pane has no way to say is left out."""
+    got: dict[str, object] = {}
+
+    def number(command: str) -> float | None:
+        try:
+            return float(said[command])
+        except (KeyError, ValueError):
+            return None
+
+    for n, key in enumerate(CHANNELS, start=1):
+        if f"SELECT:{key}" in said:
+            got[f"enabled_{n}"] = said[f"SELECT:{key}"].strip().upper() in ("1", "ON")
+        probe = settings.probe[key]
+        ratio = number(f"{key}:PROBE")
+        if ratio is not None and not math.isclose(ratio, probe.told):
+            nearest = min(PROBES, key=lambda r: abs(r - ratio))
+            got[f"probe_{n}"] = nearest
+            probe = probes.Probe(nearest, told=nearest if nearest in TOLD else 1)
+        coupling = said.get(f"{key}:COUPLING", "").strip().upper()
+        if coupling in ("DC", "AC", "GND"):
+            got[f"coupling_{n}"] = coupling
+        scale = number(f"{key}:SCALE")
+        if scale is not None:
+            scale *= probe.from_scope
+            got[f"scale_{n}"] = round(scale, 9) if probe.current else _nearest(scale, SCALES, 1.0)
+            # Its position is in divisions up the screen.
+            if (position := number(f"{key}:POSITION")) is not None:
+                got[f"offset_{n}"] = round(position * float(got[f"scale_{n}"]), 9)
+        if f"{key}:BANDWIDTH" in said:
+            got[f"limit_{n}"] = said[f"{key}:BANDWIDTH"].strip().upper() in ("1", "ON")
+    mode = said.get("ACQUIRE:MODE", "").strip().upper()
+    for value, _label in ACQUISITIONS:
+        if mode and (value.startswith(mode) or mode.startswith(value)):
+            got["acquire"] = value
+    if (averages := number("ACQUIRE:NUMAVG")) is not None:
+        got["averages"] = int(_nearest(averages, AVERAGES, 16))
+    if (time_div := number("HORIZONTAL:MAIN:SCALE")) is not None:
+        got["time_div"] = _nearest(time_div, TIMES, 1e-3)
+    return got
+
+
+def differences(
+    settings: Settings, trigger: Trigger, said: dict[str, str], channels: int = 4
+) -> dict[str, object]:
+    """The pane's settings the scope does not have as they were to be sent:
+    key -> what it has instead, or None where the pane cannot say it. Only
+    what it has said is compared."""
+    wanted = setup(settings, trigger, channels)
+    has = as_set(said, settings)
+    found: dict[str, object] = {}
+    for command, to in wanted.items():
+        key = key_of(command)
+        if key is None or command not in said:
+            continue
+        # The scope moves a trace in steps of a part of a division.
+        close = 0.02 if command.endswith(":POSITION") else 0.0
+        if not same(to, said[command], close):
+            found[key] = has.get(key)
+    return found
+
+
 def crossed(samples: np.ndarray, at: int, level: float, rising: bool) -> bool:
     """Whether the signal goes through the level at this sample, the way asked for.
 
@@ -660,6 +778,11 @@ class Scope:
         self.wanted: Settings | None = None
         self.wanted_trigger: Trigger | None = None
         self._sent: dict[str, str] = {}
+        #: What the scope said it has, when asked: command -> its answer.
+        self.said: dict[str, str] = {}
+        #: Found when it was last looked at or sent something, for whoever is
+        #: listening: (differences, whether it was sent something). None once said.
+        self.checked: tuple[dict[str, object], bool] | None = None
         self._said_reading = False
         #: Told what it is busy with, in a few words: everything here is slow.
         self.doing = lambda _text: None
@@ -754,6 +877,9 @@ class Scope:
             self.read_view()
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
             return
+        # All of it, whatever was sent before: it may have been changed at the
+        # bench since.
+        self._sent.clear()
         if not self._set_up():
             return  # given way to what was asked next
         if self._before is None:
@@ -789,6 +915,7 @@ class Scope:
         wanted = setup(self.settings, self.trigger, self.channels)
         changed = [(what, to) for what, to in wanted.items() if self._sent.get(what) != to]
         if not changed:
+            self.checked = (self._differences(), True)
             return True
         began = time.monotonic()
         if len(changed) > 3:
@@ -810,9 +937,44 @@ class Scope:
             except ScopeError as exc:
                 raise ScopeError(f"Setting {what} to {to}: {exc}") from exc
             self._sent[what] = to
+            if key_of(what) is not None:
+                # Asked back, to say it has it: or that it would not take it.
+                self.said[what] = self._link.ask(f"{what}?")
+        found = self._differences()
+        for what, _to in changed:
+            if key_of(what) in found:
+                # Sent again next time, rather than taken to be there.
+                self._sent.pop(what, None)
+        self.checked = (found, True)
         if len(changed) > 3:
             self.notes.append((f"Set up in {time.monotonic() - began:.1f} s.", False))
         return True
+
+    def _differences(self) -> dict[str, object]:
+        return differences(self.settings, self.trigger, self.said, self.channels)
+
+    def look(self, settings: Settings, trigger: Trigger, everything: bool = False) -> None:
+        """Ask the scope how it is set, and say where that is not as the pane has
+        it: what would be sent it, or ``everything`` the pane could be set from.
+        Each is slow, so it is no more than what is needed."""
+        if everything:
+            asked = list(read_back(self.channels))
+        else:
+            asked = [what for what in setup(settings, trigger, self.channels) if key_of(what)]
+        for number, what in enumerate(asked, start=1):
+            if self.interrupted():
+                break
+            self.doing(f"looking at how the scope is set ({number} of {len(asked)})")
+            self.said[what] = self._link.ask(f"{what}?")
+        self.doing("")
+        self.checked = (differences(settings, trigger, self.said, self.channels), False)
+
+    def write(self, settings: Settings, trigger: Trigger) -> None:
+        """Send every one of the pane's settings, whatever was sent before."""
+        self.settings, self.trigger = settings, trigger
+        self._sent.clear()
+        if self._set_up() and self.running:
+            self._arm()
 
     def _arm(self) -> None:
         """Have the scope take one sweep and stop, which is its Single."""
@@ -960,6 +1122,9 @@ class _Reader(QThread):
     stopped_run = Signal(int)
     #: Read as it is, the scope is showing other channels than it was.
     view_changed = Signal()
+    #: See Instrument.checked and Instrument.settings_read.
+    checked = Signal(object, bool)
+    read = Signal(object)
 
     def __init__(self, scope: Scope, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -975,13 +1140,20 @@ class _Reader(QThread):
         self.doing.emit(text)
 
     def ask(self, *command) -> None:
-        """("start", settings, run, trigger), ("stop",) or ("close",): done in the order asked."""
+        """("start", settings, run, trigger), ("stop",) or ("close",): done in the
+        order asked. And without stopping a run: ("look", settings, trigger) to
+        compare the scope with them, ("read", settings) to read the pane's
+        settings from it, ("write", settings, trigger) to send it them all."""
         self._asked.put(command)
 
     def _say(self) -> None:
         notes, self._scope.notes = self._scope.notes, []
         for text, is_warning in notes:
             (self.warning if is_warning else self.note).emit(text)
+        if self._scope.checked is not None:
+            found, sent = self._scope.checked
+            self._scope.checked = None
+            self.checked.emit(found, sent)
         if self._scope.view_changed:
             self._scope.view_changed = False
             self.view_changed.emit()
@@ -1003,6 +1175,10 @@ class _Reader(QThread):
                 if command is not None:
                     if command[0] == "close":
                         break
+                    if command[0] in ("look", "read", "write"):
+                        self._settings_asked(command)
+                        self._say()
+                        continue
                     was_running = scope.running
                     scope.stop()
                     if was_running:
@@ -1026,9 +1202,21 @@ class _Reader(QThread):
             self._say()
             scope.close()
 
+    def _settings_asked(self, command: tuple) -> None:
+        scope = self._scope
+        if command[0] == "look":
+            scope.look(command[1], command[2])
+        elif command[0] == "read":
+            scope.look(command[1], scope.trigger, everything=True)
+            scope.checked = None  # what was read is about to be the pane's
+            self.read.emit(as_set(scope.said, command[1]))
+        else:
+            scope.write(command[1], command[2])
+
 
 class Tektronix2000(Instrument):
     SETTINGS = SETTINGS
+    SAYS_TAKEN = True
 
     def __init__(self, parent: QObject | None = None, options: dict | None = None) -> None:
         super().__init__(parent)
@@ -1097,6 +1285,24 @@ class Tektronix2000(Instrument):
         self.settings = Settings(self._options)
         if self._running and self._scope is not None:
             self._scope.wanted = self.settings
+        elif key == "read" and self._is_open and self.keeps_settings:
+            # Set up from here now: whether it is as the pane says.
+            self._reader.ask("look", self.settings, self._trigger)
+
+    @property
+    def keeps_settings(self) -> bool:
+        return not self.settings.as_is
+
+    def keeps(self, key: str) -> bool:
+        return self.keeps_settings and key in KEPT
+
+    def read_settings(self) -> None:
+        if self._is_open and self.keeps_settings:
+            self._reader.ask("read", self.settings)
+
+    def write_settings(self) -> None:
+        if self._is_open and self.keeps_settings:
+            self._reader.ask("write", self.settings, self._trigger)
 
     def channels(self) -> list[Channel]:
         settings = self.settings
@@ -1162,9 +1368,14 @@ class Tektronix2000(Instrument):
         reader.started_run.connect(self._on_started)
         reader.stopped_run.connect(self._on_stopped)
         reader.view_changed.connect(self._on_view_changed)
+        reader.checked.connect(self.checked)
+        reader.read.connect(self.settings_read)
         reader.finished.connect(self._on_finished)
         self._reader = reader
         reader.start()
+        if self.keeps_settings:
+            # Once it is open: whether it is set as the pane says.
+            reader.ask("look", self.settings, self._trigger)
 
     def close(self) -> None:
         if self._reader is None:

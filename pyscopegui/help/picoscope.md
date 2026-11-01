@@ -173,7 +173,8 @@ looks like a staircase; at 200 or 500 mV/div it is smooth. A signal larger than 
 is clipped at the range.
 
 A scale, a probe or the coupling is taken up as the scope runs: reading stops for a moment while it
-is set, drawn as a gap in the plot, and what was on the plot is kept. **Reading**, the
+is set, drawn as a gap in the plot, and what was on the plot is kept. Until it is, the
+setting is amber in the pane. **Reading**, the
 sample rate, the block length and **Enabled** change what the samples are, so they start the
 run again from an empty plot. None of them opens the scope again.
 

@@ -28,6 +28,17 @@ from pyscopegui.core.triggers import (
 )
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
+#: What it says of a setting it has not been sent, as it is turned on.
+STARTS = {
+    "PROB": "1.000000e+01",
+    "COUP": "DC",
+    "SCAL": "1.000000e+00",
+    "OFFS": "0.000000e+00",
+    "BWL": "OFF",
+    ":ACQ:TYPE": "NORM",
+    ":TIM:MAIN:SCAL": "1.000000e-03",
+}
+
 
 class FakeScope(socketserver.ThreadingTCPServer):
     """Enough of a DS1054Z to be talked to: it remembers what it was sent and answers queries."""
@@ -53,7 +64,14 @@ class FakeScope(socketserver.ThreadingTCPServer):
         self.depth = 600_000
         #: Trigger types it does not have, as one without the advanced option.
         self.lacks: set[str] = set()
+        #: Commands it keeps what it had through, as one turned to the end of its range.
+        self.refuses: set[str] = set()
         threading.Thread(target=self.serve_forever, daemon=True).start()
+
+    def _as_it_starts(self, what: str) -> str | None:
+        if what in STARTS:
+            return STARTS[what]
+        return next((said for end, said in STARTS.items() if what.endswith(end)), None)
 
     @property
     def address(self) -> str:
@@ -89,6 +107,8 @@ class FakeScope(socketserver.ThreadingTCPServer):
             return self._preamble().encode() + b"\n"
         elif what.endswith("?") and what[:-1] in self.state:
             return self.state[what[:-1]].encode() + b"\n"
+        elif what.endswith("?") and (said := self._as_it_starts(what[:-1])) is not None:
+            return said.encode() + b"\n"
         elif what == ":WAV:DATA?":
             if self._raw() and self.state.get(":SYST:BEEP", "1") != "OFF":
                 self.beeps += 1  # "Can Operate Now!", after each piece of its memory
@@ -96,6 +116,8 @@ class FakeScope(socketserver.ThreadingTCPServer):
             return b"#9%09d" % len(data) + data + b"\n"
         elif what == ":TRIG:MODE" and to in self.lacks:
             pass  # kept as it was, as the real one does
+        elif what in self.refuses:
+            pass  # kept as it was
         elif to:
             self.state[what] = to
             # As the real one does: an end set past the other moves that one too.
@@ -587,8 +609,9 @@ def test_a_change_as_it_runs_sends_only_what_changed(fake):
     before = len(fake.heard)
     scope.wanted = rigol.Settings({"address": fake.address, "scale_1": 2.0})
     assert scope.poll() is None
-    sent = [command for command in fake.heard[before:] if command.startswith(":CHAN")]
-    assert sent == [":CHAN1:SCAL 2"]
+    heard = [command for command in fake.heard[before:] if command.startswith(":CHAN")]
+    # Sent, and asked back to see that the scope has it.
+    assert heard == [":CHAN1:SCAL 2", ":CHAN1:SCAL?"]
     assert sweep_of(scope).data["CH1"][0] == pytest.approx(-8.0)
     scope.close()
 
@@ -615,7 +638,7 @@ def test_a_limit_changed_as_it_runs_is_sent_by_itself(fake):
     scope.wanted = rigol.Settings({"address": fake.address, "limit_1": True, "acquire": "PEAK"})
     assert scope.poll() is None
     scope._link.ask("*OPC?")
-    sent = [c for c in fake.heard[before:] if c.startswith((":CHAN", ":ACQ"))]
+    sent = [c for c in fake.heard[before:] if c.startswith((":CHAN", ":ACQ")) and "?" not in c]
     assert sent == [":CHAN1:BWL 20M", ":ACQ:TYPE PEAK"]
     scope.close()
 
@@ -1079,3 +1102,168 @@ def test_read_as_it_is_the_instrument_is_read_and_its_channels_are_the_scopes(ap
     assert instrument.reads_as_is
     assert instrument.channels() == [], "the ones the scope is showing, once it is open"
     assert not rigol.Rigol1000Z(options={}).reads_as_is
+
+
+# --- whether the scope has the pane's settings ---------------------------------------------
+def test_a_scope_set_otherwise_at_the_bench_is_found_to_differ_and_nothing_is_set(fake):
+    fake.state.update({":CHAN1:SCAL": "2.000000e+00", ":TIM:MAIN:SCAL": "5.000000e-03"})
+    scope = opened(fake)
+    scope.look(scope.settings, rigol.Trigger())
+    assert scope.checked == ({"scale_1": 2.0, "time_div": 5e-3}, False)
+    assert not any(" " in command for command in fake.heard), "only asked"
+    scope.close()
+
+
+def test_a_scope_set_as_the_pane_says_is_found_to_be(fake):
+    scope = opened(fake)
+    scope.look(scope.settings, rigol.Trigger())
+    assert scope.checked == ({}, False)
+    scope.close()
+
+
+def test_an_offset_the_scope_moved_a_little_is_the_same(fake):
+    fake.state[":CHAN1:OFFS"] = "1.010000e+00"
+    scope = opened(fake, offset_1=1.0)
+    scope.look(scope.settings, rigol.Trigger())
+    assert scope.checked == ({}, False)
+    scope.close()
+
+
+def test_reading_gives_the_pane_what_the_scope_has(fake):
+    fake.state.update(
+        {
+            ":CHAN2:DISP": "1",
+            ":CHAN2:PROB": "1.000000e+00",
+            ":CHAN2:SCAL": "5.000000e-01",
+            ":CHAN2:OFFS": "-1.000000e+00",
+            ":CHAN2:COUP": "AC",
+            ":CHAN2:BWL": "20M",
+            ":ACQ:TYPE": "PEAK",
+        }
+    )
+    scope = opened(fake)
+    scope.look(scope.settings, rigol.Trigger())
+    got = rigol.as_set(scope.said, scope.settings)
+    assert got["enabled_2"] is True and got["probe_2"] == 1
+    assert got["scale_2"] == 0.5 and got["offset_2"] == -1.0
+    assert got["coupling_2"] == "AC" and got["limit_2"] is True and got["acquire"] == "PEAK"
+    assert "probe_1" not in got, "the pane's 10x is what the scope has"
+    scope.close()
+
+
+def test_reading_keeps_a_current_probe_and_its_scale_in_amps(fake):
+    fake.state.update({":CHAN1:PROB": "1.000000e+00", ":CHAN1:SCAL": "1.000000e-01"})
+    scope = opened(fake, probe_1="current", sensitivity_1=0.1)
+    scope.look(scope.settings, rigol.Trigger())
+    got = rigol.as_set(scope.said, scope.settings)
+    assert "probe_1" not in got and got["scale_1"] == pytest.approx(1.0)
+    assert scope.checked == ({}, False)
+    scope.close()
+
+
+def test_every_run_sends_everything_whatever_was_sent_before(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    scope.stop()
+    fake.state[":CHAN1:SCAL"] = "5"  # turned at the bench while it was stopped
+    before = len(fake.heard)
+    scope.start(scope.settings, rigol.Trigger())
+    assert ":CHAN1:SCAL 1" in fake.heard[before:]
+    assert scope.checked == ({}, True)
+    scope.close()
+
+
+def test_a_change_as_it_runs_is_said_to_be_taken(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    scope.checked = None
+    scope.wanted = rigol.Settings({"address": fake.address, "scale_1": 2.0})
+    scope.poll()
+    assert scope.checked == ({}, True)
+    scope.close()
+
+
+def test_a_setting_the_scope_will_not_take_is_said_and_sent_again(fake):
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger())
+    sweep_of(scope)
+    fake.refuses.add(":CHAN1:SCAL")
+    scope.wanted = rigol.Settings({"address": fake.address, "scale_1": 2.0})
+    scope.poll()
+    assert scope.checked == ({"scale_1": 1.0}, True)
+    before = len(fake.heard)
+    scope.wanted = rigol.Settings({"address": fake.address, "scale_1": 2.0})
+    scope.poll()
+    assert ":CHAN1:SCAL 2" in fake.heard[before:], "not taken to be there"
+    scope.close()
+
+
+def test_write_sends_everything_and_says_the_scope_has_it(fake):
+    fake.state[":CHAN1:SCAL"] = "5"
+    scope = opened(fake)
+    scope.write(scope.settings, rigol.Trigger())
+    assert fake.state[":CHAN1:SCAL"] == "1" and not scope.running
+    assert scope.checked == ({}, True)
+    scope.close()
+
+
+def test_the_window_marks_what_the_scope_has_otherwise_and_read_takes_it(scope_window, fake, app):
+    window = scope_window
+    fake.state[":CHAN1:SCAL"] = "2.000000e+00"
+    view = window.instrument_view
+    view.open.click()
+    wait_for(app, lambda: window.unit.differs)
+    # Channel 2 is on in the pane, and off on the scope.
+    assert window.unit.differs == {"scale_1": 2.0, "enabled_2": False}
+    assert view.controls["scale_1"].styleSheet(), "marked"
+    assert "The scope has 2 V/div" in view.controls["scale_1"].toolTip()
+    assert not view.read.isHidden() and not view.write.isHidden()
+    assert "not set as the pane says: Channel 1 scale" in window.log.toPlainText()
+    view.read.click()
+    wait_for(app, lambda: window.ctx.settings.get("instrument.rigol1000z").get("scale_1") == 2.0)
+    assert not window.unit.differs and not view.controls["scale_1"].styleSheet()
+    assert view.controls["scale_1"].currentData() == 2.0
+
+
+def test_the_window_marks_a_change_until_the_scope_has_it(scope_window, fake, app):
+    window = scope_window
+    fake.state[":CHAN2:DISP"] = "1"  # as the pane has it
+    view = window.instrument_view
+    view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    box = view.controls["scale_1"]
+    box.setCurrentIndex(box.findData(2.0))
+    box.activated.emit(box.currentIndex())
+    assert "scale_1" in window.unit.pending and view.controls["scale_1"].styleSheet()
+    assert "Run, or Write, sends it" in view.controls["scale_1"].toolTip()
+    view.write.click()
+    wait_for(app, lambda: not window.unit.pending)
+    assert fake.state[":CHAN1:SCAL"] == "2" and not view.controls["scale_1"].styleSheet()
+    assert window.unit.last_taken[1] == "Channel 1 scale"
+
+
+def test_write_and_read_are_not_offered_read_as_it_is(scope_window, fake, app):
+    window = scope_window
+    view = window.instrument_view
+    view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    assert not view.read.isHidden()
+    window._on_setting("control", "asis", False)
+    assert view.read.isHidden() and view.write.isHidden()
+
+
+def test_a_refused_setting_is_said_in_the_event_log(scope_window, fake, app):
+    window = scope_window
+    view = window.instrument_view
+    view.open.click()
+    wait_for(app, lambda: window.instrument.is_open)
+    window.set_mode("auto")
+    wait_for(app, lambda: window.acquisition.sweep is not None)
+    fake.refuses.add(":CHAN1:SCAL")
+    box = view.controls["scale_1"]
+    box.setCurrentIndex(box.findData(2.0))
+    box.activated.emit(box.currentIndex())
+    wait_for(app, lambda: "did not take" in window.log.toPlainText())
+    assert "the scope did not take Channel 1 scale, and has 1 V/div" in window.log.toPlainText()
+    assert window.unit.differs == {"scale_1": 1.0}

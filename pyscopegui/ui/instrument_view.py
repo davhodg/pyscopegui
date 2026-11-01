@@ -53,6 +53,17 @@ NONE_ADDED = "No instrument. Add instrument, on the toolbar, puts one here."
 #: Behind what has been typed and not yet taken up: Enter, or leaving the
 #: box, takes it up. The amber pycangui uses for the same thing.
 PENDING = "QLineEdit { background-color: rgba(230, 150, 0, 70); }"
+#: Behind a setting the instrument does not have as the pane says, or not yet:
+#: the same amber, for the same thing -- not yet taken up.
+MARKED = "{kind} {{ background-color: rgba(230, 150, 0, 70); }}"
+READ_TIP = (
+    "Read the scope's own settings into this pane: what it was set to\n"
+    "at the bench. Amber marks what the scope has that the pane does not."
+)
+WRITE_TIP = (
+    "Send the scope every setting in this pane, whatever it has now.\n"
+    "Run does the same as it starts."
+)
 #: Added to the tip of a setting that is not taken up as the instrument runs.
 RESTARTS = "A change starts a run again, from an empty plot."
 #: What a group's heading starts with when it is one channel's settings.
@@ -133,6 +144,10 @@ class InstrumentView(QWidget):
     #: Open, or Close, was pressed for the instrument chosen.
     open_requested = Signal()
     close_requested = Signal()
+    #: Read, or Write, was pressed: the instrument's settings into the pane, or
+    #: the pane's onto the instrument.
+    read_requested = Signal()
+    write_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -156,9 +171,23 @@ class InstrumentView(QWidget):
         #: the instruments' tabs.
         self.open = QPushButton()
         self.open.clicked.connect(self._on_open_pressed)
+        #: For an instrument that holds its settings itself: its into the pane,
+        #: and the pane's onto it. Beside Open, and only once it is open.
+        self.read = QPushButton("Read")
+        self.read.setToolTip(READ_TIP)
+        self.read.clicked.connect(self.read_requested)
+        self.write = QPushButton("Write")
+        self.write.setToolTip(WRITE_TIP)
+        self.write.clicked.connect(self.write_requested)
         line = QHBoxLayout()
         line.addWidget(self.open)
+        line.addWidget(self.read)
+        line.addWidget(self.write)
         line.addStretch()
+        #: Whether the instrument chosen holds its settings itself.
+        self._keeps = False
+        #: Setting key -> why it is marked, for the controls marked.
+        self._marks: dict[str, str] = {}
         outer.addLayout(line)
         inner = QWidget()
         outer.addWidget(inner, 1)
@@ -230,6 +259,35 @@ class InstrumentView(QWidget):
     def _show_open(self) -> None:
         self.open.setText("Close" if self._open else "Open")
         self.open.setToolTip(CLOSE_TIP if self._open else OPEN_TIP)
+        for button in (self.read, self.write):
+            button.setVisible(self._keeps and self._open and not self.open.isHidden())
+
+    def set_keeps(self, keeps: bool) -> None:
+        """Say whether the instrument chosen holds its settings itself, which
+        Read and Write are for."""
+        self._keeps = keeps
+        self._show_open()
+
+    def mark(self, marks: dict[str, str]) -> None:
+        """Mark these settings amber -- key -> why, added to its tip -- and no others."""
+        self._marks = dict(marks)
+        for key, control in self.controls.items():
+            why = marks.get(key)
+            plain = control.property("plain_tip")
+            if plain is None:
+                plain = control.toolTip()
+                control.setProperty("plain_tip", plain)
+            if isinstance(control, QLineEdit | Picker):
+                continue  # amber already for what is typed and not taken up
+            kind = (
+                "QCheckBox"
+                if isinstance(control, QCheckBox)
+                else "QComboBox"
+                if isinstance(control, QComboBox)
+                else "QAbstractSpinBox"
+            )
+            control.setStyleSheet(MARKED.format(kind=kind) if why else "")
+            control.setToolTip(f"{plain}\n\n{why}" if why and plain else why or plain)
 
     def show_settings(self, settings: tuple[Setting, ...], values: dict) -> None:
         """Show these settings, at the values saved for them or their defaults."""
@@ -268,6 +326,7 @@ class InstrumentView(QWidget):
         self._layout.addStretch()
         self.select_group(self._group)
         self._show_needed()
+        self.mark(self._marks)
 
     def _line_up(self) -> None:
         """In each box, the first of each pair of settings sharing a line as
@@ -331,6 +390,7 @@ class InstrumentView(QWidget):
         """Say there is no instrument, with nothing to set and nothing to open."""
         self._clear(())
         self.open.hide()
+        self._show_open()
         self._layout.addWidget(QLabel(NONE_ADDED))
         self._layout.addStretch()
 

@@ -70,6 +70,12 @@ def instruments(window) -> list[str]:
             lines.append("  not made: it has not been opened")
         else:
             lines += [f"  {line}" for line in unit.instrument.diagnostics() or ["nothing more"]]
+            if unit.last_taken is not None:
+                (last, what), (slowest, which) = unit.last_taken, unit.slowest_taken
+                lines.append(
+                    f"  settings taken up: the last in {last:.2f} s ({what}), "
+                    f"the slowest in {slowest:.2f} s ({which})"
+                )
     return lines
 
 

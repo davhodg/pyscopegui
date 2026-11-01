@@ -237,6 +237,19 @@ class Instrument(QObject):
     #: slow enough that a silence looks like a fault: "reading CH2 (2 of 4)".
     #: Empty when it is busy with nothing in particular.
     activity = Signal(str)
+    #: What it was found to have of the pane's settings, after it was looked at
+    #: or sent them: the settings it does not have as the pane says -- key ->
+    #: what it has instead, as the pane holds a value, or None where that
+    #: cannot be said -- and whether this follows a change sent to it, rather
+    #: than its only being looked at. Empty: it has every one. See keeps_settings.
+    checked = Signal(object, bool)
+    #: The pane's settings as the instrument has them, read by read_settings:
+    #: key -> value, as the pane holds them.
+    settings_read = Signal(object)
+
+    #: Whether ``checked`` follows every change made while it runs, once that
+    #: is taken up: a change can be shown as on its way until then.
+    SAYS_TAKEN = False
 
     #: What can be set, in the order it should be listed, before anything
     #: is known about the instrument that is plugged in.
@@ -314,7 +327,30 @@ class Instrument(QObject):
 
     def set(self, key: str, value: object) -> None:
         """Take up a setting. A ``live`` one may arrive while running; any
-        other arrives while stopped, and is used at the next start."""
+        other arrives while stopped, and is used at the next start. One that
+        arrives while running is followed by ``checked`` once it is taken up."""
+
+    @property
+    def keeps_settings(self) -> bool:
+        """Whether it holds its settings itself, where they can be changed apart
+        from here -- a scope with its own knobs -- so that what the pane says
+        and what it has can differ. Such an instrument is looked at once it is
+        open, and can be read and written: see read_settings. Not one read as
+        it is, which nothing is sent to."""
+        return False
+
+    def keeps(self, key: str) -> bool:
+        """Whether this setting is one it holds: see keeps_settings."""
+        return False
+
+    def read_settings(self) -> None:
+        """Read the pane's settings from it as it has them: ``settings_read``
+        brings them. For one that keeps_settings, once it is open."""
+
+    def write_settings(self) -> None:
+        """Send it every one of the pane's settings, whatever it was last sent:
+        ``checked`` says when it has them. For one that keeps_settings, once
+        it is open."""
 
     @property
     def is_open(self) -> bool:

@@ -208,6 +208,38 @@ whichever instrument it belongs to.
 Every scope is set the same way, whoever made it: **Scale** in volts a division, **Probe**
 for what is on the end of the channel, and **Coupling**.
 
+### A scope with knobs of its own
+
+A [Rigol](rigol.md) or a [Tektronix](tektronix.md) set up from here holds its settings
+itself, and they can be turned at the bench as well. So the pane says whether the scope has
+what the pane shows, and a setting it does not have is **amber**.
+
+**When it is opened**, the scope is asked how it is set, and nothing on it is changed. A
+setting it has otherwise is amber, with what the scope has in its tip, and the
+[Event Log](event-log.md) lists them. Beside **Open**, while it is open, are two buttons:
+
+| Button | What it does |
+|--------|--------------|
+| **Read** | Takes the scope's settings into the pane: what it was set to at the bench |
+| **Write** | Sends the scope every setting in the pane, whatever it has now |
+
+A run does what **Write** does as it starts, so a knob turned while it was stopped is set
+back. The trigger is the toolbar's, and is sent with the rest; it is not read.
+
+**A setting changed in the pane** is amber until the scope has it. Stopped, that is until
+the next run or **Write**. Running, it is sent between two sweeps and asked back, which
+takes a moment on a Rigol and up to a second on a Tektronix; the plot changes with the next
+sweep the scope takes after it, which with **Normal** and nothing to trigger on is not
+until something does. A setting the scope would not take -- past the end of its range --
+stays amber with what the scope has instead, the [Event Log](event-log.md) says so, and it
+is sent again with the next change. One that took longer than a second is said in the
+Event Log, and **Help > Diagnostics** has the last and the slowest.
+
+Read **as it is**, nothing is sent, so neither button is there and nothing is amber.
+
+A [PicoScope](picoscope.md) has no knobs, and has whatever it was sent. A change made while
+it runs is amber only until it is taken up, a moment later.
+
 ### Probes
 
 **Probe** is the same list on every scope:

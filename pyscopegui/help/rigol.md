@@ -167,6 +167,11 @@ Set up from here, pyscopegui sets the scope up from this pane when a run starts,
 knobs on the scope are overridden for these settings. Everything else -- memory depth, and a signal generator
 if the scope has one -- stays as the scope has it.
 
+When the scope is opened it is asked how it is set, and a setting it has otherwise than the
+pane is amber. **Read**, beside **Open**, takes the scope's settings into the pane, and
+**Write** sends it the pane's. A change made in the pane is amber until the scope has it.
+See [A scope with knobs of its own](instruments.md).
+
 ## When it does not work
 
 - *No address to connect to* --- **Address** in the Instrument pane is empty.
