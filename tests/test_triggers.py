@@ -88,7 +88,8 @@ def test_a_pulse_shorter_longer_or_between(pieces):
         return find(condition, data, pieces=pieces)
 
     assert pulses(LONGER, 0.010) == ends[1:]
-    assert pulses(SHORTER, 0.010) == ends[:1]
+    assert pulses(SHORTER, 0.001, 0.010) == ends[:1], "shorter than the Max"
+    assert pulses(SHORTER, 0.050, 0.010) == ends[:1], "whatever the Min is left at"
     assert pulses(BETWEEN, 0.010, 0.030) == ends[1:2]
     assert pulses(LONGER, 0.010, polarity=LOW, data=1 - samples) == ends[1:]
 

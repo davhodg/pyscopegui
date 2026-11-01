@@ -306,8 +306,8 @@ def test_a_pulse_wider_narrower_or_between_high_or_low():
     assert wider[":TRIG:MODE"] == "PULS" and wider[":TRIG:PULS:SOUR"] == "CHAN2"
     assert wider[":TRIG:PULS:WHEN"] == "PGR" and wider[":TRIG:PULS:WIDT"] == "0.0004"
     assert wider[":TRIG:PULS:LEV"] == "0.5"
-    narrower = trigger_of(Condition(PULSE, polarity=LOW, compare=SHORTER, shortest=1e-6))
-    assert narrower[":TRIG:PULS:WHEN"] == "NLES"
+    narrower = trigger_of(Condition(PULSE, polarity=LOW, compare=SHORTER, longest=1e-6))
+    assert narrower[":TRIG:PULS:WHEN"] == "NLES" and narrower[":TRIG:PULS:WIDT"] == "1e-06"
     between = trigger_of(Condition(PULSE, compare=BETWEEN, shortest=4e-4, longest=6e-4))
     assert between[":TRIG:PULS:WHEN"] == "PGL"
     assert (between[":TRIG:PULS:LWID"], between[":TRIG:PULS:UWID"]) == ("0.0004", "0.0006")

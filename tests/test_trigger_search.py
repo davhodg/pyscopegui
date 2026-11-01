@@ -167,7 +167,7 @@ class OldFinder:
         width = ends + first - began
         compare = self.condition.compare
         if compare == SHORTER:
-            wanted = width < self.shortest
+            wanted = width < self.longest
         elif compare == LONGER:
             wanted = width > self.shortest
         else:
@@ -389,7 +389,7 @@ CONDITIONS = [
     Condition(EDGE, edge=EITHER, holdoff=0.03),
     Condition(WINDOW, upper=0.7, direction=ENTER),
     Condition(WINDOW, upper=0.7, direction=LEAVE),
-    Condition(PULSE, polarity=HIGH, compare=SHORTER, shortest=0.04),
+    Condition(PULSE, polarity=HIGH, compare=SHORTER, longest=0.04),
     Condition(PULSE, polarity=LOW, compare=LONGER, shortest=0.04),
     Condition(PULSE, polarity=HIGH, compare=BETWEEN, shortest=0.01, longest=0.045),
     Condition(RUNT, upper=0.7, polarity=HIGH),

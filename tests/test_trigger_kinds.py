@@ -14,6 +14,7 @@ from pyscopegui.core.triggers import (
     LONGER,
     PATTERN,
     PULSE,
+    SHORTER,
     WINDOW,
     Condition,
 )
@@ -51,13 +52,38 @@ def test_what_is_not_a_time_is_none():
 
 
 # --- the dialog --------------------------------------------------------------------------------
+def test_a_pulse_s_min_and_max_are_each_there_only_where_used(app):
+    dialog = TriggerDialog(Condition(PULSE), [("D0", "D0")])
+    form = dialog.form
+    assert form.labelForField(dialog.shortest).text() == "Min:"
+    assert form.labelForField(dialog.longest).text() == "Max:"
+    for compare, uses_min, uses_max in (
+        (SHORTER, False, True),
+        (LONGER, True, False),
+        (BETWEEN, True, True),
+    ):
+        dialog.compare.setCurrentIndex(dialog.compare.findData(compare))
+        assert (dialog.shortest.isEnabled(), dialog.longest.isEnabled()) == (uses_min, uses_max)
+
+
+def test_shorter_than_is_the_max_whatever_the_min_says(app):
+    dialog = TriggerDialog(Condition(PULSE), [("D0", "D0")])
+    dialog.compare.setCurrentIndex(dialog.compare.findData(SHORTER))
+    dialog.longest.setText("400 us")
+    dialog.shortest.setText("not a time")  # greyed out, and not read
+    dialog.accept()
+    condition = dialog.condition()
+    assert condition.compare == SHORTER and condition.limit == pytest.approx(400e-6)
+    assert condition.summary() == "high pulse < 400 µs"
+
+
 def test_a_pulse_s_details_and_what_is_wrong_with_them(app):
     dialog = TriggerDialog(Condition(PULSE), [("D0", "D0")])
     dialog.compare.setCurrentIndex(dialog.compare.findData(BETWEEN))
     dialog.shortest.setText("2 ms")
     dialog.longest.setText("1 ms")
     dialog.accept()
-    assert "longer than the first" in dialog.problem.text() and not dialog.result()
+    assert "Max has to be longer than Min" in dialog.problem.text() and not dialog.result()
     dialog.longest.setText("5 ms")
     dialog.holdoff.setText("10 ms")
     dialog.accept()

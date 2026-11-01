@@ -139,7 +139,7 @@ there with two or more.
 |------|-------------|-------------|
 | **Edge** | The signal crossing the level, up, down or either way | -- |
 | **Window** | The signal entering the band between the level and an upper level, or leaving it | The upper level, drawn as a second dashed line; entering or leaving |
-| **Pulse width** | The end of a pulse -- high, or low -- shorter than a time, longer, or between two: a glitch, or a pulse gone missing | High or low; shorter, longer or between; the times |
+| **Pulse width** | The end of a pulse -- high, or low -- shorter than a time, longer, or between two: a glitch, or a pulse gone missing | High or low; shorter, longer or between; **Min** for longer, **Max** for shorter, both for between |
 | **Runt** | A pulse that crosses the level but goes back without reaching the upper level: a signal that did not make it | The upper level; high or low |
 | **Timeout** | The signal staying high, low, or either, for longer than a time: at that moment, while it still is | Which; the time |
 | **Logic pattern** | Logic channels each at the level wanted, together: as soon as they are, or once they have been for a time | Each channel's level -- 0, 1 or either; how long it has to be held |
@@ -147,7 +147,7 @@ there with two or more.
 
 Every type also has a **holdoff**: after a trigger, none is taken for that long -- for a
 burst of edges, say, of which only the first is wanted. And every type can trigger on the
-Nth time it is met, under **Trigger on time**, rather than the first: counted from the
+Nth time it is met, under **Trigger Nth time**, rather than the first: counted from the
 first time after the holdoff, so that with a holdoff as long as a burst, each burst triggers
 on its third edge, say, or its fifth frame. A **Delay** puts the trigger that long after the
 moment it is met, to look at what comes later. Both are found by pyscopegui in what is

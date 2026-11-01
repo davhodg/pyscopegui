@@ -493,7 +493,7 @@ def _trigger_setup(settings: Settings, trigger: Trigger) -> dict[str, str]:
                 wanted[":TRIG:PULS:LWID"] = f"{condition.shortest:g}"
             else:
                 wanted[":TRIG:PULS:WHEN"] = sign + ("LES" if condition.compare == SHORTER else "GR")
-                wanted[":TRIG:PULS:WIDT"] = f"{condition.shortest:g}"
+                wanted[":TRIG:PULS:WIDT"] = f"{condition.limit:g}"
         elif kind == RUNT:
             wanted[":TRIG:RUNT:SOUR"] = source
             wanted[":TRIG:RUNT:POL"] = "NEG" if condition.polarity == LOW else "POS"

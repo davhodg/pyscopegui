@@ -83,7 +83,9 @@ class Condition:
     #: Pulse width and runt: a high pulse or a low one. Timeout: staying high,
     #: low, or either.
     polarity: str = HIGH
-    #: Pulse width: shorter than ``shortest``, longer than it, or between it and ``longest``.
+    #: Pulse width: shorter than ``longest``, longer than ``shortest``, or
+    #: between the two -- the Max and the Min the dialog has. Timeout: how
+    #: long, as ``shortest``.
     compare: str = LONGER
     shortest: float = 1e-3
     longest: float = 2e-3
@@ -106,6 +108,12 @@ class Condition:
     match_data: str = ""
     match_type: str = ANY
     which: str = ALL
+
+    @property
+    def limit(self) -> float:
+        """The one width a pulse is compared with, shorter or longer: the Max
+        for shorter, the Min for longer. Between has both."""
+        return self.longest if self.compare == SHORTER else self.shortest
 
     def as_saved(self) -> dict:
         saved = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -185,7 +193,7 @@ class Condition:
             span = (
                 f"{_time(self.shortest)} to {_time(self.longest)}"
                 if self.compare == BETWEEN
-                else f"{sign} {_time(self.shortest)}"
+                else f"{sign} {_time(self.limit)}"
             )
             return f"{self.polarity} pulse {span}"
         if self.kind == RUNT:
@@ -239,7 +247,10 @@ class Finder:
             self.level, self.upper = self.upper, self.level
         self.margin = margin
         self.shortest = max(1, round(condition.shortest * rate))
-        self.longest = max(self.shortest, round(condition.longest * rate))
+        # Shorter than the Max goes by the Max alone, whatever the Min is left at.
+        self.longest = max(1, round(condition.longest * rate))
+        if condition.compare == BETWEEN:
+            self.longest = max(self.shortest, self.longest)
         self.held = round(condition.held * rate)
         self._taking = Taking(condition, rate)
         #: Carried from one block to the next: each threshold's level, a run's
@@ -330,7 +341,7 @@ class Finder:
         width = ends + first - began
         compare = self.condition.compare
         if compare == SHORTER:
-            wanted = width < self.shortest
+            wanted = width < self.longest
         elif compare == LONGER:
             wanted = width > self.shortest
         else:

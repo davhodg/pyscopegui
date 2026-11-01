@@ -165,12 +165,14 @@ class TriggerDialog(QDialog):
             self.form.addRow("Width:", self.compare)
         if kind in (PULSE, TIMEOUT):
             self.shortest = QLineEdit(time_text(condition.shortest))
-            self.form.addRow("Time:" if kind == TIMEOUT else "", self.shortest)
+            self.form.addRow("Time:" if kind == TIMEOUT else "Min:", self.shortest)
         if kind == PULSE:
+            self.shortest.setToolTip("The least a pulse may last: for Longer than, and Between.")
             self.longest = QLineEdit(time_text(condition.longest))
-            self.form.addRow("and:", self.longest)
-            self.compare.currentIndexChanged.connect(self._show_longest)
-            self._show_longest()
+            self.longest.setToolTip("The most a pulse may last: for Shorter than, and Between.")
+            self.form.addRow("Max:", self.longest)
+            self.compare.currentIndexChanged.connect(self._show_widths)
+            self._show_widths()
         if kind == PATTERN:
             box = QGroupBox("Each channel at")
             grid = QGridLayout(box)
@@ -198,7 +200,7 @@ class TriggerDialog(QDialog):
         self.nth.setRange(1, MOST_TIMES)
         self.nth.setValue(condition.nth)
         self.nth.setToolTip(NTH_TIP)
-        self.form.addRow("Trigger on time:", self.nth)
+        self.form.addRow("Trigger Nth time:", self.nth)
         self.delay = QLineEdit(time_text(condition.delay) if condition.delay else "0")
         self.delay.setToolTip(DELAY_TIP)
         self.form.addRow("Delay:", self.delay)
@@ -277,9 +279,11 @@ class TriggerDialog(QDialog):
         box.setCurrentIndex(max(box.findData(current), 0))
         return box
 
-    def _show_longest(self, *_args) -> None:
-        between = self.compare.currentData() == BETWEEN
-        self.longest.setEnabled(between)
+    def _show_widths(self, *_args) -> None:
+        """Min and Max, each only where the comparison uses it."""
+        compare = self.compare.currentData()
+        self.shortest.setEnabled(compare != SHORTER)
+        self.longest.setEnabled(compare != LONGER)
 
     def _times(self) -> dict[str, float] | str:
         """Each time typed, in seconds; or what is wrong with one."""
@@ -291,16 +295,16 @@ class TriggerDialog(QDialog):
             ("holdoff", self.holdoff),
             ("delay", self.delay),
         ):
-            if field is None or (name == "longest" and not field.isEnabled()):
+            if field is None or (name in ("shortest", "longest") and not field.isEnabled()):
                 continue
             seconds = parse_time(field.text())
             if seconds is None:
                 return f"{field.text()!r} is not a time: 1 ms, 500 us or 2e-6, say."
             found[name] = seconds
-        if found.get("shortest") == 0.0:
+        if found.get("shortest") == 0.0 or found.get("longest") == 0.0:
             return "The time has to be more than nought."
-        if "longest" in found and found["longest"] <= found["shortest"]:
-            return "The second time has to be longer than the first."
+        if "shortest" in found and "longest" in found and found["longest"] <= found["shortest"]:
+            return "Max has to be longer than Min."
         return found
 
     def accept(self) -> None:

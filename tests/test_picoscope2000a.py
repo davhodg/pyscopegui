@@ -1075,6 +1075,7 @@ def test_a_pulse_is_timed_from_its_start_and_triggered_at_its_end():
     reading.poll()
     timed = next(call for call in library.calls if call[0] == "pulse width")
     assert timed[3] == pico.FALLING_LOWER and timed[6] == pico.PW_LESS_THAN
+    assert timed[4] == round(2e-6 * rate), "shorter than the Max"
     assert ("directions", pico.RISING, *NOWHERE[1:]) in library.calls, "a low pulse ends rising"
     del library.calls[:]
     reading.wanted_trigger = pico.Trigger("A", level=0.5)

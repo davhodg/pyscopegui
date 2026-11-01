@@ -1005,7 +1005,9 @@ class Stream(pico.Stream):
             directions[index] = FALLING if high else RISING
             wanted.pulse_width = CONDITION_TRUE
             timed = PwqConditions(**{"abcd"[index]: CONDITION_TRUE})
-            shortest = max(1, round(condition.shortest * self._block_rate))
+            # Shorter and longer are against one width, the driver's lower; between, both.
+            lower = condition.shortest if condition.compare == BETWEEN else condition.limit
+            shortest = max(1, round(lower * self._block_rate))
             longest = max(shortest + 1, round(condition.longest * self._block_rate))
             kind = {SHORTER: PW_LESS_THAN, BETWEEN: PW_IN_RANGE}.get(
                 condition.compare, PW_GREATER_THAN

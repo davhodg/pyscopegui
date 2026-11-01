@@ -64,6 +64,13 @@ since the last version, and comes out in the next one.
   last ones were zoomed to. From one run to the next it stays where it was put, and Auto
   and Range are remembered as before.
 
+- **A pulse width's times are a Min and a Max**: *Longer than* uses the Min, *Shorter
+  than* the Max, and *Between* both, each greyed out where it is not used, rather than one
+  box whose meaning changed with the choice. A *Shorter than* saved before keeps the Max it
+  had, which may need setting again.
+- **Trigger Nth time** is what the count of times is called in the trigger's details,
+  rather than *Trigger on time*.
+
 ### Fixed
 
 - **A Rigol waits for a logic pattern that has to be held**: the scope says its Duration
