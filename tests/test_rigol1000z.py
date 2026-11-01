@@ -99,6 +99,8 @@ class FakeScope(socketserver.ThreadingTCPServer):
             return b"VOLT\n"
         elif what.endswith(":DISP?") and what[:-1] not in self.state:
             return b"1\n" if what.startswith(":CHAN1") else b"0\n"
+        elif what == ":TRIG:MODE?" and self.state.get(":TRIG:MODE") == "DURATion":
+            return b"DUR\n"  # its short form, as the real one says it
         elif what == ":TRIG:STAT?":
             return self.status.encode() + b"\n"
         elif what == ":SYST:BEEP?":
@@ -349,6 +351,14 @@ def test_a_pattern_held_a_while_is_the_scopes_duration_trigger():
     assert wanted[":TRIGger:DURATion:WHEn"] == "GREater"
     assert wanted[":TRIGger:DURATion:TLOWer"] == "0.002"
     assert wanted[":TRIG:PATT:LEV CHAN1,"] == wanted[":TRIG:PATT:LEV CHAN2,"] == "1"
+
+
+def test_a_held_pattern_is_taken_by_a_scope_that_says_its_mode_short(fake):
+    held = Condition(PATTERN, pattern=(("CH1", 1),), held=2e-3)
+    scope = opened(fake)
+    scope.start(scope.settings, rigol.Trigger("CH1", 1.0, True, 0.5, False, held))
+    assert fake.state[":TRIG:MODE"] == "DURATion" and scope.running
+    scope.close()
 
 
 def test_a_durations_limits_are_sent_upper_lower_upper(fake):
@@ -1075,6 +1085,14 @@ def test_a_stopped_scope_is_read_as_it_is_and_left_stopped(fake):
     scope = as_is(fake, read=rigol.MEMORY)
     sweep_of(scope)
     assert fake.sent(":STOP") == 0 and fake.sent(":RUN") == 0
+
+
+def test_a_running_scope_read_as_it_is_is_left_running_when_the_run_stops(fake):
+    fake.status = "RUN"
+    scope = as_is(fake)
+    sweep_of(scope)
+    scope.stop()
+    assert fake.sent(":STOP") == 0 and fake.status == "RUN"
 
 
 def test_set_up_from_here_again_after_it_everything_is_sent(fake):

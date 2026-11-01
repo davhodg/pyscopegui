@@ -895,7 +895,8 @@ class Scope:
         mode = wanted.get(":TRIG:MODE", "EDGE")
         if mode != "EDGE" and any(what == ":TRIG:MODE" for what, _to in changed):
             # One without the advanced triggers option keeps the type it had.
-            if self._link.ask(":TRIG:MODE?") != mode:
+            # Said back in its short form: DURATion as DUR.
+            if not same(mode, self._link.ask(":TRIG:MODE?")):
                 self._sent.pop(":TRIG:MODE", None)
                 raise ScopeError(
                     "The scope would not take that type of trigger: runt, window and "
@@ -918,7 +919,8 @@ class Scope:
         self._forced = False
 
     def stop(self) -> None:
-        if self.running and self._link is not None:
+        # Read as it is, it is left as it was found: running, if it was.
+        if self.running and self._link is not None and not self.settings.as_is:
             try:
                 # Not left waiting for a trigger with nobody to read it.
                 self._link.write(":STOP")

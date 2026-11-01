@@ -64,6 +64,12 @@ since the last version, and comes out in the next one.
   last ones were zoomed to. From one run to the next it stays where it was put, and Auto
   and Range are remembered as before.
 
+### Fixed
+
+- **A Rigol waits for a logic pattern that has to be held**: the scope says its Duration
+  trigger back as *DUR*, which was taken to mean it did not have the option, and the run
+  stopped with that said.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
