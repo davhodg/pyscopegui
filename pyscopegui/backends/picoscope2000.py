@@ -427,11 +427,14 @@ def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
             maximum=most_hz,
             unit="Hz",
             unless=("gen_wave", "off"),
+            beside="gen_wave",
+            named=False,
+            tip="How many times a second the wave repeats.",
             **_GENERATOR,
         ),
         Setting(
             "gen_amplitude",
-            "Peak to peak",
+            "Pk-pk",
             2.0,
             maximum=2 * GENERATOR_VOLTS,
             decimals=2,
@@ -451,6 +454,7 @@ def generator_settings(most_hz: float = GENERATOR_HZ) -> list[Setting]:
             step=0.1,
             unit="V",
             unless=("gen_wave", "off"),
+            beside="gen_amplitude",
             **_GENERATOR,
         ),
     ]
@@ -464,13 +468,13 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
             "mode",
             "Reading",
             STREAM,
-            choices=((STREAM, "Streaming, to 1 MS/s"), (BLOCKS, "Blocks, to 100 MS/s")),
+            choices=((STREAM, "Streaming"), (BLOCKS, "Blocks")),
             group="Sampling",
             tip=(
-                "Streaming reads continuously, for as long as it runs, and pyscopegui\n"
-                "finds the trigger. Blocks are short stretches taken at up to the\n"
-                "scope's full rate, each around the scope's own trigger: for what\n"
-                "is too fast to stream."
+                "Streaming reads continuously, up to 1 MS/s, for as long as it runs,\n"
+                "and pyscopegui finds the trigger. Blocks are short stretches taken\n"
+                "at up to the scope's full rate, 100 MS/s, each around the scope's\n"
+                "own trigger: for what is too fast to stream."
             ),
         ),
         Setting(
@@ -488,6 +492,8 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
             ),
             group="Sampling",
             needs=("mode", STREAM),
+            beside="mode",
+            named=False,
             tip="When streaming: samples a second on each channel.",
         ),
         Setting(
@@ -500,6 +506,8 @@ def make_settings(ranges: tuple[str, ...], generator: bool) -> tuple[Setting, ..
             unit="ms",
             group="Sampling",
             needs=("mode", BLOCKS),
+            beside="mode",
+            named=False,
             tip=(
                 "When reading blocks: how long a stretch each one is. The scope's\n"
                 "memory holds a few thousand samples, so a shorter block is sampled\n"

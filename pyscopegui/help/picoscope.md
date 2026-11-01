@@ -189,12 +189,12 @@ scope is not opened again.
 |---------|--------------|
 | Output | Off, sine, square or triangle. Off is a steady zero volts |
 | Frequency | 1 Hz to 100 kHz. Its arrows go 1, 2, 5, 10, 20, 50 |
-| Peak to peak | From the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V |
+| Pk-pk | Peak to peak, from the bottom of the wave to the top: 2 V is a wave between -1 V and +1 V |
 | Offset | Moves the whole wave up or down, within 2 V of zero |
-| Start | 2206 to 2408B and MSOs only. **At once**: the wave runs all the time. **On the scope's trigger**: it waits, and puts out its cycles each time the scope triggers -- a stimulus at the moment of the capture |
+| Start | 2206 to 2408B and MSOs only. **At once**: the wave runs all the time. **On trigger**: it waits, and puts out its cycles each time the scope triggers -- a stimulus at the moment of the capture |
 | Cycles | 2206 to 2408B and MSOs only. How many cycles it puts out at each trigger; 0 starts it at the first and leaves it running |
 
-**On the scope's trigger** needs the scope to be triggering itself, which it does when
+**On trigger** needs the scope to be triggering itself, which it does when
 reading **blocks** with a trigger chosen. Streaming, the trigger is found by pyscopegui in
 what has already arrived, too late to tell the generator: the Event Log says it waits for
 ever. In **Auto**, a block the scope takes because nothing came does not start it either:

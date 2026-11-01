@@ -390,13 +390,13 @@ def make_settings(
             "mode",
             "Reading",
             STREAM,
-            choices=((STREAM, "Streaming, to 30 MS/s"), (BLOCKS, "Blocks, to the scope's fastest")),
+            choices=((STREAM, "Streaming"), (BLOCKS, "Blocks")),
             group="Sampling",
             tip=(
-                "Streaming reads continuously, for as long as it runs, and pyscopegui\n"
-                "finds the trigger. Blocks are stretches taken at up to the scope's\n"
-                "full rate, each around the scope's own trigger: for what is too\n"
-                "fast to stream."
+                "Streaming reads continuously, up to 31.25 MS/s, for as long as it\n"
+                "runs, and pyscopegui finds the trigger. Blocks are stretches taken\n"
+                "at up to the scope's full rate, each around the scope's own trigger:\n"
+                "for what is too fast to stream."
             ),
         ),
         Setting(
@@ -421,6 +421,8 @@ def make_settings(
             ),
             group="Sampling",
             needs=("mode", STREAM),
+            beside="mode",
+            named=False,
             tip=(
                 "When streaming: samples a second on each channel. Above 1 MS/s it is\n"
                 "for the scope, USB and the computer to keep up, which is harder with\n"
@@ -438,6 +440,8 @@ def make_settings(
             unit="ms",
             group="Sampling",
             needs=("mode", BLOCKS),
+            beside="mode",
+            named=False,
             tip=(
                 "When reading blocks: how long a stretch each one is. The scope samples\n"
                 "as fast as it can for that length, up to a million samples a block:\n"
@@ -489,7 +493,7 @@ def make_settings(
             "gen_start",
             "Start",
             NOW,
-            choices=((NOW, "At once"), (ON_TRIGGER, "On the scope's trigger")),
+            choices=((NOW, "At once"), (ON_TRIGGER, "On trigger")),
             tip=(
                 "At once: the wave runs all the time. On the scope's trigger: the\n"
                 "generator waits, and puts out its cycles when the scope triggers --\n"
@@ -513,6 +517,7 @@ def make_settings(
             live=True,
             needs=("gen_start", ON_TRIGGER),
             unless=("gen_wave", "off"),
+            beside="gen_start",
         ),
     ]
     return tuple(made)

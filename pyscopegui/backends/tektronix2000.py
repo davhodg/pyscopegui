@@ -224,6 +224,8 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             group="Connection",
             closed=True,
             needs=("connection", SERIAL),
+            beside="port",
+            named=False,
             tip=(
                 "As the scope is set, under Utility > Options > RS232 Setup. The\n"
                 "fastest it has is the one to choose, on the scope and here.\n"
@@ -263,6 +265,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             group="Connection",
             closed=True,
             needs=("connection", SERIAL),
+            beside="parity",
             tip=(
                 _AS_THE_SCOPE + " It is what the scope ends each\n"
                 "answer with, and an answer is waited for until it comes.\n"
@@ -300,6 +303,7 @@ def make_settings(channels: int = 4) -> tuple[Setting, ...]:
             group="Sampling",
             live=True,
             needs=("read", SET_UP),
+            beside="time_div",
             tip=(
                 "How the scope makes each point. Sample keeps one sample for each.\n"
                 "Peak detect keeps the lowest and highest, so nothing narrow is\n"

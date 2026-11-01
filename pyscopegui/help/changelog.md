@@ -70,6 +70,10 @@ since the last version, and comes out in the next one.
   than* the Max, and *Between* both, each greyed out where it is not used, rather than one
   box whose meaning changed with the choice. A *Shorter than* saved before keeps the Max it
   had, which may need setting again.
+- **The Instrument pane takes less room**: what goes together shares a line -- how a
+  scope is read and its sample rate or block length, its time a division and how it
+  acquires, a signal generator's wave and frequency, peak to peak (*Pk-pk*) and offset,
+  and start and cycles, and a Tektronix's port and speed, and parity and end of line.
 - **Trigger Nth time** is what the count of times is called in the trigger's details,
   rather than *Trigger on time*.
 

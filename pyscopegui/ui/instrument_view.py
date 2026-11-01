@@ -179,8 +179,14 @@ class InstrumentView(QWidget):
         self.write = QPushButton("Write")
         self.write.setToolTip(WRITE_TIP)
         self.write.clicked.connect(self.write_requested)
+        #: What Read and Write are about, said once in front of them rather than
+        #: on each: the pane is narrow.
+        self.settings_said = QLabel("Settings:")
+        self.settings_said.setToolTip(READ_TIP + "\n\n" + WRITE_TIP)
         line = QHBoxLayout()
         line.addWidget(self.open)
+        line.addSpacing(8)
+        line.addWidget(self.settings_said)
         line.addWidget(self.read)
         line.addWidget(self.write)
         line.addStretch()
@@ -259,8 +265,8 @@ class InstrumentView(QWidget):
     def _show_open(self) -> None:
         self.open.setText("Close" if self._open else "Open")
         self.open.setToolTip(CLOSE_TIP if self._open else OPEN_TIP)
-        for button in (self.read, self.write):
-            button.setVisible(self._keeps and self._open and not self.open.isHidden())
+        for shown in (self.settings_said, self.read, self.write):
+            shown.setVisible(self._keeps and self._open and not self.open.isHidden())
 
     def set_keeps(self, keeps: bool) -> None:
         """Say whether the instrument chosen holds its settings itself, which
@@ -303,7 +309,12 @@ class InstrumentView(QWidget):
         # connected to before it is set up.
         if any(setting.group == CONNECTION for setting in settings):
             forms[CONNECTION] = self._form(CONNECTION)
-        partners = {setting.beside: setting for setting in settings if setting.beside}
+        # What is beside each: more than one where only one of them is ever shown,
+        # a sample rate when streaming and a block's length when not.
+        partners: dict[str, list[Setting]] = {}
+        for setting in settings:
+            if setting.beside:
+                partners.setdefault(setting.beside, []).append(setting)
         for setting in settings:
             if setting.beside:
                 continue  # made with the one it is beside
@@ -311,12 +322,12 @@ class InstrumentView(QWidget):
                 forms[setting.group] = self._form(setting.group)
             control = self._made(setting, values)
             form = forms[setting.group]
-            partner = partners.get(setting.key)
-            if partner is None and self._on_tab_line(setting, control):
+            beside = partners.get(setting.key, [])
+            if not beside and self._on_tab_line(setting, control):
                 continue
             field = control
-            if partner is not None:
-                field = self._side_by_side(control, partner, values)
+            if beside:
+                field = self._side_by_side(control, beside, values)
             if isinstance(control, QCheckBox):
                 form.addRow(field)  # it carries its own label
             else:
@@ -351,21 +362,24 @@ class InstrumentView(QWidget):
         self.controls[setting.key] = control
         return control
 
-    def _side_by_side(self, control: QWidget, partner: Setting, values: dict) -> QWidget:
-        """A setting and the one shown beside it, on one line."""
+    def _side_by_side(self, control: QWidget, partners: list[Setting], values: dict) -> QWidget:
+        """A setting and what is shown beside it, on one line."""
         field = QWidget()
         line = QHBoxLayout(field)
         line.setContentsMargins(0, 0, 0, 0)
-        line.addWidget(control)
-        other = self._made(partner, values)
-        label = None
-        if partner.named and not isinstance(other, QCheckBox):
-            label = QLabel(partner.label + ":")
-            line.addWidget(label)
-        elif not partner.named:
-            self._unnamed.append(field)
-        line.addWidget(other, 1)
-        self._beside[partner.key] = label
+        # With nothing named beside it, the two share the line evenly: a port
+        # and its speed, a reading and its rate.
+        line.addWidget(control, 0 if any(p.named for p in partners) else 1)
+        for partner in partners:
+            other = self._made(partner, values)
+            label = None
+            if partner.named and not isinstance(other, QCheckBox):
+                label = QLabel(partner.label + ":")
+                line.addWidget(label)
+            elif not partner.named and field not in self._unnamed:
+                self._unnamed.append(field)
+            line.addWidget(other, 1)
+            self._beside[partner.key] = label
         return field
 
     def _on_tab_line(self, setting: Setting, control: QWidget) -> bool:

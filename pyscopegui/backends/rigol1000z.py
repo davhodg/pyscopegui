@@ -245,6 +245,7 @@ def make_settings() -> tuple[Setting, ...]:
             group="Sampling",
             live=True,
             needs=("control", SET_UP),
+            beside="time_div",
             tip=(
                 "How the scope makes each point from the samples it takes.\n"
                 "Normal keeps one sample for each. High resolution averages the\n"

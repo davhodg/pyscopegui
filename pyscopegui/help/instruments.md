@@ -198,7 +198,9 @@ The pane shows no more than has a say. A setting that has none while another is 
 is not shown until it does: **Block length** while streaming, a generator's frequency while
 its output is off, a probe's sensitivity unless it is a current probe. Two that go together
 share a line: a channel's scale and its offset, its coupling and its 20 MHz limit, a current
-probe and its volts an amp, and a port of logic inputs and its threshold.
+probe and its volts an amp, a port of logic inputs and its threshold, how a scope is read and
+its sample rate or block length, its time a division and how it acquires, and a signal
+generator's wave and frequency, peak to peak and offset, and start and cycles.
 
 A scope's channels all have the same settings, so they are shown one channel at a time,
 under a row of tabs: **1 2 3 4**, with the channel's **Enabled** at the end of the row. How every channel is set can be read at once in the
@@ -216,7 +218,8 @@ what the pane shows, and a setting it does not have is **amber**.
 
 **When it is opened**, the scope is asked how it is set, and nothing on it is changed. A
 setting it has otherwise is amber, with what the scope has in its tip, and the
-[Event Log](event-log.md) lists them. Beside **Open**, while it is open, are two buttons:
+[Event Log](event-log.md) lists them. Beside **Open**, while it is open, are two buttons,
+after the word **Settings**:
 
 | Button | What it does |
 |--------|--------------|
