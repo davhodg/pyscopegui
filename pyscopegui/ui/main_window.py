@@ -1248,12 +1248,22 @@ class MainWindow(QMainWindow):
         else:
             self._name_for_model(unit, instrument.model)
             self._take_labels(unit, getattr(instrument, "labels", {}))
+            self._take_view(unit, getattr(instrument, "view", ({}, {})))
             if unit is self.unit:
                 self._show_settings()
             if self._as_is(unit):
                 self._show_whole_snapshots()
         self._show_open()
         self._update_status()
+
+    def _take_view(self, unit: Unit, view: tuple[dict, dict]) -> None:
+        """Show a capture's channels on every plot as they were when it was saved."""
+        shown, axes = view
+        if not shown and not axes:
+            return
+        for name in self.panes.instances("scope"):
+            if (scope := self.panes.view(name)) is not None:
+                scope.take_view(unit, shown, axes)
 
     def _take_labels(self, unit: Unit, labels: dict[str, str]) -> None:
         """The names a capture's channels were given when it was saved, where they

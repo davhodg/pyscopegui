@@ -39,7 +39,9 @@ since the last version, and comes out in the next one.
   pyscopegui's own, and the installer offers to make pyscopegui what opens them, as *Tools >
   Settings > Open captures with pyscopegui* does however it was installed. On Windows it is
   offered under *Open with* for a `.npz`, as captures were saved before, which still open. A
-  capture double-clicked while pyscopegui is open goes to that window.
+  capture double-clicked while pyscopegui is open goes to that window. It opens showing
+  what was shown: every channel is saved, and each is ticked, or not, and on Y1 or Y2, as
+  it was on the plot.
 
 - **Whether a scope has the pane's settings**, for a Rigol or a Tektronix set up from here:
   opened, it is asked how it is set, and what it has otherwise is amber in the pane, with

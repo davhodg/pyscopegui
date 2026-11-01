@@ -109,6 +109,14 @@ class CaptureFile(Instrument):
         return dict(self._loaded.labels) if self._loaded is not None else {}
 
     @property
+    def view(self) -> tuple[dict[str, bool], dict[str, int]]:
+        """How its channels were shown when it was saved, by key: whether each was
+        ticked, and the axis each was put on by hand. Empty, where it did not say."""
+        if self._loaded is None:
+            return {}, {}
+        return dict(self._loaded.shown), dict(self._loaded.axes)
+
+    @property
     def reference(self) -> bool:
         return self._options.get("reference") is True
 

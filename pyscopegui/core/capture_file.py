@@ -78,6 +78,10 @@ class Loaded:
     bits: dict[str, tuple[str, int]] = field(default_factory=dict)
     #: A channel's key -> the name it was given: "5V rail".
     labels: dict[str, str] = field(default_factory=dict)
+    #: How the plot it was saved from showed it: a channel's key -> whether it
+    #: was ticked, and -> the axis it was put on by hand, 1 or 2.
+    shown: dict[str, bool] = field(default_factory=dict)
+    axes: dict[str, int] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(next(iter(self.data.values()), ()))
@@ -115,6 +119,8 @@ def save(
         "channels": [
             asdict(channel)
             | ({"label": label} if (label := loaded.labels.get(channel.key)) else {})
+            | ({"shown": loaded.shown[channel.key]} if channel.key in loaded.shown else {})
+            | ({"axis": loaded.axes[channel.key]} if channel.key in loaded.axes else {})
             for channel in loaded.channels
         ],
         # What each stretch of counts is in its unit.
@@ -195,6 +201,17 @@ def load(path: Path) -> Loaded:
                 c["key"]: c["label"]
                 for c in meta["channels"]
                 if isinstance(c.get("label"), str) and c["label"] and "key" in c
+            }
+            # How it was shown, where that was saved: a file from before says nothing.
+            loaded.shown = {
+                c["key"]: c["shown"]
+                for c in meta["channels"]
+                if isinstance(c.get("shown"), bool) and "key" in c
+            }
+            loaded.axes = {
+                c["key"]: c["axis"]
+                for c in meta["channels"]
+                if c.get("axis") in (1, 2) and not isinstance(c.get("axis"), bool) and "key" in c
             }
             for index, channel in enumerate(channels):
                 if version == 1:

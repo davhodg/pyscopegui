@@ -860,6 +860,19 @@ class ScopeView(QWidget):
             self._place_y()
             self.redraw()
 
+    def take_view(self, unit, shown: dict[str, bool], axes: dict[str, int]) -> None:
+        """Show this instrument's channels, by key, as a capture saved them: ticked
+        or not, and on the axis each was put on, 1 or 2 as the file has it."""
+        for key, on in shown.items():
+            self._hidden.discard(unit.id(key)) if on else self._hidden.add(unit.id(key))
+        for key, axis in axes.items():
+            if axis - 1 in AXES:
+                self._chosen_axes[unit.id(key)] = axis - 1
+        if self._ctx is not None:
+            self._ctx.settings.set(f"{self._key}.hidden", sorted(self._hidden))
+            self._ctx.settings.set(f"{self._key}.axes", dict(self._chosen_axes))
+        self._rebuild()
+
     def axis_of(self, key: str) -> int:
         """The axis a channel, by its id, is drawn against now."""
         return self._axis.get(key, Y1)
@@ -1653,6 +1666,16 @@ class ScopeView(QWidget):
                 r.channel.key: label
                 for r in records
                 if (label := self.session.labels.get(unit.id(r.channel.key)))
+            }
+            # How this plot shows them, to be shown so again when it is opened:
+            # every channel is saved, ticked or not. An axis is 1 or 2 in the file.
+            loaded.shown = {
+                r.channel.key: unit.id(r.channel.key) not in self._hidden for r in records
+            }
+            loaded.axes = {
+                r.channel.key: self._chosen_axes[unit.id(r.channel.key)] + 1
+                for r in records
+                if unit.id(r.channel.key) in self._chosen_axes
             }
             where = files[unit.short or unit.name or "capture"]
             jobs.append((unit, where, loaded))

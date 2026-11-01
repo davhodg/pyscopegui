@@ -6,7 +6,9 @@
 
 *File > Save capture...* keeps everything held, of every instrument on the first plot, in a
 file to open again later exactly as it is: every sample as it was held, each channel's name,
-unit and colour, the sample rate, and where the trigger was. With several instruments there
+unit and colour, the sample rate, and where the trigger was. It opens showing what was shown:
+every channel is saved, ticked or not, and each is ticked again as it was on the plot it was
+saved from, and on the axis it was put on by hand, [Y1 or Y2](plot.md). With several instruments there
 is a file for each, named for it -- `capture-DS1054Z.pyscp`, `capture-2204A.pyscp` -- as
 [Export CSV](plot.md) does. A large one is written while the instruments go on running,
 with a bar showing how far it has got, and **Cancel**.

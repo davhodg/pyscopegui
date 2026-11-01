@@ -6,6 +6,7 @@ import json
 
 import numpy as np
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from pyscopegui import backends
@@ -22,6 +23,7 @@ from pyscopegui.core.capture_file import (
     guess_layout,
     read_csv,
 )
+from pyscopegui.ui.scope_view import NAME
 
 
 def feed(window, seconds=0.2):
@@ -232,6 +234,37 @@ def test_saving_and_opening_puts_it_back_beside_the_instruments(held, tmp_path, 
     assert np.array_equal(unit.capture.records["A"].view(), before)
     assert "Opened shot.pyscp: 7 channels" in window.log.toPlainText()
     assert not unit.running, "it is all there, and stops"
+
+
+def test_how_each_channel_was_shown_comes_back_with_every_channel_s_samples(tmp_path):
+    channels = [Channel("A", "A"), Channel("B", "B"), Channel("C", "C")]
+    data = {key: np.zeros(10, dtype=np.float32) for key in "ABC"}
+    saved = Loaded(channels, 10.0, data, shown={"A": True, "B": False}, axes={"A": 2})
+    capture_file.save(tmp_path / "c.pyscp", saved)
+    back = capture_file.load(tmp_path / "c.pyscp")
+    assert set(back.data) == {"A", "B", "C"}, "an unticked channel is saved too"
+    assert back.shown == {"A": True, "B": False} and back.axes == {"A": 2}
+
+
+def test_a_file_from_before_says_nothing_of_how_it_was_shown(tmp_path):
+    channels = [Channel("A", "A")]
+    capture_file.save(tmp_path / "c.pyscp", Loaded(channels, 10.0, {"A": np.zeros(3, np.float32)}))
+    back = capture_file.load(tmp_path / "c.pyscp")
+    assert back.shown == {} and back.axes == {}
+
+
+def test_a_capture_opens_ticked_and_on_the_axes_it_was_saved_with(held, tmp_path, app):
+    window = held
+    window.scope._on_shown("demo:D1", False)
+    window.scope.set_axis("demo:A", 1)
+    written = window.scope.save_captures(tmp_path / "shot")
+    window.open_capture(written[0])
+    app.processEvents()
+    scope = window.scope
+    assert "file:D1" in scope._hidden and "file:D0" not in scope._hidden
+    assert scope.channel_list._items["file:D1"].checkState(NAME) == Qt.Unchecked
+    assert scope.axis_of("file:A") == 1 and scope.axis_of("file:B") == 0
+    assert "D1" in window.session.units["file"].capture.records, "saved, and unticked"
 
 
 def test_a_capture_saved_as_npz_before_still_opens(held, tmp_path, app):
