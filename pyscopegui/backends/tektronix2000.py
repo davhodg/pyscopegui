@@ -68,6 +68,11 @@ SAMPLE, PEAK, AVERAGE = "SAMPLE", "PEAKDETECT", "AVERAGE"
 #: Seconds between two looks at whether it has taken its sweep, and between
 #: two looks at whether anything has been asked while it is not running.
 POLL_S = 0.2
+#: How many questions are asked in one line: answered together, in one wait.
+ASKED_TOGETHER = 10
+#: What a waveform is, as the scope describes it: the time a point, where
+#: nought is, the trigger's point, and volts a count and nought volts in counts.
+WAVEFORM = ("XINCR", "XZERO", "PT_OFF", "YMULT", "YOFF")
 IDLE_S = 0.1
 #: How long the scope is left stopped before it is asked who it is again, to
 #: see that it is still there: while it runs, every look at whether it has
@@ -881,9 +886,9 @@ class Scope:
             self.read_view()
             self.notes.append(("Reading what the scope shows, with nothing on it changed.", False))
             return
-        # All of it, whatever was sent before: it may have been changed at the
-        # bench since.
-        self._sent.clear()
+        # As it is now, in a line or two: it may have been changed at the bench
+        # since, and what it has already is not sent again, a setting at a time.
+        self._take_as_sent(setup(settings, trigger, self.channels))
         if not self._set_up():
             return  # given way to what was asked next
         if self._before is None:
@@ -941,9 +946,8 @@ class Scope:
             except ScopeError as exc:
                 raise ScopeError(f"Setting {what} to {to}: {exc}") from exc
             self._sent[what] = to
-            if key_of(what) is not None:
-                # Asked back, to say it has it: or that it would not take it.
-                self.said[what] = self._link.ask(f"{what}?")
+        # Asked back, all together, to say it has them: or which it would not take.
+        self._ask_back([what for what, _to in changed if key_of(what) is not None])
         found = self._differences()
         for what, _to in changed:
             if key_of(what) in found:
@@ -957,6 +961,33 @@ class Scope:
     def _differences(self) -> dict[str, object]:
         return differences(self.settings, self.trigger, self.said, self.channels)
 
+    def _ask_back(self, commands: list[str]) -> None:
+        """Ask how each of these is set, as few lines as it takes: the scope
+        answers a line of questions together, and each line is a wait of its
+        own over a serial port at a few thousand bytes a second."""
+        for start in range(0, len(commands), ASKED_TOGETHER):
+            part = commands[start : start + ASKED_TOGETHER]
+            said = self._link.ask(";".join(f":{what}?" for what in part))
+            answers = said.split(";")
+            if len(answers) != len(part):
+                # Not known which went unanswered: none of them is taken to be
+                # known, and what they set is sent again rather than taken to be there.
+                for what in part:
+                    self.said.pop(what, None)
+                self.notes.append(
+                    (f"The scope answered {len(answers)} of {len(part)} questions: {said!r}.", True)
+                )
+                continue
+            self.said.update(zip(part, (answer.strip() for answer in answers), strict=True))
+
+    def _take_as_sent(self, wanted: dict[str, str]) -> None:
+        """Ask the scope how each of these is set, and take what it has already
+        to have been sent: only what it has otherwise is sent it."""
+        self.doing("looking at how the scope is set")
+        self._ask_back(list(wanted))
+        self.doing("")
+        self._sent = {what: to for what, to in wanted.items() if same(to, self.said.get(what, ""))}
+
     def look(self, settings: Settings, trigger: Trigger, everything: bool = False) -> None:
         """Ask the scope how it is set, and say where that is not as the pane has
         it: what would be sent it, or ``everything`` the pane could be set from.
@@ -965,20 +996,20 @@ class Scope:
             asked = list(read_back(self.channels))
         else:
             asked = [what for what in setup(settings, trigger, self.channels) if key_of(what)]
-        for number, what in enumerate(asked, start=1):
-            if self.interrupted():
-                break
-            self.doing(f"looking at how the scope is set ({number} of {len(asked)})")
-            self.said[what] = self._link.ask(f"{what}?")
+        self.doing("looking at how the scope is set")
+        self._ask_back(asked)
         self.doing("")
+        self._heard = self._clock()  # it has just answered: no need to ask who it is
         self.checked = (differences(settings, trigger, self.said, self.channels), False)
 
     def write(self, settings: Settings, trigger: Trigger) -> None:
-        """Send every one of the pane's settings, whatever was sent before."""
+        """Send the pane's settings: every one the scope does not have now,
+        whatever was sent before."""
         self.settings, self.trigger = settings, trigger
-        self._sent.clear()
+        self._take_as_sent(setup(settings, trigger, self.channels))
         if self._set_up() and self.running:
             self._arm()
+        self._heard = self._clock()
 
     def _arm(self) -> None:
         """Have the scope take one sweep and stop, which is its Single."""
@@ -1012,8 +1043,13 @@ class Scope:
             settings, self.wanted = self.wanted or self.settings, None
             trigger, self.wanted_trigger = self.wanted_trigger or self.trigger, None
             self.settings, self.trigger = settings, trigger
-            if not settings.as_is and self._set_up():
-                self._arm()
+            if not settings.as_is:
+                # The sweep waited for is given up first: the scope does not say
+                # it has done a setting until a sweep it is taking is in, which
+                # in Normal with nothing to trigger on is never.
+                self._link.write("ACQUIRE:STATE STOP")
+                if self._set_up():
+                    self._arm()
             return None
         if self.settings.as_is:
             if self._read_once and not self.trigger.auto:
@@ -1030,18 +1066,29 @@ class Scope:
         self._arm()
         return block
 
-    def _shown(self, key: str) -> bool:
-        """Whether a channel is on the scope's screen: it has no waveform to send if not."""
-        return self._link.ask(f"SELECT:{key}?") in ("1", "ON")
-
     def read_view(self) -> None:
-        """Which channels the scope is showing: read as it is, they are the ones read."""
-        shown = [key for key in CHANNELS[: self.channels] if self._shown(key)]
+        """Which channels the scope is showing: read as it is, they are the ones read.
+        Asked in one line: a channel that is off has no waveform to send."""
+        keys = CHANNELS[: self.channels]
+        self._ask_back([f"SELECT:{key}" for key in keys])
+        shown = [key for key in keys if self.said[f"SELECT:{key}"] in ("1", "ON")]
         if shown != self.shown:
             self.view_changed = True
         self.shown = shown
 
     def _read(self) -> Block:
+        """A sweep of every channel read. Read as it is, a scope that is running
+        is stopped while its channels are read, so that they are all of the one
+        sweep, and set running again."""
+        if not self.settings.as_is or self._link.ask("ACQUIRE:STATE?") in ("0", "STOP"):
+            return self._read_channels()
+        self._link.write("ACQUIRE:STATE STOP")
+        try:
+            return self._read_channels()
+        finally:
+            self._link.write("ACQUIRE:STATE RUN")
+
+    def _read_channels(self) -> Block:
         settings, link = self.settings, self._link
         data: dict[str, np.ndarray] = {}
         rate, at = 0.0, None
@@ -1059,12 +1106,12 @@ class Scope:
                 f"reading {key} ({number} of {len(keys)})" if len(keys) > 1 else f"reading {key}"
             )
             link.write(f"DATA:SOURCE {key}")
+            # What the waveform is, asked in one line rather than five.
+            self._ask_back([f"WFMPRE:{what}" for what in WAVEFORM])
             try:
-                x_step = float(link.ask("WFMPRE:XINCR?"))
-                x_zero = float(link.ask("WFMPRE:XZERO?"))
-                x_offset = float(link.ask("WFMPRE:PT_OFF?"))
-                y_step = float(link.ask("WFMPRE:YMULT?"))
-                y_offset = float(link.ask("WFMPRE:YOFF?"))
+                x_step, x_zero, x_offset, y_step, y_offset = (
+                    float(self.said[f"WFMPRE:{what}"]) for what in WAVEFORM
+                )
             except ValueError as exc:
                 raise ScopeError(f"The scope described {key}'s waveform oddly: {exc}.") from exc
             if x_step <= 0:

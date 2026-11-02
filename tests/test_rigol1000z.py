@@ -1285,3 +1285,18 @@ def test_a_refused_setting_is_said_in_the_event_log(scope_window, fake, app):
     wait_for(app, lambda: "did not take" in window.log.toPlainText())
     assert "the scope did not take Channel 1 scale, and has 1 V/div" in window.log.toPlainText()
     assert window.unit.differs == {"scale_1": 1.0}
+
+
+def test_a_scope_just_asked_how_it_is_set_is_not_asked_who_it_is(fake):
+    clock = Clock()
+    scope = rigol.Scope(rigol.Settings({"address": fake.address}), clock=clock)
+    scope.open()
+    clock.now = rigol.CHECK_S + 1
+    scope.look(scope.settings, rigol.Trigger())  # it answered just now
+    asked = fake.sent("*IDN?")
+    scope.check_there()
+    assert fake.sent("*IDN?") == asked, "it has just been heard from"
+    clock.now += rigol.CHECK_S
+    scope.check_there()
+    assert fake.sent("*IDN?") == asked + 1, "and is asked once it has been quiet a while"
+    scope.close()

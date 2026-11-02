@@ -18,6 +18,21 @@ since the last version, and comes out in the next one.
   line, to the second, kept when it is copied. Off to begin with, and kept with this
   computer rather than the workspace, as the theme is.
 
+### Fixed
+
+- **A Tektronix starts a run in a second or so** rather than fifteen: it is asked how it is
+  set, ten questions to a line, and sent only what it has otherwise, rather than every
+  setting one at a time with each asked back. Its waveforms are described in a line each
+  too.
+- **A Tektronix changed while it waits for a sweep** -- Auto to Normal, say -- is no longer
+  closed as not answering: the sweep waited for is given up first, since the scope does not
+  say it has done a setting until a sweep it is taking is in.
+- **A Tektronix read as it is, running at the bench,** is stopped while its channels are
+  read, so that they are all of the one sweep, and set running again.
+- **A Rigol or a Tektronix just talked to is not asked who it is**: looking at how it is
+  set, reading its settings and writing them count as hearing from it, so the check that it
+  is still there waits until it has been quiet a while.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added

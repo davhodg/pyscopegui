@@ -859,6 +859,7 @@ class Scope:
         """Ask the scope how it is set, and say where that is not as the pane has it."""
         for command in READ_BACK:
             self.said[command] = self._link.ask(command + "?")
+        self._heard = self._clock()  # it has just answered: no need to ask who it is
         self.checked = (differences(settings, trigger, self.said), False)
 
     def write(self, settings: Settings, trigger: Trigger) -> None:
@@ -868,6 +869,7 @@ class Scope:
         self._set_up()
         if self.running:
             self._arm()
+        self._heard = self._clock()
 
     def read_view(self) -> None:
         """Which channels the scope is showing -- they are the ones read, as it is --

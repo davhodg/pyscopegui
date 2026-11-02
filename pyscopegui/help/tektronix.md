@@ -135,7 +135,9 @@ taken up between two sweeps.
 
 When the scope is opened it is asked how it is set, and a setting it has otherwise than the
 pane is amber. **Read**, beside **Open**, takes the scope's settings into the pane, and
-**Write** sends it the pane's; each is a few seconds, a setting at a time. A change made in
+**Write** sends it the pane's. The scope is asked how it is set ten questions to a line, a
+line or two in all, and only what it has otherwise is sent it, a setting at a time. A run
+does the same as it starts. A change made in
 the pane is amber until the scope has it. See
 [A scope with knobs of its own](instruments.md).
 

@@ -9,6 +9,7 @@ import pytest
 
 from pyscopegui import backends
 from pyscopegui.backends import tektronix2000 as tek
+from pyscopegui.backends.kept import same
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
 #: What it says of a setting it has not been sent, as it is turned on.
@@ -21,6 +22,12 @@ STARTS = {
     "ACQUIRE:MODE": "SAMPLE",
     "ACQUIRE:NUMAVG": "16",
     "HORIZONTAL:MAIN:SCALE": "1.0E-3",
+    "HORIZONTAL:MAIN:POSITION": "0.0E0",
+    "TRIGGER:MAIN:TYPE": "EDGE",
+    "TRIGGER:MAIN:EDGE:SOURCE": "CH1",
+    "TRIGGER:MAIN:EDGE:SLOPE": "RISE",
+    "TRIGGER:MAIN:LEVEL": "0.0E0",
+    "TRIGGER:MAIN:MODE": "AUTO",
 }
 
 
@@ -48,6 +55,19 @@ class FakePort:
         self.dead = False
         #: Commands it keeps what it had through, as one turned to the end of its range.
         self.refuses: set[str] = set()
+        #: While a line of several questions is answered: the answers so far.
+        self._answers: list[str] | None = None
+        #: How many lines of several questions it has been asked.
+        self.lines_together = 0
+        #: Whether *OPC? is asked while it is taking a sweep, which it does not
+        #: answer until the sweep is in: with nothing to trigger on, never.
+        self.asked_mid_sweep = 0
+
+    def has(self, what: str) -> str | None:
+        """How a setting is: as it was last set, or as it was to start with."""
+        return self.state.get(
+            what, "OFF" if what.startswith("SELECT:") else self._as_it_starts(what)
+        )
 
     def _as_it_starts(self, what: str) -> str | None:
         if what in STARTS:
@@ -57,9 +77,22 @@ class FakePort:
     # --- the port ------------------------------------------------------------------------
     def write(self, data: bytes) -> int:
         for line in data.decode("ascii").split("\n"):
-            if line.strip():
+            if ";" in line:
+                self._hear_together(line)
+            elif line.strip():
                 self._hear(line.strip())
         return len(data)
+
+    def _hear_together(self, line: str) -> None:
+        """Several questions in one line, as the real one takes them: each heard
+        as it would be by itself, and the answers said together, in one line."""
+        self.lines_together += 1
+        self._answers = []
+        for part in line.split(";"):
+            self._hear(part.strip().lstrip(":"))
+        answers, self._answers = self._answers, None
+        if not self.dead:
+            self._out += ";".join(answers).encode("ascii") + self.eol
 
     def readline(self) -> bytes:
         end = self._out.find(b"\n")
@@ -93,16 +126,24 @@ class FakePort:
         return self.heard.count(command)
 
     def _say(self, text: str) -> None:
-        if not self.dead:
+        if self._answers is not None:
+            self._answers.append(text)
+        elif not self.dead:
             self._out += text.encode("ascii") + self.eol
 
     def _hear(self, command: str) -> None:
+        # A leading colon is the root of the command tree, as to the real one.
+        command = command.lstrip(":")
         self.heard.append(command)
         what, _, to = command.partition(" ")
         if what == "*IDN?":
             self._say(self.identity)
         elif what == "*OPC?":
-            self._say("1")
+            single = self.state.get("ACQUIRE:STOPAFTER") == "SEQUENCE"
+            if self.acquiring and single and not self.takes_sweeps:
+                self.asked_mid_sweep += 1  # as the real one: no answer until a sweep is in
+            else:
+                self._say("1")
         elif what == "ACQUIRE:STATE?":
             single = self.state.get("ACQUIRE:STOPAFTER") == "SEQUENCE"
             if self.acquiring and self.takes_sweeps and single:
@@ -137,6 +178,8 @@ class FakePort:
             pass  # kept as it was
         elif what == "ACQUIRE:STATE" and to == "RUN":
             self.acquiring = True
+        elif what == "ACQUIRE:STATE" and to == "STOP":
+            self.acquiring = False
         elif to:
             self.state[what] = to
 
@@ -340,7 +383,8 @@ def test_a_sweep_is_the_screen_in_volts_with_the_trigger_in_the_middle(port):
     assert samples.dtype == np.float32
     # Twenty-five counts a division, a hundred up and down from the middle.
     assert samples[0] == pytest.approx(-2.0) and samples[-1] == pytest.approx(1.98, abs=0.02)
-    assert port.state["CH1:SCALE"] == "0.5" and port.state["HORIZONTAL:MAIN:SCALE"] == "0.001"
+    # What it had already -- its 1 ms a division -- is not sent it again.
+    assert port.state["CH1:SCALE"] == "0.5" and port.has("HORIZONTAL:MAIN:SCALE") == "1.0E-3"
     assert port.state["ACQUIRE:STOPAFTER"] == "SEQUENCE"
     assert port.sent("ACQUIRE:STATE RUN") == 2, "armed again for the next"
     scope.close()
@@ -364,7 +408,7 @@ def test_every_channel_that_is_on_is_read_and_the_others_are_not(port):
     scope = opened(port, enabled_1=True, enabled_3=True)
     scope.start(scope.settings, tek.Trigger())
     assert list(sweep_of(scope).data) == ["CH1", "CH3"]
-    assert port.state["SELECT:CH2"] == "OFF" and port.state["SELECT:CH3"] == "ON"
+    assert port.has("SELECT:CH2") == "OFF" and port.state["SELECT:CH3"] == "ON"
     scope.close()
 
 
@@ -470,11 +514,24 @@ def test_read_as_it_is_nothing_on_the_scope_is_changed(port):
     block = sweep_of(scope)
     changed = {k: v for k, v in port.state.items() if before.get(k) != v}
     assert set(changed) <= {"DATA:ENCDG", "DATA:WIDTH", "DATA:START", "DATA:STOP", "DATA:SOURCE"}
-    assert port.sent("ACQUIRE:STATE RUN") == 0, "and it is not made to take anything"
+    # Running at the bench, it is stopped while its channels are read -- all of
+    # the one sweep -- and set running again: as it was found.
+    assert port.sent("ACQUIRE:STATE STOP") == 1 and port.sent("ACQUIRE:STATE RUN") == 1
+    assert port.acquiring and port.state["ACQUIRE:STOPAFTER"] == "RUNSTOP"
     # At the scope's own scale and timebase, and its own trigger.
     assert block.rate == pytest.approx(100_000)
     assert block.data["CH1"][0] == pytest.approx(-0.8)
     assert (block.trigger, block.triggered) == (1250, True)
+    scope.close()
+
+
+def test_read_as_it_is_a_stopped_scope_is_read_and_left_stopped(port):
+    port.state["SELECT:CH1"] = "ON"
+    port.acquiring = False
+    scope = opened(port, read="asis")
+    scope.start(scope.settings, tek.Trigger())
+    sweep_of(scope)
+    assert port.sent("ACQUIRE:STATE STOP") == 0 and port.sent("ACQUIRE:STATE RUN") == 0
     scope.close()
 
 
@@ -645,11 +702,14 @@ def test_setting_up_sends_a_setting_once_the_scope_has_done_the_one_before(port)
         return real(expected)
 
     port.read_until = note
-    scope = opened(port, enabled_2=True)
+    scope = opened(port, enabled_2=True, scale_1=0.5, scale_2=0.2, coupling_1="AC", time_div=2e-3)
     waited.clear()
     del port.heard[:]
+    wanted = tek.setup(scope.settings, tek.Trigger("CH1", auto=False), 4)
+    # Only what the scope has otherwise is set, once it has been asked.
+    changed = [(w, to) for w, to in wanted.items() if not same(to, port.has(w) or "")]
+    assert len(changed) > 3
     scope.start(scope.settings, tek.Trigger("CH1", auto=False))
-    changed = list(tek.setup(scope.settings, scope.trigger, 4).items())
     sets = [i for i, command in enumerate(port.heard) if not command.endswith("?")]
     sent = [port.heard[i] for i in sets[: len(changed)]]
     assert sent == [f"{what} {to}" for what, to in changed]
@@ -663,12 +723,12 @@ def test_setting_up_sends_a_setting_once_the_scope_has_done_the_one_before(port)
 
 
 def test_a_setting_the_scope_does_not_finish_is_named(port):
-    scope = opened(port)
+    scope = opened(port, scale_1=0.5)
     real = port._hear
 
     def stuck(command):
         real(command)
-        if command.startswith("CH1:SCALE"):
+        if command.startswith("CH1:SCALE "):
             port.dead = True
 
     port._hear = stuck
@@ -677,7 +737,7 @@ def test_a_setting_the_scope_does_not_finish_is_named(port):
 
 
 def test_a_set_up_gives_way_to_a_stop_asked_for_meanwhile(port):
-    scope = opened(port, enabled_2=True)
+    scope = opened(port, enabled_2=True, scale_1=0.5, scale_2=0.2, coupling_1="AC", time_div=2e-3)
     asked = []
     scope.interrupted = lambda: len(asked) > 0
     real = port._hear
@@ -746,11 +806,14 @@ def test_a_scope_that_stays_busy_says_it_may_be(port):
 
 def test_the_scope_says_what_it_is_busy_with(port):
     said = []
-    scope = opened(port, enabled_2=True)
+    scope = opened(port, enabled_2=True, scale_1=0.5, scale_2=0.2, coupling_1="AC", time_div=2e-3)
     scope.doing = said.append
+    wanted = tek.setup(scope.settings, tek.Trigger(), 4)
+    count = sum(not same(to, port.has(w) or "") for w, to in wanted.items())
     scope.start(scope.settings, tek.Trigger())
-    count = len(tek.setup(scope.settings, scope.trigger, 4))
     assert said == [
+        "looking at how the scope is set",
+        "",
         *(f"setting up the scope ({n} of {count})" for n in range(1, count + 1)),
         "waiting for a sweep",
     ]
@@ -775,6 +838,8 @@ def test_one_channel_is_read_without_being_counted(port):
 def test_the_window_says_what_a_slow_scope_is_at(scope_window, port, app):
     window = scope_window
     port.takes_sweeps = False  # so that it stays waiting, to be looked at
+    # Turned at the bench: enough to be set back a setting at a time.
+    port.state.update({"CH1:SCALE": "5", "CH2:SCALE": "5", "HORIZONTAL:MAIN:SCALE": "1.0E-2"})
     window.set_mode("normal")
     wait_for(app, lambda: window.unit.doing == "waiting for a sweep")
     assert "waiting for a sweep" in window.status.text()
@@ -834,7 +899,9 @@ def test_read_as_it_is_there_is_nothing_to_put_back(port):
     scope.start(scope.settings, tek.Trigger())
     sweep_of(scope)
     scope.stop()
-    assert not any(command.startswith("ACQUIRE") for command in port.heard)
+    # Stopped only while it was read, and set running again: not left otherwise.
+    assert not any(command.startswith("ACQUIRE:STOPAFTER") for command in port.heard)
+    assert port.acquiring
     scope.close()
 
 
@@ -882,8 +949,9 @@ def test_read_takes_what_the_scope_shows_once_and_stops(as_is_window, port, app)
     wait_for(app, lambda: window.acquisition.sweep is not None and not window.unit.running)
     assert set(window.capture.records) == {"CH1", "CH2"}
     assert port.sent("CURVE?") == 2, "each channel once, and not again"
-    # Asked how it was set when it was opened, and set up from here: nothing set.
-    assert not any(c.startswith("ACQUIRE") and not c.endswith("?") for c in port.heard)
+    # Stopped only while it was read, and set running again: not left otherwise.
+    assert not any(c.startswith("ACQUIRE:STOPAFTER") and not c.endswith("?") for c in port.heard)
+    assert port.acquiring
     assert window.instrument_bar.mode() == "stop" and window.instrument_bar.read.isEnabled()
     assert window.instrument.is_open, "read, and still open for the next"
 
@@ -1219,4 +1287,82 @@ def test_every_run_sends_everything_and_a_refused_setting_is_said(port):
     scope.start(tek.Settings({"port": "COM9", "time_div": 1e-3}), tek.Trigger())
     assert port.state["CH1:SCALE"] == "1"
     assert scope.checked == ({"time_div": 5e-3}, True)
+    scope.close()
+
+
+# --- asking little of a slow scope --------------------------------------------------------------
+def test_a_run_with_the_scope_set_as_the_pane_says_sends_it_nothing(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    scope.stop()
+    del port.heard[:]
+    scope.start(scope.settings, tek.Trigger())
+    setting = [c for c in port.heard if not c.endswith("?") and not c.startswith(("ACQUIRE", "*"))]
+    assert setting == [], "it has all of it already"
+    assert port.sent("*OPC?") == 0
+    scope.close()
+
+
+def test_how_the_scope_is_set_is_asked_ten_questions_a_line(port):
+    scope = opened(port, enabled_2=True)
+    port.lines_together = 0
+    scope.look(scope.settings, tek.Trigger(), everything=True)
+    asked = len(tek.read_back(4))
+    assert port.lines_together == -(-asked // tek.ASKED_TOGETHER)
+    scope.close()
+
+
+def test_a_waveform_is_described_in_one_line(port):
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger())
+    port.lines_together = 0
+    sweep_of(scope)
+    assert port.lines_together == 1, "one channel, one line of five questions"
+    scope.close()
+
+
+def test_a_change_while_a_sweep_is_waited_for_does_not_wait_for_it(port):
+    """In Normal with nothing to trigger on the scope does not say it has done a
+    setting until a sweep is in: the sweep waited for is given up first."""
+    port.takes_sweeps = False
+    scope = opened(port)
+    scope.start(scope.settings, tek.Trigger("CH1", auto=True))
+    assert scope.poll() is None, "waiting for its sweep"
+    scope.wanted_trigger = tek.Trigger("CH1", auto=False)
+    assert scope.poll() is None
+    assert port.asked_mid_sweep == 0 and port.state["TRIGGER:MAIN:MODE"] == "NORMAL"
+    stop = port.heard.index("ACQUIRE:STATE STOP")
+    assert stop < port.heard.index("TRIGGER:MAIN:MODE NORMAL"), "stopped before it is set"
+    assert port.acquiring, "and armed again"
+    scope.close()
+
+
+def test_a_short_answer_is_said_and_what_it_was_about_sent_again(port):
+    scope = opened(port, scale_1=0.5)
+    real = port._hear_together
+
+    def short(line):
+        real(line)
+        port._out = port._out.split(b";")[0] + port.eol  # only the first answer
+        port._hear_together = real
+
+    port._hear_together = short
+    scope.start(scope.settings, tek.Trigger())
+    assert any("answered 1 of" in text for text, warning in scope.notes if warning)
+    assert port.state["CH1:SCALE"] == "0.5"
+    scope.close()
+
+
+def test_a_scope_just_asked_how_it_is_set_is_not_asked_who_it_is(port):
+    clock = Clock()
+    scope = tek.Scope(tek.Settings({"port": "COM9"}), clock=clock)
+    scope.open()
+    clock.now = tek.CHECK_S + 1
+    scope.look(scope.settings, tek.Trigger())  # it answered just now
+    asked = port.sent("*IDN?")
+    scope.check_there()
+    assert port.sent("*IDN?") == asked, "it has just been heard from"
+    clock.now += tek.CHECK_S
+    scope.check_there()
+    assert port.sent("*IDN?") == asked + 1, "and is asked once it has been quiet a while"
     scope.close()
