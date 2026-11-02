@@ -46,7 +46,7 @@ from pyscopegui.core import (
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
 from pyscopegui.core.capture import HISTORIES, HISTORY_S, Capture
 from pyscopegui.core.context import Context
-from pyscopegui.core.events import PROBLEMS, EventLog
+from pyscopegui.core.events import PROBLEMS, EventLog, with_time
 from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
@@ -108,6 +108,14 @@ WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dra
 #: local network. The computer's, not the workspace's: it is about where this
 #: computer is, and the same as pycangui's.
 UDP_NETWORK_KEY = "udp/local_network"
+#: In QSettings, like the theme: how somebody likes to read the log, not
+#: something about a workspace.
+LOG_TIMES_KEY = "event_log/times"
+LOG_TIMES_TIP = (
+    "The time of day each Event Log line was written, to the second, in front\n"
+    "of it: 14:03:27 The scope ... From the next line on; kept when lines are\n"
+    "copied."
+)
 #: How long after the lead has its Single capture the others are stopped, in
 #: milliseconds: for what they took at the same moment to arrive.
 FOLLOWERS_LAG_MS = 500
@@ -230,6 +238,8 @@ class MainWindow(QMainWindow):
         #: the only thing that writes to the pane. Warnings and errors open it
         #: if it has been closed; notes do not.
         self.events = EventLog()
+        #: Whether each Event Log line has the time of day in front of it.
+        self._log_times = QSettings().value(LOG_TIMES_KEY, False, type=bool)
         self._surfacing = False
         #: The last warnings and errors, for Help > Diagnostics: (time, level, text).
         self.recent_problems: deque[tuple[str, str, str]] = deque(maxlen=RECENT_PROBLEMS)
@@ -396,6 +406,11 @@ class MainWindow(QMainWindow):
         self.udp_network_action.setChecked(on)
         self.sharer.set_local_network(on)
         self.udp_network_action.toggled.connect(self._share_on_network)
+        self.log_times_action = settings_menu.addAction("Time on Event Log lines")
+        self.log_times_action.setCheckable(True)
+        self.log_times_action.setChecked(self._log_times)
+        self.log_times_action.setToolTip(LOG_TIMES_TIP)
+        self.log_times_action.toggled.connect(self._set_log_times)
         # Below the line: not how pyscopegui behaves, but how this copy of it
         # is set up on this machine. Neither is offered on macOS.
         if shortcut.start() is not None or file_types.command() is not None:
@@ -1836,13 +1851,24 @@ class MainWindow(QMainWindow):
             shape.setForeground(colour)
         if event_colours.bold_for(level):
             shape.setFontWeight(QFont.Bold)
-        cursor.insertText(message, shape)
+        line = with_time(message, datetime.now()) if self._log_times else message
+        cursor.insertText(line, shape)
         self.log.viewport().update()
         if at_end:
             bar.setValue(bar.maximum())
         if level in PROBLEMS:
             self.recent_problems.append((f"{datetime.now():%H:%M:%S}", level, message))
             self._surface_log()
+
+    @Slot(bool)
+    def _set_log_times(self, on: bool) -> None:
+        QSettings().setValue(LOG_TIMES_KEY, on)
+        self._log_times = on
+        self.events.information(
+            "Event Log lines are written with the time of day."
+            if on
+            else "Event Log lines are written without the time."
+        )
 
     def _log_menu(self, at) -> None:
         menu = self.log.createStandardContextMenu()

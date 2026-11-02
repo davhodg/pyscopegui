@@ -34,6 +34,19 @@ CHOICES = ((SYSTEM, "Match the system"), (LIGHT, "Light"), (DARK, "Dark"))
 LIGHT_ONLY = {"windowsvista", "windows"}
 #: Qt's own style, which draws dark as well as light on every platform.
 FUSION = "Fusion"
+#: Qt's names for its styles, as the menu and the diagnostics say them.
+STYLE_NAMES = {
+    "windows11": "Windows 11",
+    "windowsvista": "Windows Vista",  # Qt's native one up to Windows 10
+    "windows": "Windows",
+    "fusion": "Fusion",
+    "macos": "macOS",
+}
+STYLE_TIP = (
+    "The look Qt draws pyscopegui in. Windows 11 and macOS have their own, light and dark. "
+    "Qt's style for Windows 10 and earlier has no dark version, so Fusion is used there "
+    "for both. On Linux it is Fusion, or the desktop's own Qt style where it sets one."
+)
 TITLE = "Theme"
 TIP = "Light, dark, or whichever the operating system is set to. Kept for you on this computer."
 
@@ -61,6 +74,27 @@ def apply(choice: str, app: QApplication | None = None) -> None:
         hints.unsetColorScheme()
 
 
+def style_name(app: QApplication | None = None) -> str:
+    """The style pyscopegui is drawn in, as a person would say it."""
+    app = app or QApplication.instance()
+    if app is None:
+        return ""
+    name = app.style().name()
+    return STYLE_NAMES.get(name.lower(), name)
+
+
+def describe(settings: QSettings | None = None, app: QApplication | None = None) -> str:
+    """The choice, and for *Match the system* what the system gave."""
+    choice = chosen(settings)
+    label = dict(CHOICES)[choice]
+    app = app or QApplication.instance()
+    if choice != SYSTEM or app is None:
+        return label
+    scheme = app.styleHints().colorScheme()
+    got = {Qt.ColorScheme.Dark: "dark", Qt.ColorScheme.Light: "light"}.get(scheme)
+    return f"{label} ({got})" if got else label
+
+
 def choose(choice: str, settings: QSettings | None = None, app: QApplication | None = None) -> None:
     """Remember a choice and apply it straight away."""
     (settings or QSettings()).setValue(SETTING, choice)
@@ -68,10 +102,14 @@ def choose(choice: str, settings: QSettings | None = None, app: QApplication | N
 
 
 def menu(parent: QWidget, settings: QSettings | None = None) -> QMenu:
-    """*Tools > Settings > Theme*: the three choices, the current one ticked."""
+    """*Tools > Settings > Theme*: the three choices, the current one ticked,
+    and the style in use greyed out below them.
+
+    A greyed entry is skipped by the keyboard and by most screen readers, so
+    the menu's own tooltip says the style as well.
+    """
     out = QMenu(TITLE, parent)
     out.setToolTipsVisible(True)
-    out.menuAction().setToolTip(TIP)
     group = QActionGroup(out)
     group.setExclusive(True)
     current = chosen(settings)
@@ -82,4 +120,17 @@ def menu(parent: QWidget, settings: QSettings | None = None) -> QMenu:
         action.triggered.connect(lambda _=False, v=value: choose(v, settings))
         group.addAction(action)
         out.addAction(action)
+    out.addSeparator()
+    style = QAction(out, enabled=False)
+    style.setToolTip(STYLE_TIP)
+    out.addAction(style)
+    out.style_action = style
+
+    def show_style() -> None:
+        name = style_name()
+        style.setText(f"Style: {name}")
+        out.menuAction().setToolTip(f"{TIP} Drawn in Qt's {name} style." if name else TIP)
+
+    show_style()
+    out.aboutToShow.connect(show_style)
     return out

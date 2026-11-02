@@ -16,6 +16,11 @@ line looks like:
 The colours follow the theme: one set reads against a pale background, another against a
 dark one.
 
+*Tools > Settings > Time on Event Log lines* puts the time of day each line was written in
+front of it, to the second -- *14:03:27 The scope ...* -- from the next line on, and it is
+kept when the log is copied. Off to begin with; it is kept with this computer rather than
+the workspace, like the theme.
+
 Everything is kept for the whole session -- the line that matters is often the first of a
 thousand -- until **Clear**, on the pane's right-click, empties it.
 

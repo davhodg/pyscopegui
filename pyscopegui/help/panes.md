@@ -82,6 +82,15 @@ so that they do not jump about as they change, until they are dragged.
 
 pyscopegui follows the operating system's light or dark setting. *Tools > Settings > Theme*
 overrides it -- **Light** or **Dark** -- and **Match the system** hands it back. The plots
-follow it too. On Windows 10 and earlier the native style can only be light, so pyscopegui
-uses Qt's own Fusion style there, light and dark alike. The change is immediate, and the
-choice is kept for you on this computer.
+follow it too. Which look Qt draws it in depends on the system:
+
+| System | Style |
+|---|---|
+| Windows 11 | Qt's Windows 11 style, light and dark |
+| Windows 10 and earlier | Qt's style for these has no dark version, so Qt's Fusion style, light and dark alike |
+| macOS | Qt's macOS style |
+| Linux | Usually Fusion, or the desktop's own Qt style where it sets one |
+
+The style in use is shown greyed out at the bottom of the *Theme* menu, and in the menu's
+tooltip, and *Help > Diagnostics...* gives it with the theme. The change is immediate, and
+the choice is kept for you on this computer.

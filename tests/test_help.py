@@ -763,3 +763,10 @@ def test_the_trigger_says_who_finds_it(app, window):
     report = diagnostics(window)
     assert "demo: edge on A, 3rd time; level 0.5" in report
     assert "found by pyscopegui, in what is streamed" in report
+
+
+def test_the_report_gives_the_style_and_theme(app):
+    from pyscopegui.ui import theme
+
+    report = environment_report()
+    assert theme.style_name() in report and theme.describe() in report
