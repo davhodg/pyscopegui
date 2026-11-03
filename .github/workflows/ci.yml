@@ -29,6 +29,7 @@ jobs:
         include:
           - { os: windows-latest, python: "3.14" }
           - { os: windows-latest, python: "3.15" }  # the newest, which the launcher chooses first
+          - { os: windows-2022, python: "3.15" }  # Server 2022, built on Windows 10 21H2: the oldest Windows offered
           - { os: ubuntu-latest, python: "3.15" }  # the newest, as it comes
           - { os: ubuntu-latest, python: "3.14" }
           - { os: ubuntu-latest, python: "3.13" }  # what current Debian, Ubuntu and Fedora ship
