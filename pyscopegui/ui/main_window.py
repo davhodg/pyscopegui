@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from pyscopegui import APP_NAME, __version__, backends
 from pyscopegui.backends.base import Instrument
+from pyscopegui.backends.pycangui import PycanguiSignals
 from pyscopegui.core import (
     capture_file,
     decoding,
@@ -41,6 +42,7 @@ from pyscopegui.core import (
     memory,
     script_run,
     shortcut,
+    udp_reach,
     workspaces,
 )
 from pyscopegui.core.acquire import AUTO, SINGLE, STOP, Acquisition
@@ -104,10 +106,12 @@ CHOSEN_KEY = "instrument.name"
 #: tab and its channels are called, before it is opened again.
 MODELS_KEY = "instruments.model"
 WIDTHS_TIP = "How wide the columns of the lists are, and whether they can be dragged."
-#: In QSettings: whether decoded CAN frames sent by UDP multicast reach the
-#: local network. The computer's, not the workspace's: it is about where this
-#: computer is, and the same as pycangui's.
-UDP_NETWORK_KEY = "udp/local_network"
+#: In QSettings: how far UDP multicast goes -- one of udp_reach.CHOICES. The
+#: computer's, not the workspace's: it is about where this computer is, and
+#: the same as pycangui's.
+UDP_REACH_KEY = "udp/reach"
+#: Before there were three choices: whether it reached the local network.
+OLD_UDP_NETWORK_KEY = "udp/local_network"
 #: In QSettings, like the theme: how somebody likes to read the log, not
 #: something about a workspace.
 LOG_TIMES_KEY = "event_log/times"
@@ -119,13 +123,55 @@ LOG_TIMES_TIP = (
 #: How long after the lead has its Single capture the others are stopped, in
 #: milliseconds: for what they took at the same moment to arrive.
 FOLLOWERS_LAG_MS = 500
-UDP_NETWORK_TIP = (
-    "Off, decoded CAN frames sent on by UDP multicast stay on this computer:\n"
-    "pycangui and other programs on it hear them, and nothing goes out on a\n"
-    "network. On, they reach the local network too, and no further: every\n"
-    "computer on it that has joined the group hears them. Use it on a network\n"
-    "you trust."
+UDP_TIP = (
+    "How far pyscopegui's UDP multicast goes, sent and received alike: the\n"
+    "decoded CAN frames sent on to pycangui, and pycangui's signals. The same\n"
+    "three choices as pycangui's. For this computer, not a workspace."
 )
+UDP_CHOICES = (
+    (
+        udp_reach.OFF,
+        "Off",
+        "No UDP multicast at all: decoded CAN frames are not sent on, and the\n"
+        "pycangui instrument does not open; one open is closed.",
+    ),
+    (
+        udp_reach.COMPUTER,
+        "This computer only",
+        "Between programs on this computer. Nothing pyscopegui sends leaves it,\n"
+        "and signals another computer sends are dropped.",
+    ),
+    (
+        udp_reach.NETWORK,
+        "Local network",
+        "This computer and the local network, and no further: every computer on\n"
+        "it that has joined a group hears the CAN decoded here -- and can send\n"
+        "signals to the pycangui instrument. Use it on a network you trust.",
+    ),
+)
+UDP_SAID = {
+    udp_reach.OFF: "UDP multicast is off: decoded CAN frames are not sent on, and the "
+    "pycangui instrument does not open.",
+    udp_reach.COMPUTER: "UDP multicast stays on this computer: nothing is sent beyond it, "
+    "and signals from other computers are dropped.",
+    udp_reach.NETWORK: "UDP multicast reaches the local network: every computer on it that "
+    "has joined a group hears the CAN decoded here, and can send signals to the pycangui "
+    "instrument.",
+}
+
+
+def saved_udp_reach() -> str:
+    """Tools > Settings > UDP multicast as last chosen on this computer."""
+    settings = QSettings()
+    saved = settings.value(UDP_REACH_KEY, "", type=str)
+    if saved in udp_reach.CHOICES:
+        return saved
+    # Before there were three choices, the network was on or off.
+    if settings.value(OLD_UDP_NETWORK_KEY, False, type=bool):
+        return udp_reach.NETWORK
+    return udp_reach.COMPUTER
+
+
 WIDTHS_AUTO_TIP = (
     "Every column is as wide as what is in it. Nothing to set, and nothing\n"
     "can be dragged: a long name takes the room it needs."
@@ -397,15 +443,8 @@ class MainWindow(QMainWindow):
         self.memory_button.setMenu(self.memory_menu)
         self.widths_menu = self._widths_menu()
         settings_menu.addMenu(self.widths_menu)
-        self.udp_network_action = settings_menu.addAction(
-            "Share UDP multicast on the local network"
-        )
-        self.udp_network_action.setCheckable(True)
-        self.udp_network_action.setToolTip(UDP_NETWORK_TIP)
-        on = QSettings().value(UDP_NETWORK_KEY, False, type=bool)
-        self.udp_network_action.setChecked(on)
-        self.sharer.set_local_network(on)
-        self.udp_network_action.toggled.connect(self._share_on_network)
+        self.udp_menu = self._udp_menu()
+        settings_menu.addMenu(self.udp_menu)
         self.log_times_action = settings_menu.addAction("Time on Event Log lines")
         self.log_times_action.setCheckable(True)
         self.log_times_action.setChecked(self._log_times)
@@ -1647,11 +1686,47 @@ class MainWindow(QMainWindow):
         timed = [(f, now - (received - f.start) / decoding.rate) for f in frames]
         self.sharer.send(share, timed)
 
-    def _share_on_network(self, on: bool) -> None:
-        QSettings().setValue(UDP_NETWORK_KEY, on)
-        self.sharer.set_local_network(on)
-        where = "the local network" if on else "this computer only"
-        self.events.information(f"Decoded CAN frames sent by UDP multicast reach {where}.")
+    def _udp_menu(self) -> QMenu:
+        """*Tools > Settings > UDP multicast*: off, this computer only, or the network."""
+        menu = QMenu("UDP multicast", self)
+        menu.setToolTipsVisible(True)
+        menu.menuAction().setToolTip(UDP_TIP)
+        udp_reach.set_reach(saved_udp_reach())
+        self.sharer.follow_reach()
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        self.udp_actions: dict[str, QAction] = {}
+        for wanted, label, tip in UDP_CHOICES:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(wanted == udp_reach.reach())
+            action.setToolTip(tip)
+            action.triggered.connect(lambda _=False, w=wanted: self.set_udp_reach(w))
+            group.addAction(action)
+            self.udp_actions[wanted] = action
+        return menu
+
+    def set_udp_reach(self, value: str) -> None:
+        """Tools > Settings > UDP multicast: one of udp_reach.CHOICES."""
+        if value == udp_reach.reach():
+            return
+        QSettings().setValue(UDP_REACH_KEY, value)
+        udp_reach.set_reach(value)
+        self.udp_actions[value].setChecked(True)
+        self.sharer.follow_reach()
+        self.events.information(UDP_SAID[value])
+        if value != udp_reach.OFF:
+            return
+        # Received as well as sent: a pycangui instrument left open would go on
+        # listening.
+        for unit in self.session.units.values():
+            instrument = unit.instrument
+            if isinstance(instrument, PycanguiSignals) and instrument.is_open:
+                unit.acquisition.set_mode(STOP)
+                instrument.close()
+                unit.wanted_open = False
+        self._settle_mode()
+        self._show_open()
 
     def closeEvent(self, event) -> None:
         QSettings().setValue("geometry", self.saveGeometry())

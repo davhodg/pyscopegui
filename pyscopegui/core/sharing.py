@@ -10,11 +10,12 @@ program can join it too:
 
     bus = can.Bus(interface="udp_multicast", channel="239.74.163.10", hop_limit=0)
 
-**It stays on this computer unless that is chosen otherwise.** Frames are sent
-with a hop limit of 0, which keeps them on it. Tools > Settings > Share UDP
-multicast on the local network sends them with a hop limit of 1: out onto the
-local network, and no further, past a router. The same as pycangui, and for
-the same reason: anything on that network could hear the bus.
+**It stays on this computer unless that is chosen otherwise**, in Tools >
+Settings > UDP multicast (core/udp_reach.py): there frames are sent with a hop
+limit of 0, which keeps them on it. Local network sends them with a hop limit
+of 1: out onto the local network, and no further, past a router. Off sends
+nothing. The same as pycangui, and for the same reason: anything on that
+network could hear the bus.
 
 Only good frames are sent, each once, as it is decoded: not the ones found
 when a channel is first decoded from what is held, which would arrive as a
@@ -29,13 +30,14 @@ from __future__ import annotations
 import ipaddress
 from collections.abc import Callable
 
+from pyscopegui.core import udp_reach
 from pyscopegui.core.can_decode import Frame
 
 #: The group pycangui offers as "pyscopegui".
 GROUP = "239.74.163.10"
 #: How far a frame goes: 0 keeps it on this computer, 1 lets it out onto the
 #: local network and no further. python-can's own default is 1.
-LOCAL_ONLY, LOCAL_NETWORK = 0, 1
+LOCAL_ONLY, LOCAL_NETWORK = udp_reach.LOCAL_ONLY, udp_reach.LOCAL_NETWORK
 
 
 def is_group(address: str) -> bool:
@@ -74,7 +76,9 @@ class Sharer:
     def __init__(self, say: Callable[[str, bool], None]) -> None:
         """``say`` is told what happened, in words, and whether it is a problem."""
         self._say = say
-        self.hop_limit = LOCAL_ONLY
+        self.hop_limit = udp_reach.hop_limit()
+        #: Groups said not to be sent to while UDP multicast is off: said once.
+        self._off_said: set[str] = set()
         #: Group -> its bus, opened when a frame is first sent to it.
         self._buses: dict[str, object] = {}
         #: Groups that could not be sent to: said once, and not tried again
@@ -83,10 +87,11 @@ class Sharer:
         #: Group -> how many frames have been sent to it.
         self.sent: dict[str, int] = {}
 
-    def set_local_network(self, on: bool) -> None:
-        """Whether frames reach the local network, from the next one sent."""
-        wanted = LOCAL_NETWORK if on else LOCAL_ONLY
-        if wanted != self.hop_limit:
+    def follow_reach(self) -> None:
+        """Tools > Settings > UDP multicast changed: followed from the next frame."""
+        self._off_said.clear()
+        wanted = udp_reach.hop_limit()
+        if udp_reach.is_off() or wanted != self.hop_limit:
             self.hop_limit = wanted
             self.close()  # opened again, as it is now, by the next frame
 
@@ -94,6 +99,16 @@ class Sharer:
         """Send these frames -- each with its time -- to the group, the good ones."""
         good = [(frame, at) for frame, at in frames if frame.ok]
         if not good or group in self._failed:
+            return
+        if udp_reach.is_off():
+            # Kept with the decoding, and sent again once it is on.
+            if group not in self._off_said:
+                self._off_said.add(group)
+                self._say(
+                    f"Decoded CAN frames for {group} are not sent: UDP multicast is off in "
+                    "Tools > Settings > UDP multicast.",
+                    True,
+                )
             return
         bus = self._buses.get(group)
         if bus is None:
@@ -122,8 +137,7 @@ class Sharer:
             self._fail(group, f"Decoded CAN frames could not be sent to {group}: {exc}.")
             return None
         self._buses[group] = bus
-        where = "this computer" if self.hop_limit == LOCAL_ONLY else "the local network"
-        self._say(f"Sending decoded CAN frames to {group}, on {where}.", False)
+        self._say(f"Sending decoded CAN frames to {group}, on {udp_reach.where()}.", False)
         return bus
 
     def _fail(self, group: str, said: str) -> None:

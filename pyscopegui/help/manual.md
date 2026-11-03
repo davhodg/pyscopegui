@@ -24,5 +24,7 @@
 
 ## Also
 
+- [UDP multicast](udp-multicast.md) --- how far the CAN sent on and pycangui's signals go: off, this computer, or the local network
+
 - [About, licences and updates](about.md)
 - [Changes](changelog.md) --- what each version added, changed and fixed

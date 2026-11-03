@@ -13,6 +13,9 @@ CAN frames were, not where they arrived.
 
 A signal ticked or unticked in pycangui changes what the channels are: a run
 in progress starts again with them.
+
+Tools > Settings > UDP multicast (core/udp_reach.py) says whether it opens at
+all, and, set to this computer only, what another computer sends is dropped.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QUdpSocket
 
 from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.core import udp_reach
 from pyscopegui.core.signal_receive import GROUP, PORT, Held, Receiver
 
 #: The steady rates a signal can be read out at.
@@ -40,6 +44,8 @@ MOST_S = 0.5
 #: pycangui describes its signals every second: this long without, and it is
 #: taken to have stopped sending.
 QUIET_S = 3.0
+#: Where pycangui is told to send its signals.
+IN_PYCANGUI = "Tools > Settings > UDP multicast > Signals for pyscopegui"
 
 SETTINGS = (
     Setting(
@@ -77,6 +83,10 @@ class PycanguiSignals(Instrument):
         self._heard: float | None = None
         self._quiet_said = False
         self._opened_at = 0.0
+        #: Set to this computer only: its addresses, and the other computers
+        #: whose signals were dropped, each said once.
+        self._own: udp_reach.OwnAddresses | None = None
+        self._dropped: set[str] = set()
 
     # --- what it is ------------------------------------------------------------------------
     def channels(self) -> list[Channel]:
@@ -133,6 +143,13 @@ class PycanguiSignals(Instrument):
     def open(self) -> None:
         if self._socket is not None:
             return
+        if udp_reach.is_off():
+            self.error.emit(
+                "pycangui's signals are not listened for: UDP multicast is off in "
+                "Tools > Settings > UDP multicast."
+            )
+            self.opened_changed.emit(False)
+            return
         socket = QUdpSocket(self)
         bound = socket.bind(
             QHostAddress(QHostAddress.AnyIPv4),
@@ -151,10 +168,11 @@ class PycanguiSignals(Instrument):
         self._socket = socket
         self._opened_at = time.monotonic()
         self._quiet_said = False
+        self._own, self._dropped = udp_reach.OwnAddresses(), set()
         self._watch.start()
         self.note.emit(
-            f"Listening for pycangui's signals on {GROUP}:{PORT}. In pycangui: Tools > "
-            "Settings > Send ticked signals over UDP multicast, and tick UDP out."
+            f"Listening for pycangui's signals on {GROUP}:{PORT}, from "
+            f"{udp_reach.where()}. In pycangui: {IN_PYCANGUI}, and tick UDP out."
         )
         self.opened_changed.emit(True)
 
@@ -173,6 +191,8 @@ class PycanguiSignals(Instrument):
         read = self.receiver.messages_read
         while self._socket is not None and self._socket.hasPendingDatagrams():
             datagram = self._socket.receiveDatagram()
+            if not self._from_allowed(datagram.senderAddress().toString()):
+                continue
             changed |= self.receiver.feed(bytes(datagram.data().data()))
         if self.receiver.messages_read > read:
             self._heard_now()
@@ -181,6 +201,18 @@ class PycanguiSignals(Instrument):
             names = ", ".join(s.name for s in self.receiver.signals) or "none"
             self.note.emit(f"pycangui is sending {len(self.receiver.signals)} signals: {names}.")
             self.channels_changed.emit()
+
+    def _from_allowed(self, host: str) -> bool:
+        """Whether signals from this address are taken, as far as UDP multicast reaches."""
+        if udp_reach.reach() != udp_reach.COMPUTER or self._own is None or host in self._own:
+            return True
+        if host not in self._dropped:
+            self._dropped.add(host)
+            self.warning.emit(
+                f"Signals from {host}, another computer, are dropped: UDP multicast is set "
+                "to this computer only, in Tools > Settings > UDP multicast."
+            )
+        return False
 
     def _heard_now(self) -> None:
         self._heard = time.monotonic()
@@ -193,9 +225,8 @@ class PycanguiSignals(Instrument):
         if not self._quiet_said and time.monotonic() - since > QUIET_S:
             self._quiet_said = True
             self.warning.emit(
-                f"Nothing from pycangui for {QUIET_S:g} s: is it running, with Tools > "
-                "Settings > Send ticked signals over UDP multicast on, and a signal ticked "
-                "UDP out?"
+                f"Nothing from pycangui for {QUIET_S:g} s: is it running, with {IN_PYCANGUI} "
+                "on, and a signal ticked UDP out?"
             )
 
     def _keys(self) -> list[str]:

@@ -52,6 +52,7 @@ PAGES = (
     "traffic.md",
     "console.md",
     "decoding.md",
+    "udp-multicast.md",
     "about.md",
     "changelog.md",
 )

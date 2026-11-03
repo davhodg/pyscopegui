@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui import backends
-from pyscopegui.core import memory, sharing
+from pyscopegui.core import memory, udp_reach
 from pyscopegui.ui import fonts
 
 #: How many warnings and errors the window keeps for the report.
@@ -151,8 +151,7 @@ def worked_out(window) -> list[str]:
 def shared(window) -> list[str]:
     """Decoded CAN frames sent on by UDP multicast, where, and how many."""
     sharer = window.sharer
-    reach = "this computer only" if sharer.hop_limit == sharing.LOCAL_ONLY else "the local network"
-    lines = [f"reaching {reach}"]
+    lines = [f"UDP multicast: {udp_reach.where()}"]
     lines += [f"{group}: {count:,} frames sent" for group, count in sharer.sent.items()]
     if not sharer.sent:
         lines.append("no frames sent")

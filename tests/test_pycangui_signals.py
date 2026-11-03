@@ -152,6 +152,45 @@ def signals(app):
     instrument.close()
 
 
+def test_it_does_not_open_while_udp_multicast_is_off(app):
+    from pyscopegui.backends.pycangui import PycanguiSignals
+    from pyscopegui.core import udp_reach
+
+    udp_reach.set_reach(udp_reach.OFF)
+    instrument = PycanguiSignals()
+    said = []
+    instrument.error.connect(said.append)
+    instrument.open()
+    assert not instrument.is_open and "UDP multicast is off" in said[0]
+
+
+def test_this_computer_only_drops_what_another_computer_sends(app):
+    from pyscopegui.backends.pycangui import PycanguiSignals
+    from pyscopegui.core import udp_reach
+
+    instrument = PycanguiSignals()
+    instrument._own = udp_reach.OwnAddresses()
+    warned = []
+    instrument.warning.connect(warned.append)
+    assert instrument._from_allowed("127.0.0.1") and instrument._from_allowed("::1")
+    assert not instrument._from_allowed("192.0.2.7"), "a documentation address: never this one"
+    assert not instrument._from_allowed("192.0.2.7")
+    assert len(warned) == 1 and "192.0.2.7" in warned[0], "each computer said once"
+    udp_reach.set_reach(udp_reach.NETWORK)
+    assert instrument._from_allowed("192.0.2.7")
+
+
+def test_turning_udp_multicast_off_closes_an_open_pycangui_instrument(window, app):
+    from pyscopegui.core import udp_reach
+
+    window.add_instrument("pycangui")
+    window.open_instrument()
+    if not window.unit.is_open:
+        pytest.skip("no multicast on this machine")
+    window.set_udp_reach(udp_reach.OFF)
+    assert not window.unit.is_open
+
+
 def test_it_is_offered_under_add_instrument():
     assert "pycangui" in backends.names()
     assert backends.title("pycangui") == "pycangui signals"
@@ -200,7 +239,7 @@ def test_a_quiet_pycangui_is_said_once(signals, app, monkeypatch):
     monkeypatch.setattr(pycangui, "QUIET_S", 0.0)
     signals._check_heard()
     signals._check_heard()
-    assert len(warned) == 1 and "Send ticked signals" in warned[0]
+    assert len(warned) == 1 and "Signals for pyscopegui" in warned[0]
 
 
 # --- in the window ------------------------------------------------------------------------------

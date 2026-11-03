@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import QSettings
 
 from pyscopegui.backends import demo
-from pyscopegui.core import sharing
+from pyscopegui.core import sharing, udp_reach
 from pyscopegui.core.can_decode import Frame
 from pyscopegui.core.decoding import LOGIC, CanSetup
 from pyscopegui.core.sharing import GROUP, LOCAL_NETWORK, LOCAL_ONLY, Sharer, is_group, message
@@ -78,16 +78,36 @@ def test_only_the_good_frames_go_and_one_bus_a_group_on_this_computer(buses):
     (bus,) = buses
     assert (bus.group, bus.hop_limit) == (GROUP, LOCAL_ONLY)
     assert [m.timestamp for m in bus.sent] == [1.0, 3.0] and sharer.sent[GROUP] == 2
-    assert said == [(f"Sending decoded CAN frames to {GROUP}, on this computer.", False)]
+    assert said == [(f"Sending decoded CAN frames to {GROUP}, on this computer only.", False)]
 
 
 def test_the_local_network_is_a_choice_and_the_bus_is_opened_again_for_it(buses):
     sharer = Sharer(lambda *_said: None)
     sharer.send(GROUP, [(GOOD, 1.0)])
-    sharer.set_local_network(True)
+    udp_reach.set_reach(udp_reach.NETWORK)
+    sharer.follow_reach()
     assert buses[0].shut
     sharer.send(GROUP, [(GOOD, 2.0)])
     assert buses[1].hop_limit == LOCAL_NETWORK
+
+
+def test_off_sends_nothing_says_so_once_a_group_and_sends_again_once_on(buses):
+    said = []
+    sharer = Sharer(said_to(said))
+    sharer.send(GROUP, [(GOOD, 1.0)])
+    udp_reach.set_reach(udp_reach.OFF)
+    sharer.follow_reach()
+    assert buses[0].shut, "let go of at once"
+    for at in (2.0, 3.0):
+        sharer.send(GROUP, [(GOOD, at)])
+    sharer.send(TEST_GROUP, [(GOOD, 4.0)])
+    assert len(buses) == 1 and [m.timestamp for m in buses[0].sent] == [1.0]
+    off = [text for text, problem in said if problem]
+    assert len(off) == 2 and "UDP multicast is off" in off[0] and GROUP in off[0]
+    udp_reach.set_reach(udp_reach.COMPUTER)
+    sharer.follow_reach()
+    sharer.send(GROUP, [(GOOD, 5.0)])
+    assert buses[-1].hop_limit == LOCAL_ONLY and [m.timestamp for m in buses[-1].sent] == [5.0]
 
 
 def test_a_group_that_cannot_be_opened_is_said_once_and_not_tried_again(monkeypatch):
@@ -175,17 +195,59 @@ def test_a_channel_not_sent_on_sends_nothing(window, buses):
     assert not buses
 
 
-def test_the_local_network_is_under_tools_settings_and_kept_for_the_computer(window):
-    action = window.udp_network_action
-    assert not action.isChecked() and window.sharer.hop_limit == LOCAL_ONLY
-    try:
-        action.setChecked(True)
-        assert window.sharer.hop_limit == LOCAL_NETWORK
-        assert QSettings().value("udp/local_network", type=bool)
-        assert "reach the local network" in window.log.toPlainText()
-    finally:
-        action.setChecked(False)
-    assert QSettings().value("udp/local_network", type=bool) is False
+def test_the_reach_is_under_tools_settings_and_kept_for_the_computer(window):
+    actions = window.udp_actions
+    assert actions[udp_reach.COMPUTER].isChecked() and window.sharer.hop_limit == LOCAL_ONLY
+    assert [a.text() for a in window.udp_menu.actions()] == [
+        "Off",
+        "This computer only",
+        "Local network",
+    ]
+    actions[udp_reach.NETWORK].trigger()
+    assert udp_reach.reach() == udp_reach.NETWORK and window.sharer.hop_limit == LOCAL_NETWORK
+    assert QSettings().value("udp/reach") == udp_reach.NETWORK
+    assert "reaches the local network" in window.log.toPlainText()
+    actions[udp_reach.OFF].trigger()
+    assert udp_reach.is_off() and actions[udp_reach.OFF].isChecked()
+    assert "UDP multicast is off" in window.log.toPlainText()
+
+
+def test_the_old_tick_for_the_local_network_is_kept_as_its_choice(app):
+    from pyscopegui.ui.main_window import saved_udp_reach
+
+    assert saved_udp_reach() == udp_reach.COMPUTER, "the first time"
+    QSettings().setValue("udp/local_network", True)
+    assert saved_udp_reach() == udp_reach.NETWORK
+    QSettings().setValue("udp/reach", udp_reach.OFF)
+    assert saved_udp_reach() == udp_reach.OFF, "chosen since"
+
+
+def test_a_bus_set_to_send_while_off_sends_nothing_and_says_so(window, buses):
+    window.set_udp_reach(udp_reach.OFF)
+    window.set_mode("auto")
+    window.scope.add_decoding(window.unit, CanSetup("CAN", LOGIC, demo.CAN_BITRATE, None, GROUP))
+    feed(window, 0.3)
+    feed(window, 0.3)
+    window.set_mode("stop")
+    assert not buses
+    log = window.log.toPlainText()
+    assert log.count(f"Decoded CAN frames for {GROUP} are not sent") == 1
+    assert window.unit.capture.decodings[0].setup.share == GROUP, "kept"
+
+
+# --- the Decode as CAN dialog -------------------------------------------------------------------
+def test_off_greys_sending_in_the_dialog_and_keeps_the_group(app):
+    from pyscopegui.ui.can_dialog import CanDialog
+
+    was = CanSetup("CAN", LOGIC, 500_000, None, "239.74.163.11")
+    udp_reach.set_reach(udp_reach.OFF)
+    dialog = CanDialog("CAN", "CAN", False, was)
+    assert not dialog.share.isEnabled() and dialog.share.isChecked()
+    assert not dialog.group.isEnabled() and "UDP multicast is off" in dialog.share.toolTip()
+    assert dialog.setup().share == "239.74.163.11"
+    udp_reach.set_reach(udp_reach.COMPUTER)
+    dialog = CanDialog("CAN", "CAN", False, was)
+    assert dialog.share.isEnabled() and dialog.group.isEnabled()
 
 
 # --- for real, through python-can ---------------------------------------------------------------

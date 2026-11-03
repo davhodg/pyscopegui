@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from pyscopegui.core import udp_reach
 from pyscopegui.core.can_decode import BITRATES
 from pyscopegui.core.decoding import (
     CAN_H,
@@ -42,8 +43,12 @@ BITRATE_TIP = (
 SHARE_TIP = (
     "Send each frame on, as it is decoded, by UDP multicast: pycangui hears\n"
     "239.74.163.10 as a channel called pyscopegui, and any other python-can\n"
-    "program can join it. It stays on this computer unless Tools > Settings\n"
-    "says to share UDP multicast on the local network."
+    "program can join it. How far it goes is Tools > Settings > UDP multicast:\n"
+    "this computer only, unless that says the local network."
+)
+SHARE_OFF_TIP = (
+    "Greyed: UDP multicast is off, in Tools > Settings > UDP multicast, so\n"
+    "nothing is sent on. A group chosen here is kept, and used once it is on."
 )
 THRESHOLD_TIP = (
     "Where dominant and recessive divide, in volts. The signal has to go\n"
@@ -106,7 +111,12 @@ class CanDialog(QDialog):
             "The multicast group they are sent to. pycangui offers 239.74.163.10;\n"
             "a second bus would go to another, 239.74.163.11 say."
         )
-        self.share.toggled.connect(self.group.setEnabled)
+        # Off in Tools > Settings: greyed, and what was chosen kept for later.
+        allowed = not udp_reach.is_off()
+        self.share.setEnabled(allowed)
+        if not allowed:
+            self.share.setToolTip(SHARE_OFF_TIP)
+        self.share.toggled.connect(lambda on: self.group.setEnabled(on and allowed))
         self.group.setEnabled(False)
 
         chosen = setup.source if setup is not None else source_for(channel, name, analog)

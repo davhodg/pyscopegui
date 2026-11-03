@@ -43,6 +43,19 @@ def _own_user_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("PYSCOPEGUI_HOME", str(tmp_path / "home"))
 
 
+@pytest.fixture(autouse=True)
+def _udp_reach_as_it_starts():
+    """Tools > Settings > UDP multicast is the module's, and the computer's:
+    each test starts with this computer only, and leaves it so."""
+    from pyscopegui.core import udp_reach
+
+    QSettings().remove("udp")
+    udp_reach.set_reach(udp_reach.COMPUTER)
+    yield
+    QSettings().remove("udp")
+    udp_reach.set_reach(udp_reach.COMPUTER)
+
+
 @pytest.fixture(scope="session")
 def app():
     return QApplication.instance() or QApplication([])

@@ -18,6 +18,15 @@ since the last version, and comes out in the next one.
   line, to the second, kept when it is copied. Off to begin with, and kept with this
   computer rather than the workspace, as the theme is.
 
+### Changed
+
+- **UDP multicast is off, this computer only, or the local network**, in *Tools > Settings
+  > UDP multicast*, as in pycangui: one setting for the CAN sent on and pycangui's signals
+  received, in place of *Share UDP multicast on the local network*, whose choice is kept.
+  *Off* sends nothing and greys *Send the frames on to pycangui*, keeping the group;
+  *This computer only* also drops signals sent from another computer. A page of its own in
+  the manual.
+
 ### Fixed
 
 - **A Tektronix starts a run in a second or so** rather than fifteen: it is asked how it is

@@ -8,12 +8,12 @@ measure, on the same time axis. A step at each new value, as the bus said it.
 
 ## Setting it up
 
-**In pycangui**, turn on *Tools > Settings > Send ticked signals over UDP multicast*, and
+**In pycangui**, turn on *Tools > Settings > UDP multicast > Signals for pyscopegui*, and
 tick **UDP out** for each signal to send, in its Signals and Plot pane.
 
 **Here**, choose **pycangui signals** under **Add instrument**, and press **Open**. It listens
 for them; there is nothing to connect to, and it does not matter which program was started
-first. The [Event Log](event-log.md) says which signals pycangui is sending, and says so
+first. It does not open while *Tools > Settings > UDP multicast* is *Off*, here. The [Event Log](event-log.md) says which signals pycangui is sending, and says so
 again whenever one is ticked or unticked there -- a run in progress then starts again, with
 the channels as they are now.
 
@@ -52,4 +52,6 @@ shown at the moment it triggered.
 
 pycangui sends them as JSON on the multicast group `239.74.163.20`, port 43114: a port of
 their own, clear of the CAN frames shared on port 43113. They stay on this computer unless
-*Share UDP multicast on the local network* is on in pycangui.
+*Tools > Settings > UDP multicast* is *Local network* in pycangui -- and here, set to *This
+computer only*, what another computer sends is dropped. See
+[UDP multicast](udp-multicast.md).

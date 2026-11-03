@@ -89,12 +89,11 @@ burst of the past. A second bus decoded at the same time is best sent to a group
 **239.74.163.11** say, so that pycangui keeps the two apart. The Decoded buses pane says,
 beside each bus, where its frames are sent.
 
-**They stay on this computer unless you choose otherwise.** pyscopegui sends with a hop limit
-of 0, which keeps them on it, as pycangui does. *Tools > Settings > Share UDP multicast on
-the local network* lets them out onto the network this computer is on, and no further: every
-computer there that has joined the group hears them. It is a setting for the computer, not
-the [workspace](files.md). Across computers, each receiving one needs its firewall to let UDP
-port 43113 in.
+**They stay on this computer unless you choose otherwise**, in *Tools > Settings > UDP
+multicast*: *This computer only* sends with a hop limit of 0, which keeps them on it, as
+pycangui does; *Local network* lets them out onto the network this computer is on, and no
+further; *Off* sends nothing, and greys *Send the frames on to pycangui*, keeping the group
+for when it is on again. See [UDP multicast](udp-multicast.md).
 
 ## UART
 
