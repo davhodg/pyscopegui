@@ -13,7 +13,7 @@
 - [Event Log](event-log.md) --- everything the tool says, and at what level
 - [Instrument traffic](traffic.md) --- every command and answer, while it is open
 - [Python Console](console.md) --- Python, with commands to drive the scopes
-- [Decoding buses](decoding.md) --- CAN, UART, SPI and I²C read off channels, and the Decoded buses pane
+- [Decoding buses](decoding.md) --- CAN, UART, SPI, I²C and parallel buses read off channels, and the Decoded buses pane
 
 ## Instruments
 

@@ -3,7 +3,7 @@
 # Decoding buses
 
 A channel, or a few of one instrument's, can be read as a bus: **CAN**, a **UART** serial
-line, **SPI** or **I²C**. What is read off it is listed in the **Decoded buses** pane, a row
+line, **SPI**, **I²C**, or a **parallel** bus. What is read off it is listed in the **Decoded buses** pane, a row
 for each frame, burst or transfer, as it arrives.
 
 **Right-click a channel** in the plot's list and choose **Decode as**, then the protocol --
@@ -17,7 +17,7 @@ decoded is kept with the [workspace](files.md), and decoded again the next time.
 A logic channel is read as it is. An analog one is read as logic at a **threshold**, and has
 to go a tenth of a volt past it either way to count as changing, so that noise on a slow edge
 is not read as bits. For UART, SPI and I²C the threshold starts at 1.4 V, which suits both
-3.3 V and 5 V logic.
+3.3 V and 5 V logic. So does a parallel bus's.
 
 Each bit is read from the samples it spans, so it needs a few of them: three at the very
 least, and eight or more to be read reliably. Too few is said in the Decoded buses pane, and
@@ -140,6 +140,50 @@ the bytes, and whether they were acknowledged. *no: nobody there* is an address 
 answered; a read ends with the controller not acknowledging the last byte, which is how it
 says it has had enough, and is no problem.
 
+## Parallel
+
+Several lines read together as one word -- an ADC's outputs, a data bus -- most often on a
+mixed-signal scope's logic inputs, D0 to D15. Right-click the bus's first line and choose
+**Decode as > Parallel**:
+
+- **First line** and **Width**: the data lines, the first and those after it in the
+  instrument's own order -- D0 and 12 lines are D0 to D11. The first is bit 0, the least
+  significant, unless it is unticked, when it is the most.
+- **Clock**: a word is read at each **rising** edge, **falling** edge, or **both**, as it was
+  just before the edge -- what a latch clocked by it would take. With no clock, a word is read
+  wherever the lines change and then hold still for the **Settle** time, two samples unless
+  it is said: lines that change a little apart, as a bus's do, are not read as a word of
+  their own.
+- **Multiplex**: a line that says more about each word. A **channel select** says which of
+  two channels it is from -- low A, high B, or the other way with **Swap A and B** -- for an
+  ADC that sends both its channels on one bus. It may be the clock itself.
+- **Enable**: a line that is active while a transfer is sent, low unless it is said.
+- **Numbers**: how a word stands for a number -- as it is, offset binary (the middle code
+  nought, as many ADCs send), or two's complement.
+
+Words are listed a transfer to a row: what is read while the enable is active, or, without
+one, a run of words that a pause ends -- eight of the bus's own word times with nothing read.
+A bus that never pauses, an ADC's, is listed 32 words to a row. With a channel select, a
+row gives each channel's words together: *A 7FF 801 7FE   B 123 125*.
+
+**Show its words as channels on the plot** draws them as channels of the instrument, each
+word held until the next: with a channel select, *Parallel D0 A* and *Parallel D0 B*. Give
+the **Full scale** -- an ADC's input span, 2 V peak to peak, say -- and they are in volts;
+leave it at nought for the numbers themselves. They are channels like any other: measured,
+read by the cursors, triggered on, and made into [maths channels](plot.md) -- A less B, say.
+
+### An AD9238, or an ADC like it
+
+The AD9238 is a dual 12-bit ADC. Multiplexed, it sends both its channels on one set of twelve
+lines, a word each half clock, with the clock saying which. Put D0 to D11 on its data lines
+and another logic input on its clock, then set **Clock** and **Multiplex** both to that input,
+**Read on** to **Both**, and **Numbers** to what the ADC is set to send. If A and B come out
+the other way round, tick **Swap A and B**.
+
+Each word is read from the samples it is held for, so the logic inputs want to sample a few
+times faster than the words change: a word each half clock is two words a clock. A slower
+clock, or a shorter capture at a higher sample rate, suits a first look.
+
 ## The Decoded buses pane
 
 Open it from the **View** menu; it opens by itself when a channel is decoded. At its top is
@@ -159,7 +203,7 @@ Below, a row for each thing read, every bus's together in the order they came:
 | Bus | The protocol, and the channels it is read from |
 | ID / address | A CAN frame's identifier, in hex -- three figures for an 11-bit one, eight for a 29-bit one -- or an I²C device's address |
 | Type | Data or remote and its DLC, for CAN; how many characters or words; read or write |
-| Data | What was sent, in hex |
+| Data | What was sent, in hex: a parallel bus's words with as many figures as it is wide |
 | ACK | Whether it was acknowledged, for CAN and I²C |
 | Problem | What was wrong with it, if anything |
 

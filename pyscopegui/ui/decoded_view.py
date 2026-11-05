@@ -37,7 +37,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pyscopegui.core.decoding import CAN, I2C, PROTOCOLS, SOURCES, SPI, UART, Decoding
+from pyscopegui.core.decoding import (
+    CAN,
+    I2C,
+    PARALLEL,
+    PROTOCOLS,
+    SOURCES,
+    SPI,
+    UART,
+    Decoding,
+)
 from pyscopegui.ui import fonts
 from pyscopegui.ui.can_dialog import bitrate_text
 from pyscopegui.ui.column_widths import ColumnWidths
@@ -109,6 +118,18 @@ def texts(row: Row) -> list[str]:
         kind = f"{words} word{'s' if words != 1 else ''}"
         sides = [("MOSI", item.mosi), ("MISO", item.miso)]
         data = "   ".join(f"{name} {_hex(values, bits)}" for name, values in sides if values)
+    elif protocol == PARALLEL:
+        setup = row.decoding.setup
+        words = len(item.words)
+        kind = f"{words} word{'s' if words != 1 else ''}"
+        if item.streams:
+            # A channel select: each channel's words together, A first.
+            sides = sorted((setup.stream_name(s), item.of(s)) for s in (0, 1))
+            data = "   ".join(
+                f"{name} {_hex(values, setup.width)}" for name, values in sides if values
+            )
+        else:
+            data = _hex(item.words, setup.width)
     elif protocol == I2C:
         if item.address is not None:
             identifier = f"0x{item.address:03X}" if item.ten_bit else f"0x{item.address:02X}"
@@ -359,6 +380,12 @@ class DecodedView(QWidget):
             said += f", {setup.baud} baud"
         elif protocol == SPI:
             said += f", mode {setup.mode}, {setup.bits}-bit words"
+        elif protocol == PARALLEL:
+            said += f", {setup.width} bits"
+            if setup.clock:
+                said += f", read on {setup.edge} edges"
+            if setup.mux:
+                said += ", channels A and B"
         found, wrong = len(decoding.items), decoding.errors()
         tail = f", {wrong:,} with problems" if wrong else ""
         if getattr(setup, "share", ""):

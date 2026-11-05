@@ -53,6 +53,7 @@ from pyscopegui.core.triggers import (
     SHORTER,
     TIMEOUT,
     WINDOW,
+    WORD_DIGITS,
     WRITE,
     Condition,
     parse_data,
@@ -325,7 +326,11 @@ class TriggerDialog(QDialog):
             if parse_id(self.match_id.text()) is None:
                 self.problem.setText("The ID is not hex: 123, or 18FEXX00, say.")
                 return
-            if parse_data(self.match_data.text()) is None:
+            if self._protocols.get(self.bus.currentData()) == "parallel":
+                if parse_data(self.match_data.text(), WORD_DIGITS) is None:
+                    self.problem.setText("The data is not words in hex: 7FF XXX 800, say.")
+                    return
+            elif parse_data(self.match_data.text()) is None:
                 self.problem.setText('The data is not bytes: 12 XX 34, or "text", say.')
                 return
         super().accept()

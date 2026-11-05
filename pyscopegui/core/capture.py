@@ -16,7 +16,7 @@ import numpy as np
 from PySide6.QtCore import QObject, Signal
 
 from pyscopegui.backends.base import ANALOG, DIGITAL, LOST, Block, Channel, Scale, unpacked
-from pyscopegui.core.decoding import Decoding, Setup, decoding_for
+from pyscopegui.core.decoding import Decoding, Setup, WordChannels, decoding_for
 from pyscopegui.core.maths import Maths, Worker
 from pyscopegui.core.stretch import Stretch
 
@@ -558,6 +558,9 @@ class Capture(QObject):
         #: Channels decoded as CAN buses, kept up to date as blocks arrive.
         #: See pyscopegui.core.decoding.
         self.decodings: list[Decoding] = []
+        #: A parallel bus's words drawn as channels, by the bus's key: what
+        #: works them out, block after block. See WordChannels.
+        self._drawn_by: dict[str, WordChannels] = {}
 
     def set_channels(
         self,
@@ -594,6 +597,11 @@ class Capture(QObject):
                     self.ports[channel.port] = Record(_port(channel.port), rate, capacity)
             self.records = {c.key: self._record(c, rate, capacity) for c in channels}
             self._workers = {}  # a new run: nothing came before
+            # A bus's drawn channels first: a maths channel may be worked out from them.
+            self._drawn_by = {}
+            for setup, channel in self._drawn_channels():
+                self.records[channel.key] = Record(channel, rate, capacity)
+                self._drawn_by.setdefault(setup.key, WordChannels(setup, rate))
             for maths, channel in self._maths_channels():
                 self.records[maths.key] = Record(channel, rate, capacity)
         finally:
@@ -611,6 +619,7 @@ class Capture(QObject):
         record sums up of them as they arrive, on top."""
         analog = {c.key for c in channels if c.kind == ANALOG}
         maths = sum(1 for m in self.maths if all(key in analog for key in m.sources))
+        maths += sum(len(getattr(d.setup, "streams", list)()) for d in self.decodings)
         each = sum(np.dtype(_dtype(c)).itemsize for c in channels if not c.port)
         each += len({c.port for c in channels if c.port})
         each += maths * np.dtype(np.float32).itemsize
@@ -629,6 +638,66 @@ class Capture(QObject):
             if all(r is not None and r.channel.kind == ANALOG for r in records):
                 found.append((maths, maths.channel(*(r.channel for r in records))))
         return found
+
+    def _drawn_channels(self) -> list[tuple[Setup, Channel]]:
+        """Each channel a parallel bus's words are drawn as, where the
+        instrument has its lines: the bus's setup, and the channel."""
+        found = []
+        for decoding in self.decodings:
+            setup = decoding.setup
+            streams = getattr(setup, "streams", None)
+            if streams is None or not all(key in self.records for key in setup.channels()):
+                continue
+            main = self.records[setup.main].channel.name
+            found += [(setup, setup.drawn_channel(name, main)) for _level, name in streams()]
+        return found
+
+    def _set_drawn(self) -> None:
+        """Hold the channels the buses decoded now are drawn as, and no others:
+        one new, or drawn differently, worked out at once from what is held."""
+        drawn = self._drawn_channels()
+        wanted = {channel.key for _setup, channel in drawn}
+        for key in [key for key in self.records if key.startswith("bus:")]:
+            if key not in wanted:
+                del self.records[key]
+        setups = {setup.key: setup for setup, _channel in drawn}
+        for key in [key for key, w in self._drawn_by.items() if setups.get(key) != w.setup]:
+            del self._drawn_by[key]
+        for setup in setups.values():
+            if setup.key in self._drawn_by:
+                continue
+            rate = self.records[setup.main].rate
+            capacity = self.records[setup.main].capacity
+            worker = self._drawn_by[setup.key] = WordChannels(setup, rate)
+            records = {}
+            for each, channel in drawn:
+                if each is setup:
+                    records[channel.key] = Record(channel, rate, capacity)
+            held = self._held(setup.channels())
+            if held is not None:
+                out = worker.take(held.first, held.data)
+                for key, record in records.items():
+                    record.total = held.first  # numbered as the samples it is worked out from
+                    record.append(out[key])
+            self.records.update(records)
+
+    def _with_drawn(self, block: Block) -> Block:
+        """The block, with each bus's drawn channels worked out from it."""
+        if not self._drawn_by:
+            return block
+        data = dict(block.data)
+        for worker in self._drawn_by.values():
+            setup = worker.setup
+            if not all(key in block.data or key in block.bits for key in setup.channels()):
+                continue
+            keys = [setup.channel_key(name) for _level, name in setup.streams()]
+            records = [self.records.get(key) for key in keys]
+            if any(record is None for record in records):
+                continue
+            if block.sweep or block.first != records[0].total:
+                worker.reset()  # complete in itself, or after a gap
+            data.update(worker.take(block.first, {k: block.values(k) for k in setup.channels()}))
+        return replace(block, data=data)
 
     def set_maths(self, maths: list[Maths]) -> None:
         """These maths channels and no others, worked out at once from what is held."""
@@ -683,6 +752,9 @@ class Capture(QObject):
         for maths, channel in self._maths_channels():
             if (record := self.records.get(maths.key)) is not None:
                 record.channel = channel
+        for _setup, channel in self._drawn_channels():
+            if (record := self.records.get(channel.key)) is not None:
+                record.channel = channel
         self.channels_changed.emit()
 
     def memory_bytes(self) -> int:
@@ -698,6 +770,8 @@ class Capture(QObject):
             self.records[key] = self._record(record.channel, record.rate, record.capacity)
         for worker in self._workers.values():
             worker.reset()
+        for drawn in self._drawn_by.values():
+            drawn.reset()
         for decoding in self.decodings:
             decoding.reset()
 
@@ -713,6 +787,10 @@ class Capture(QObject):
                 if (held := self._held(setup.channels())) is not None:
                     decoding.take_block(held)
             self.decodings.append(decoding)
+        drawn = {key for key in self.records if key.startswith("bus:")}
+        self._set_drawn()
+        if drawn != {key for key in self.records if key.startswith("bus:")}:
+            self.channels_changed.emit()
 
     def _held(self, keys: tuple[str, ...]) -> Block | None:
         """What is held of these channels, as one block: the stretch they all
@@ -743,7 +821,7 @@ class Capture(QObject):
                 self.decoded.emit(decoding, found, block.first + len(block))
 
     def add(self, block: Block) -> None:
-        block = self._with_maths(block)
+        block = self._with_maths(self._with_drawn(block))
         if block.sweep:
             self._take_sweep(block)
             self._decode(block)

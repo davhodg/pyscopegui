@@ -69,7 +69,7 @@ from pyscopegui.core.triggers import PROTOCOL, RUNT, WINDOW
 from pyscopegui.ui import fonts
 from pyscopegui.ui.can_dialog import CanDialog
 from pyscopegui.ui.column_widths import ColumnWidths
-from pyscopegui.ui.decode_dialog import I2cDialog, SpiDialog, UartDialog
+from pyscopegui.ui.decode_dialog import I2cDialog, ParallelDialog, SpiDialog, UartDialog
 from pyscopegui.ui.maths_dialog import MathsDialog
 from pyscopegui.ui.persist import remember
 from pyscopegui.ui.progress import CancelledError, with_progress
@@ -1044,7 +1044,12 @@ class ScopeView(QWidget):
                 (r.channel.key, self.session.name_of(unit, r.channel), r.channel.kind == ANALOG)
                 for r in unit.capture.records.values()
             ]
-            kind = {decoding.UART: UartDialog, decoding.SPI: SpiDialog, decoding.I2C: I2cDialog}
+            kind = {
+                decoding.UART: UartDialog,
+                decoding.SPI: SpiDialog,
+                decoding.I2C: I2cDialog,
+                decoding.PARALLEL: ParallelDialog,
+            }
             dialog = kind[protocol](channels, own, was, self)
         if dialog.exec() == QDialog.Accepted:
             self.add_decoding(unit, dialog.setup())

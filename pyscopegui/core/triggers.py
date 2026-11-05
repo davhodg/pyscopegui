@@ -495,6 +495,10 @@ class Taking:
 
 
 # --- protocol triggers ---------------------------------------------------------------------
+#: The most hex digits a parallel bus's word looked for may have: 32 lines.
+WORD_DIGITS = 8
+
+
 def parse_id(text: str) -> tuple[int, int] | None:
     """A hex identifier or address, X for any digit, as (value, mask): "18FEXX00"
     is (0x18FE0000, 0xFFFF00FF). An empty one matches anything: (0, 0). None for
@@ -513,9 +517,11 @@ def parse_id(text: str) -> tuple[int, int] | None:
     return value, mask
 
 
-def parse_data(text: str) -> list[int | None] | None:
+def parse_data(text: str, digits: int = 2) -> list[int | None] | None:
     """Bytes to look for, each a number or None for any: "12 XX 34", or "OK" in
-    quotes for text. Empty matches anything: []. None for something that is neither."""
+    quotes for text. Empty matches anything: []. None for something that is neither.
+    ``digits`` is the most hex digits a value may have: more, for a parallel bus's
+    wider words."""
     text = text.strip()
     if not text:
         return []
@@ -524,9 +530,9 @@ def parse_data(text: str) -> list[int | None] | None:
     found: list[int | None] = []
     for part in text.replace(",", " ").split():
         part = part.lower().removeprefix("0x")
-        if part in ("x", "xx"):
+        if part and set(part) == {"x"}:
             found.append(None)
-        elif re.fullmatch(r"[0-9a-f]{1,2}", part):
+        elif re.fullmatch(rf"[0-9a-f]{{1,{digits}}}", part):
             found.append(int(part, 16))
         else:
             return None
@@ -548,7 +554,7 @@ def item_matches(protocol: str, item, condition: Condition) -> bool:
     if (condition.which == GOOD and item.error) or (condition.which == PROBLEM and not item.error):
         return False
     identifier = parse_id(condition.match_id) or (0, 0)
-    wanted = parse_data(condition.match_data) or []
+    wanted = parse_data(condition.match_data, WORD_DIGITS if protocol == "parallel" else 2) or []
     kind = condition.match_type
     if protocol == "can":
         if (kind == DATA and item.remote) or (kind == REMOTE and not item.remote):
@@ -569,4 +575,9 @@ def item_matches(protocol: str, item, condition: Condition) -> bool:
         return _contains(item.values, wanted)
     if protocol == "spi":
         return _contains(item.mosi, wanted) or _contains(item.miso, wanted)
+    if protocol == "parallel":
+        # Multiplexed, each channel's words are looked through on their own.
+        if item.streams:
+            return _contains(item.of(0), wanted) or _contains(item.of(1), wanted)
+        return _contains(item.words, wanted)
     return False

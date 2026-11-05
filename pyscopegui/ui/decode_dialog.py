@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""Decoding a serial line, an SPI bus or an I2C bus: which channels are its
-lines, and how it is set.
+"""Decoding a serial line, an SPI bus, an I2C bus or a parallel bus: which
+channels are its lines, and how it is set.
 
 The lines are chosen from the instrument's own channels -- a bus's lines are
 read together, so they have to be one instrument's -- starting from the
@@ -25,7 +25,15 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from pyscopegui.core.decoding import LOGIC_THRESHOLD, I2cSetup, SpiSetup, UartSetup
+from pyscopegui.core.decoding import (
+    CODINGS,
+    LOGIC_THRESHOLD,
+    I2cSetup,
+    ParallelSetup,
+    SpiSetup,
+    UartSetup,
+)
+from pyscopegui.core.parallel_decode import BOTH, FALLING, RISING, SELECT
 from pyscopegui.core.uart_decode import BAUDS, EVEN, NONE, ODD
 
 #: For a line that is not there: SPI's chip select, one of its data lines.
@@ -42,6 +50,9 @@ NAMES = {
     "mosi": ("MOSI", "SDO", "DOUT", "COPI"),
     "miso": ("MISO", "SDI", "DIN", "CIPO"),
     "cs": ("CS", "SS", "NSS", "CE"),
+    "clock": ("CLK", "CLOCK", "DCO", "STROBE"),
+    "mux": ("MUX", "SEL", "DCS"),
+    "enable": ("EN", "OE", "CS", "CE"),
 }
 
 
@@ -292,3 +303,213 @@ class I2cDialog(BusDialog):
 
     def setup(self) -> I2cSetup:
         return I2cSetup(self.line("scl"), self.line("sda"), self.chosen_threshold())
+
+
+class ParallelDialog(BusDialog):
+    """A parallel bus: its data lines, a run of the instrument's channels in
+    their order -- D0 to D11, say -- and a clock, a multiplex line and an
+    enable if it has them."""
+
+    title = "Decode as parallel"
+
+    def __init__(self, channels, start, setup: ParallelSetup | None = None, parent=None) -> None:
+        super().__init__(channels, start, parent)
+        self._keys = [key for key, _name, _analog in channels]
+        self._names = {key: name for key, name, _analog in channels}
+        self.first = QComboBox()
+        for key, name, _analog in channels:
+            self.first.addItem(name, key)
+        self.first.setCurrentIndex(max(self.first.findData(start), 0))
+        self.first.setToolTip("The first data line. The rest follow it in the instrument's order.")
+        self.width = QSpinBox()
+        self.width.setRange(1, min(32, max(len(channels), 1)))
+        self.width.setValue(min(8, len(channels)))
+        self.width.setSuffix(" lines")
+        self.bit0_first = QCheckBox("The first line is bit 0, the least significant")
+        self.bit0_first.setChecked(True)
+        self.span = QLabel()
+        self.form.addRow("First line:", self.first)
+        self.form.addRow("Width:", self.width)
+        self.form.addRow("", self.span)
+        self.form.addRow(self.bit0_first)
+        # Taken, so that the lines after it are not guessed to be the first.
+        self.lines["first"] = self.first
+        self.first.currentIndexChanged.connect(self._show)
+        self.width.valueChanged.connect(self._show)
+        self.bit0_first.toggled.connect(self._show)
+
+        self.add_line("clock", "Clock", optional=True)
+        self.edge = QComboBox()
+        for edge, said in ((RISING, "Rising"), (FALLING, "Falling"), (BOTH, "Both")):
+            self.edge.addItem(said, edge)
+        self.edge.setToolTip(
+            "The edges a word is read on: each as it was just before the edge, as a\n"
+            "latch clocked by it would take it. Both, for a bus sending a word each\n"
+            "half clock, such as a multiplexed ADC's."
+        )
+        self.form.addRow("Read on:", self.edge)
+        self.settle = QDoubleSpinBox()
+        self.settle.setRange(0.0, 1e6)
+        self.settle.setDecimals(1)
+        self.settle.setSuffix(" ns")
+        self.settle.setSpecialValueText("Two samples")
+        self.settle.setToolTip(
+            "Without a clock, a word is read wherever the lines change and then hold\n"
+            "still this long, so that lines changing a little apart are not read as\n"
+            "words of their own."
+        )
+        self.form.addRow("Settle:", self.settle)
+
+        self.add_line("mux", "Multiplex", optional=True)
+        self.mux_kind = QComboBox()
+        self.mux_kind.addItem("Channel select: low is A, high is B", SELECT)
+        self.mux_kind.setToolTip(
+            "What the multiplex line says. A channel select's level, as each word is\n"
+            "read, says which of two channels it is from: an ADC sending both its\n"
+            "channels on one bus, such as the AD9238. It may be the clock itself."
+        )
+        self.mux_swapped = QCheckBox("Swap A and B")
+        self.form.addRow("It is:", self.mux_kind)
+        self.form.addRow(self.mux_swapped)
+
+        self.add_line("enable", "Enable", optional=True)
+        self.enable_active_low = QCheckBox("Enable active low")
+        self.enable_active_low.setChecked(True)
+        self.form.addRow(self.enable_active_low)
+        self.coding = QComboBox()
+        for coding, said in CODINGS.items():
+            self.coding.addItem(said, coding)
+        self.coding.setToolTip(
+            "How a word stands for a number: as it is, offset binary -- the middle\n"
+            "code nought, as many ADCs send -- or two's complement."
+        )
+        self.form.addRow("Numbers:", self.coding)
+        self.plot = QCheckBox("Show its words as channels on the plot")
+        self.plot.setToolTip(
+            "Each word held until the next, as a channel of the instrument: an ADC's\n"
+            "samples, drawn beside the scope's own. With a multiplex line, a channel\n"
+            "for A and one for B."
+        )
+        self.full_scale = QDoubleSpinBox()
+        self.full_scale.setRange(0.0, 1000.0)
+        self.full_scale.setDecimals(3)
+        self.full_scale.setSingleStep(0.5)
+        self.full_scale.setSuffix(" V")
+        self.full_scale.setSpecialValueText("The numbers as they are")
+        self.full_scale.setToolTip(
+            "The span from the lowest word to the highest, in volts: an ADC's input\n"
+            "span, 2 V peak to peak, say. Nought draws the numbers themselves."
+        )
+        self.form.addRow(self.plot)
+        self.form.addRow("Full scale:", self.full_scale)
+        self.plot.toggled.connect(self._show)
+        self.add_threshold()
+        for role in ("clock", "mux", "enable"):
+            self.lines[role].currentIndexChanged.connect(self._show)
+        if setup is not None:
+            self._show_parallel(setup)
+        self._show()
+
+    def _show_parallel(self, setup: ParallelSetup) -> None:
+        """Start from how the bus is decoded already."""
+        ordered = list(setup.data)
+        bit0_first = True
+        if len(ordered) > 1 and self._is_run(ordered[::-1]) and not self._is_run(ordered):
+            ordered, bit0_first = ordered[::-1], False
+        self.first.setCurrentIndex(max(self.first.findData(ordered[0]), 0))
+        self.width.setValue(len(ordered))
+        self.bit0_first.setChecked(bit0_first)
+        for role in ("clock", "mux", "enable"):
+            box = self.lines[role]
+            box.setCurrentIndex(max(box.findData(getattr(setup, role)), 0))
+        self.edge.setCurrentIndex(max(self.edge.findData(setup.edge), 0))
+        self.settle.setValue(setup.settle_s * 1e9)
+        self.mux_kind.setCurrentIndex(max(self.mux_kind.findData(setup.mux_kind), 0))
+        self.mux_swapped.setChecked(setup.mux_swapped)
+        self.enable_active_low.setChecked(setup.enable_active_low)
+        self.coding.setCurrentIndex(max(self.coding.findData(setup.coding), 0))
+        self.plot.setChecked(setup.plot)
+        self.full_scale.setValue(setup.full_scale)
+        if setup.threshold is not None:
+            self.threshold.setValue(setup.threshold)
+
+    def _is_run(self, keys: list[str]) -> bool:
+        """Whether these follow one another in the instrument's order."""
+        if keys[0] not in self._keys:
+            return False
+        at = self._keys.index(keys[0])
+        return self._keys[at : at + len(keys)] == keys
+
+    def data_lines(self) -> list[str]:
+        """The data lines in the instrument's order from the first, as many as
+        the width; fewer where the instrument has run out."""
+        first = self.first.currentData()
+        at = self._keys.index(first) if first in self._keys else 0
+        return self._keys[at : at + self.width.value()]
+
+    def _show(self, *_args) -> None:
+        names = [self._names[key] for key in self.data_lines()]
+        if len(names) > 1:
+            low, high = names[0], names[-1]
+            if not self.bit0_first.isChecked():
+                low, high = high, low
+            self.span.setText(f"Bit 0 is {low}, bit {len(names) - 1} is {high}")
+        else:
+            self.span.setText(f"Bit 0 is {names[0]}" if names else "")
+        clocked = bool(self.line("clock"))
+        self.edge.setEnabled(clocked)
+        self.settle.setEnabled(not clocked)
+        muxed = bool(self.line("mux"))
+        self.mux_kind.setEnabled(muxed)
+        self.mux_swapped.setEnabled(muxed)
+        self.enable_active_low.setEnabled(bool(self.line("enable")))
+        self.full_scale.setEnabled(self.plot.isChecked())
+        self._show_threshold()
+
+    def _show_threshold(self, *_args) -> None:
+        if not hasattr(self, "width"):
+            return  # still being made
+        used = [*self.data_lines(), *(self.line(r) for r in self.lines)]
+        self.threshold.setEnabled(any(self._analog.get(key, False) for key in used if key))
+
+    def accept(self) -> None:
+        # Not BusDialog's: a multiplex line may be the clock itself.
+        if problem := self.check():
+            self.problem.setText(problem)
+            return
+        QDialog.accept(self)
+
+    def check(self) -> str:
+        data = self.data_lines()
+        if len(data) < self.width.value():
+            return (
+                f"There are only {len(data)} channels from {self.first.currentText()} on: "
+                "choose an earlier first line, or fewer."
+            )
+        clock, mux, enable = (self.line(role) for role in ("clock", "mux", "enable"))
+        for role, key in (("clock", clock), ("multiplex line", mux), ("enable", enable)):
+            if key and key in data:
+                return f"The {role} is one of the data lines: choose another."
+        if enable and enable in (clock, mux):
+            return "The enable has to be a line of its own."
+        return ""
+
+    def setup(self) -> ParallelSetup:
+        data = self.data_lines()
+        if not self.bit0_first.isChecked():
+            data = data[::-1]
+        return ParallelSetup(
+            tuple(data),
+            self.line("clock"),
+            self.edge.currentData(),
+            round(self.settle.value() * 1e-9, 12),
+            self.line("mux"),
+            self.mux_kind.currentData(),
+            self.mux_swapped.isChecked(),
+            self.line("enable"),
+            self.enable_active_low.isChecked(),
+            self.coding.currentData(),
+            self.chosen_threshold(),
+            self.plot.isChecked(),
+            round(self.full_scale.value(), 6) if self.plot.isChecked() else 0.0,
+        )

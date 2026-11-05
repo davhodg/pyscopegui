@@ -161,7 +161,7 @@ details, so **Trigger** and **Level** are not used for one either. What matches:
 | Detail | What matches |
 |--------|--------------|
 | ID / address | A CAN identifier or an I²C address, in hex, `X` for a digit that may be anything: `18FEXX00` matches 18FE0000 to 18FEFF00. Empty for any |
-| Data contains | Bytes anywhere in it, in hex, `XX` for one that may be anything: `12 XX 34`. Or text in quotes, for a serial line: `"Error"`. Empty for anything |
+| Data contains | Bytes anywhere in it, in hex, `XX` for one that may be anything: `12 XX 34`. Or text in quotes, for a serial line: `"Error"`. For a parallel bus, words as wide as it is, `7FF XXX 800`, looked for in each channel of a channel select on its own. Empty for anything |
 | Type | CAN: data or remote frames. I²C: reads, writes, or an address nobody answered |
 | Which | All, only what was read cleanly, or only what was not: to catch a stuff error or a NACK the moment it happens |
 

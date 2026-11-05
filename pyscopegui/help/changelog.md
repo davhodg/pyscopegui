@@ -11,6 +11,13 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Parallel buses**, under *Decode as*: several lines read as one word -- a mixed-signal
+  scope's D0 to D15, say -- on a clock's rising or falling edges or both, or where the lines
+  settle without one, with an enable to mark each transfer. A **multiplex** line can say
+  which of two channels each word is from, as an AD9238 sends both its channels on one bus.
+  The words can be drawn as channels on the plot, in volts across a full scale, to be
+  measured, triggered on and made into maths channels; a protocol trigger can wait for words.
+
 - **The Qt style in use** is shown greyed out at the bottom of *Tools > Settings > Theme*
   and in its tooltip, and *Help > Diagnostics* gives it with the theme -- and, for *Match
   the system*, whether the system gave light or dark.

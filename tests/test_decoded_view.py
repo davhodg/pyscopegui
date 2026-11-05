@@ -312,7 +312,13 @@ def test_add_offers_every_channel_and_what_it_can_be_decoded_as(held, monkeypatc
     channels = [action.text() for action in view.add.menu().actions()]
     assert "CAN" in channels and "A: sine" in channels, channels
     can = next(a.menu() for a in view.add.menu().actions() if a.text() == "CAN")
-    assert [a.text() for a in can.actions()] == ["CAN...", "UART...", "SPI...", "I²C..."]
+    assert [a.text() for a in can.actions()] == [
+        "CAN...",
+        "UART...",
+        "SPI...",
+        "I²C...",
+        "Parallel...",
+    ]
     asked = []
     monkeypatch.setattr(window.scope, "ask_decoding", lambda key, p: asked.append((key, p)))
     view._fill_add()

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 davhodg
-"""Channels decoded as buses -- CAN, UART, SPI, I2C -- and what has been found on them.
+"""Channels decoded as buses -- CAN, UART, SPI, I2C, parallel -- and what has been found on them.
 
 An instrument's channels are read as they arrive, as maths channels are worked
 out: so a stream is decoded live, a scope's sweep is decoded when it comes, and
@@ -12,8 +12,8 @@ the history, it goes too.
 
 Each protocol has a setup -- which channels, and how the bus is set -- and a
 decoding, which keeps a decoder fed and what it has found. How the bits are
-read is in the decoders: pyscopegui.core.can_decode, uart_decode, spi_decode
-and i2c_decode.
+read is in the decoders: pyscopegui.core.can_decode, uart_decode, spi_decode,
+i2c_decode and parallel_decode.
 
 An analog channel is made logic levels at a threshold, with a little
 hysteresis, so that noise on a slow edge is not read as bits; a logic channel
@@ -28,16 +28,24 @@ from typing import ClassVar
 
 import numpy as np
 
-from pyscopegui.backends.base import Block
+from pyscopegui.backends.base import ANALOG, Block, Channel
 from pyscopegui.core.can_decode import CanDecoder, guess_bitrate, levels
 from pyscopegui.core.i2c_decode import I2cDecoder
+from pyscopegui.core.parallel_decode import (
+    EDGES,
+    NO_MUX,
+    RISING,
+    SELECT,
+    ParallelDecoder,
+    WordReader,
+)
 from pyscopegui.core.sharing import is_group
 from pyscopegui.core.spi_decode import SpiDecoder
 from pyscopegui.core.uart_decode import EVEN, NONE, ODD, UartDecoder
 
-CAN, UART, SPI, I2C = "can", "uart", "spi", "i2c"
+CAN, UART, SPI, I2C, PARALLEL = "can", "uart", "spi", "i2c", "parallel"
 #: What each is called.
-PROTOCOLS = {CAN: "CAN", UART: "UART", SPI: "SPI", I2C: "I²C"}
+PROTOCOLS = {CAN: "CAN", UART: "UART", SPI: "SPI", I2C: "I²C", PARALLEL: "Parallel"}
 #: Under this name in the workspace, and an instrument's: its channels decoded.
 SAVED_KEY = "decode"
 #: And under this, the keys of those of its buses that are paused.
@@ -302,8 +310,174 @@ class I2cSetup:
         return cls(scl, sda, _number(saved.get("threshold"), None))
 
 
-Setup = CanSetup | UartSetup | SpiSetup | I2cSetup
-_SETUPS = {setup.protocol: setup for setup in (CanSetup, UartSetup, SpiSetup, I2cSetup)}
+#: How a parallel bus's words are numbers: as they are, offset binary -- the
+#: middle code nought, as many ADCs send -- or two's complement.
+UNSIGNED, OFFSET, TWOS = "unsigned", "offset", "twos"
+CODINGS = {UNSIGNED: "Unsigned", OFFSET: "Offset binary", TWOS: "Two's complement"}
+
+
+def signed(words: np.ndarray, width: int, coding: str) -> np.ndarray:
+    """Words as the numbers they stand for, as the coding says."""
+    words = np.asarray(words, dtype=np.int64)
+    if coding == OFFSET:
+        return words - (1 << (width - 1))
+    if coding == TWOS:
+        return np.where(words >= 1 << (width - 1), words - (1 << width), words)
+    return words
+
+
+@dataclass(frozen=True)
+class ParallelSetup:
+    """How a parallel bus is decoded: its data lines, bit 0 first, and a clock,
+    a multiplex line and an enable if it has them -- all of one instrument."""
+
+    protocol: ClassVar[str] = PARALLEL
+    data: tuple[str, ...]
+    #: The clock, or "" to read a word wherever the lines change and settle.
+    clock: str = ""
+    edge: str = RISING
+    #: Without a clock: how long the lines hold still for a word, in seconds;
+    #: nought for two samples.
+    settle_s: float = 0.0
+    #: What says more about each word, or "": for now a channel select, its
+    #: level saying which of two channels a word is from. ``mux_swapped`` has
+    #: a high level channel A.
+    mux: str = ""
+    mux_kind: str = SELECT
+    mux_swapped: bool = False
+    #: Active while a transfer is sent, or "" for none.
+    enable: str = ""
+    enable_active_low: bool = True
+    coding: str = UNSIGNED
+    threshold: float | None = None
+    #: Its words drawn as channels of the instrument, one for each channel a
+    #: select says, held at each word until the next: an ADC's samples.
+    plot: bool = False
+    #: In volts, the span from the lowest word to the highest -- an ADC's
+    #: input span, 2 V peak to peak, say; nought to draw the numbers as they are.
+    full_scale: float = 0.0
+
+    @property
+    def key(self) -> str:
+        return f"parallel:{self.data[0]}"
+
+    @property
+    def main(self) -> str:
+        return self.data[0]
+
+    @property
+    def width(self) -> int:
+        return len(self.data)
+
+    def channels(self) -> tuple[str, ...]:
+        # A line may be two things at once: the AD9238's clock is its channel select.
+        return tuple(dict.fromkeys(c for c in (*self.data, self.clock, self.mux, self.enable) if c))
+
+    def stream_name(self, stream: int) -> str:
+        """What a channel select's level is called: A or B."""
+        return "AB"[stream ^ int(self.mux_swapped)]
+
+    def streams(self) -> list[tuple[int | None, str]]:
+        """The channels its words are drawn as: (the select's level, A or B),
+        or one, (None, ""), without a select. None where it is not drawn."""
+        if not self.plot:
+            return []
+        if self.mux:
+            return sorted(
+                ((level, self.stream_name(level)) for level in (0, 1)), key=lambda s: s[1]
+            )
+        return [(None, "")]
+
+    def channel_key(self, name: str) -> str:
+        """What a drawn channel's samples are held under: unlike any instrument's."""
+        return f"bus:{self.key}" + (f":{name}" if name else "")
+
+    def drawn_channel(self, name: str, main_name: str) -> Channel:
+        """A drawn channel, called after the bus's first line: "Parallel D0 A"."""
+        half = 1 << (self.width - 1)
+        if self.full_scale:
+            unit, scale = "V", self.full_scale / 2
+        else:
+            unit, scale = "", float(half)
+        middle = scale if self.coding == UNSIGNED else 0.0
+        said = f"Parallel {main_name}" + (f" {name}" if name else "")
+        return Channel(
+            self.channel_key(name),
+            said,
+            ANALOG,
+            unit=unit,
+            full_scale=scale,
+            middle=middle,
+            detail=f"{self.width}-bit {CODINGS[self.coding].lower()}",
+        )
+
+    def in_units(self, words: np.ndarray) -> np.ndarray:
+        """Words as what is drawn: volts across the full scale, or the numbers."""
+        values = signed(words, self.width, self.coding).astype(np.float64)
+        if self.full_scale:
+            values *= self.full_scale / (1 << self.width)
+        return values
+
+    def as_saved(self) -> dict:
+        return {
+            "protocol": PARALLEL,
+            "data": list(self.data),
+            "clock": self.clock,
+            "edge": self.edge,
+            "settle_s": self.settle_s,
+            "mux": self.mux,
+            "mux_kind": self.mux_kind,
+            "mux_swapped": self.mux_swapped,
+            "enable": self.enable,
+            "enable_active_low": self.enable_active_low,
+            "coding": self.coding,
+            "threshold": self.threshold,
+            "plot": self.plot,
+            "full_scale": self.full_scale,
+        }
+
+    @classmethod
+    def from_saved(cls, saved: dict) -> ParallelSetup | None:
+        data = saved.get("data")
+        if not isinstance(data, list) or not 1 <= len(data) <= 32:
+            return None
+        lines = tuple(_key(line) for line in data)
+        if not all(lines) or len(set(lines)) != len(lines):
+            return None
+        clock, mux, enable = (_key(saved.get(line, "")) for line in ("clock", "mux", "enable"))
+        if {clock, enable} & set(lines) - {""} or (mux and mux in lines):
+            return None
+        edge, kind = saved.get("edge", RISING), saved.get("mux_kind", SELECT)
+        coding = saved.get("coding", UNSIGNED)
+        settle = _number(saved.get("settle_s", 0.0), None)
+        full_scale = _number(saved.get("full_scale", 0.0), None)
+        if full_scale is None or full_scale < 0:
+            return None
+        if edge not in EDGES or kind not in (SELECT,) or coding not in CODINGS:
+            return None
+        if settle is None or settle < 0:
+            return None
+        return cls(
+            lines,
+            clock,
+            edge,
+            settle,
+            mux,
+            kind,
+            saved.get("mux_swapped") is True,
+            enable,
+            saved.get("enable_active_low", True) is not False,
+            coding,
+            _number(saved.get("threshold"), None),
+            saved.get("plot") is True,
+            full_scale,
+        )
+
+
+Setup = CanSetup | UartSetup | SpiSetup | I2cSetup | ParallelSetup
+_SETUPS = {
+    setup.protocol: setup for setup in (CanSetup, UartSetup, SpiSetup, I2cSetup, ParallelSetup)
+}
 
 
 def from_saved(saved: object) -> Setup | None:
@@ -547,7 +721,96 @@ class I2cDecoding(Decoding):
         return found
 
 
-_DECODINGS = {CAN: CanDecoding, UART: UartDecoding, SPI: SpiDecoding, I2C: I2cDecoding}
+class WordChannels:
+    """A parallel bus's words as channels: each sample the last word read, of
+    its channel, in volts or as the number -- NaN before the first. Worked out
+    block by block, as maths channels are, with what it needs carried on."""
+
+    def __init__(self, setup: ParallelSetup, rate: float) -> None:
+        self.setup = setup
+        settle = round(setup.settle_s * rate) if setup.settle_s else ParallelDecoding.SETTLE
+        self._reader = WordReader(setup.width, setup.edge, bool(setup.clock), max(settle, 1))
+        self.reset()
+
+    def reset(self) -> None:
+        """Start afresh: a new run, a sweep, or after a gap."""
+        self._reader.reset()
+        self._held = {name: np.nan for _level, name in self.setup.streams()}
+        self._high: dict[str, bool] = {}
+
+    def take(self, first: int, data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """Each drawn channel's samples for this block, by its key."""
+        setup = self.setup
+        threshold = LOGIC_THRESHOLD if setup.threshold is None else setup.threshold
+        levels = {}
+        for key, samples in data.items():
+            levels[key], self._high[key] = high(samples, threshold, self._high.get(key, True))
+        count = len(data[setup.data[0]])
+        at, words, streams = self._reader.read(
+            first,
+            [levels[key] for key in setup.data],
+            clock=levels.get(setup.clock),
+            select=levels.get(setup.mux),
+        )
+        values = setup.in_units(words)
+        out = {}
+        for level, name in setup.streams():
+            mine = streams == level if level is not None else np.ones(len(at), dtype=bool)
+            where = np.clip(at[mine], 0, None)
+            got = values[mine]
+            if not len(got):
+                # No word of its own here: what it was holds on.
+                out[setup.channel_key(name)] = np.full(count, self._held[name], np.float32)
+                continue
+            # The word read latest at or before each sample, or the one held from before.
+            latest = np.searchsorted(where, np.arange(count), side="right") - 1
+            samples = np.where(latest >= 0, got[np.clip(latest, 0, None)], self._held[name])
+            self._held[name] = float(got[-1])
+            out[setup.channel_key(name)] = samples.astype(np.float32)
+        return out
+
+
+class ParallelDecoding(Decoding):
+    """A parallel bus decoded: its words, a transfer at a time."""
+
+    #: Without a clock and a settle time said, the lines hold this many samples for a word.
+    SETTLE = 2
+
+    def _restart(self) -> None:
+        setup = self.setup
+        settle = round(setup.settle_s * self.rate) if setup.settle_s else self.SETTLE
+        self._decoder = ParallelDecoder(
+            setup.width,
+            setup.edge,
+            clocked=bool(setup.clock),
+            settle=max(settle, 1),
+            mux=setup.mux_kind if setup.mux else NO_MUX,
+            enable_active_low=setup.enable_active_low,
+        )
+
+    def _take(self, first: int, data: dict[str, np.ndarray], sweep: bool) -> list:
+        setup = self.setup
+        # Each line made levels once, however many things it is.
+        levels = {key: self._levels(key, samples) for key, samples in data.items()}
+        found = self._decoder.feed(
+            first,
+            [levels[key] for key in setup.data],
+            clock=levels.get(setup.clock),
+            select=levels.get(setup.mux),
+            enable=levels.get(setup.enable),
+        )
+        if sweep:
+            found += self._decoder.flush()
+        return found
+
+
+_DECODINGS = {
+    CAN: CanDecoding,
+    UART: UartDecoding,
+    SPI: SpiDecoding,
+    I2C: I2cDecoding,
+    PARALLEL: ParallelDecoding,
+}
 
 
 def decoding_for(setup: Setup) -> Decoding:
