@@ -11,6 +11,10 @@ since the last version, and comes out in the next one.
 
 ### Added
 
+- **Tools > Reset**, as in pycangui: *Reset layout* (also under *View*), *Forget remembered
+  folders* for the file dialogs, and *Reset everything...*, which offers a new workspace
+  rather than undoing anything in place.
+
 - **Parallel buses**, under *Decode as*: several lines read as one word -- a mixed-signal
   scope's D0 to D15, say -- on a clock's rising or falling edges or both, or where the lines
   settle without one, with an enable to mark each transfer. A **multiplex** line can say

@@ -5,7 +5,7 @@
 pyscopegui opens with four panes: the **Instrument** pane beside **Channels and Plot**, and
 underneath them the **Event Log** with the [**Measurements**](plot.md) beside it, taking two
 thirds of the width. Turn any of them off or on in the **View** menu, and
-*View > Reset layout* puts everything back.
+*View > Reset layout* (or *Tools > Reset > Reset layout*) puts everything back.
 
 Any other pane -- the Data, Decoded buses, Instrument traffic or Python Console pane -- opens
 floating the first time: in front of the window, and still part of it. Dock it, detach it or

@@ -59,6 +59,16 @@ another first. A workspace is a folder, so it can be copied, backed up, or sent 
 else with everything in it. Where the window sits and whether it is light or dark stay
 with this computer, whichever workspace is open.
 
+## Putting things back
+
+*Tools > Reset* has what puts something back the way it was:
+
+| Entry | What it does |
+|---|---|
+| Reset layout | The panes where they start, in a window the size it opens at, as *View > Reset layout* |
+| Forget remembered folders | Open capture, Save capture, the exports and Run script each open where the last file of theirs was; this puts them back to where they started |
+| Reset everything... | Says what there is instead: a new workspace, which starts clean and leaves the one in use as it is, to switch back to. It offers **New workspace...** |
+
 ## An instrument's settings
 
 Each instrument's settings are one entry in `settings.json`, named for the instrument. The

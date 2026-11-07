@@ -54,7 +54,7 @@ from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.core.sharing import Sharer
 from pyscopegui.ui import column_widths, event_colours, messages, theme
-from pyscopegui.ui.console_view import ConsoleView
+from pyscopegui.ui.console_view import SCRIPT_FOLDER, ConsoleView
 from pyscopegui.ui.data_view import DataView
 from pyscopegui.ui.decoded_view import DecodedView
 from pyscopegui.ui.diagnostics import RECENT_PROBLEMS
@@ -64,7 +64,7 @@ from pyscopegui.ui.instrument_bar import InstrumentBar
 from pyscopegui.ui.instrument_view import InstrumentView
 from pyscopegui.ui.measurements_view import MeasurementsView
 from pyscopegui.ui.panes import PaneKind, Panes
-from pyscopegui.ui.scope_view import LABELS, ScopeView
+from pyscopegui.ui.scope_view import EXPORT_FOLDER, LABELS, ScopeView
 from pyscopegui.ui.scripting import Scripting
 from pyscopegui.ui.scripts_menu import ScriptsMenu
 from pyscopegui.ui.traffic_view import TrafficView
@@ -115,6 +115,17 @@ OLD_UDP_NETWORK_KEY = "udp/local_network"
 #: In QSettings, like the theme: how somebody likes to read the log, not
 #: something about a workspace.
 LOG_TIMES_KEY = "event_log/times"
+#: The folders file dialogs remember, each in the workspace: Tools > Reset forgets them.
+REMEMBERED_FOLDERS = (CAPTURE_FOLDER, EXPORT_FOLDER, SCRIPT_FOLDER)
+RESET_EVERYTHING = (
+    "There is no reset that undoes everything in place, and that is on purpose: "
+    "a new workspace is the clean slate. It starts with pyscopegui's own settings "
+    "and layout, with no instruments, maths channels or decoded buses, and the "
+    "workspace you are in now is left exactly as it is, to switch back to "
+    "whenever you like.\n\n"
+    "What is kept with this computer rather than a workspace carries over: the "
+    "theme, UDP multicast, the time on Event Log lines, and where the window sits."
+)
 LOG_TIMES_TIP = (
     "The time of day each Event Log line was written, to the second, in front\n"
     "of it: 14:03:27 The scope ... From the next line on; kept when lines are\n"
@@ -484,6 +495,25 @@ class MainWindow(QMainWindow):
                 f"A .npz saved before has {APP_NAME} under Open with on Windows, and\n"
                 "whatever opens .npz files now keeps them. For you only."
             )
+
+        # Together, as in pycangui: "put something back the way it was" is one
+        # thing to go looking for.
+        tools_menu.addSeparator()
+        self.reset_menu = tools_menu.addMenu("Reset")
+        self.reset_menu.setToolTipsVisible(True)
+        self.reset_menu.addAction(self.reset_layout_action)
+        forget = self.reset_menu.addAction("Forget remembered folders", self._forget_folders)
+        forget.setToolTip(
+            "A file dialog opens where that sort of file was last used -- a capture\n"
+            "where the last capture was, an export where the last export went, a\n"
+            f"script where the last script was. This puts them back to {APP_NAME}'s own."
+        )
+        self.reset_menu.addSeparator()
+        everything = self.reset_menu.addAction("Reset everything...", self._reset_everything)
+        everything.setToolTip(
+            "Which is a new workspace, rather than anything undone in place --\n"
+            "so the one you are in now is still there to go back to."
+        )
 
         self.help_menu = HelpMenu(self)
 
@@ -1668,6 +1698,31 @@ class MainWindow(QMainWindow):
         frame.moveCenter(available.center())
         self.move(frame.topLeft())
         self._arrange_default()
+
+    def _forget_folders(self) -> None:
+        """Put every file dialog back to the folder it started in."""
+        remembered = [key for key in REMEMBERED_FOLDERS if self.ctx.settings.get(key) is not None]
+        for key in remembered:
+            self.ctx.settings.remove(key)
+        self.events.information(
+            f"Forgot {len(remembered)} remembered folder(s): file dialogs will open in "
+            f"{APP_NAME}'s own folders again."
+            if remembered
+            else "No folders were being remembered."
+        )
+
+    def _reset_everything(self) -> None:
+        """There is no reset-everything, and this says what there is instead: a new
+        workspace, which leaves the one being escaped from to go back to."""
+        answer = QMessageBox(self)
+        answer.setWindowTitle("Reset everything")
+        answer.setIcon(QMessageBox.Information)
+        answer.setText(RESET_EVERYTHING)
+        fresh = answer.addButton("New workspace...", QMessageBox.AcceptRole)
+        answer.addButton(QMessageBox.Cancel)
+        answer.exec()
+        if answer.clickedButton() is fresh:
+            self.workspace_menu.new_empty()
 
     def save_arrangement(self) -> None:
         self.ctx.layout.set("window", bytes(self.saveState(LAYOUT_VERSION)))
