@@ -9,6 +9,8 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-08
+
 ### Added
 
 - **Tools > Reset**, as in pycangui: *Reset layout* (also under *View*), *Forget remembered
@@ -28,6 +30,8 @@ since the last version, and comes out in the next one.
 - **Time on Event Log lines**, under *Tools > Settings*: the time of day in front of each
   line, to the second, kept when it is copied. Off to begin with, and kept with this
   computer rather than the workspace, as the theme is.
+- **Python 3.15**: tested on Windows and Linux, and listed on PyPI. Windows Server 2022 is
+  tested too, for Windows 10.
 
 ### Changed
 
@@ -385,7 +389,8 @@ The first version.
 - Installing with pip, from a source folder with a launcher that sets itself up, or with a
   Windows installer.
 
-[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/davhodg/pyscopegui/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/davhodg/pyscopegui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/davhodg/pyscopegui/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/davhodg/pyscopegui/releases/tag/v0.1.0
