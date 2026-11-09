@@ -38,7 +38,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends import probes, visa
-from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.backends.base import AS_SET, Block, Channel, Instrument, Setting
 from pyscopegui.backends.kept import same
 from pyscopegui.core.traffic import traced
 from pyscopegui.core.triggers import (
@@ -1308,7 +1308,7 @@ class Rigol1000Z(Instrument):
                     key,
                     key,
                     unit=units.get(key, "V"),
-                    detail="as the scope has it",
+                    detail=AS_SET,
                     group=f"Channel {key[2:]}",
                     colour=COLOURS.get(key, ""),
                 )

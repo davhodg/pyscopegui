@@ -9,6 +9,7 @@ import pytest
 
 from pyscopegui import backends
 from pyscopegui.backends import tektronix2000 as tek
+from pyscopegui.backends.base import AS_SET
 from pyscopegui.backends.kept import same
 from pyscopegui.ui.scope_view import FREE, TRIGGERED
 
@@ -924,6 +925,7 @@ def test_read_is_offered_only_for_a_scope_read_as_it_is(scope_window, app):
     assert not window.instrument_bar.reads(), "which is set up from here, and takes sweeps"
     window._on_setting("read", "asis", False)
     assert window.instrument.reads_as_is and window.instrument_bar.reads()
+    assert all(c.detail == AS_SET for c in window.instrument.channels())
     window._on_setting("read", "set", False)
     assert not window.instrument_bar.reads()
 

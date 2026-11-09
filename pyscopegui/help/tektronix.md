@@ -89,7 +89,8 @@ but what is on its screen. This is the one for fetching something that was captu
 bench: stop the scope on what you want, press **Read** here, and it is on the plot. The
 channels read are the ones on the scope's screen -- switch one on or off at the scope, and
 the next reading has it or not -- so **Enabled** is not shown in the pane while it is read
-this way; their scale, their timebase and their trigger are the scope's own.
+this way; their scale, their timebase and their trigger are the scope's own. The pane's
+Channel box says *Configured on scope*, and the channel list's Settings column *N/A*.
 
 What is read is a snapshot of the screen, so the plot's **Time** is set to **All** when the
 scope is set to be read this way, or is opened already set so: **Follow**, with another

@@ -32,7 +32,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 from pyscopegui.backends import probes, visa
-from pyscopegui.backends.base import Block, Channel, Instrument, Setting
+from pyscopegui.backends.base import AS_SET, Block, Channel, Instrument, Setting
 from pyscopegui.backends.kept import same
 from pyscopegui.core.traffic import traced
 
@@ -1380,7 +1380,7 @@ class Tektronix2000(Instrument):
     def _detail(self, key: str) -> str:
         settings = self.settings
         if settings.as_is:
-            return "as the scope has it"
+            return AS_SET
         probe = settings.probe[key]
         said = (
             f"{probes.per_division(settings.scale[key], probe.unit)}, {probe.label()}, "

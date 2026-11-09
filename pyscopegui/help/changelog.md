@@ -9,6 +9,12 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Changed
+
+- A Rigol or Tektronix **read as it is** says so plainly: the Instrument pane's Channel box
+  shows *Configured on scope* rather than empty tabs, and the channel list's Settings column
+  *N/A*.
+
 ## [0.3.1] - 2026-11-08
 
 ### Added

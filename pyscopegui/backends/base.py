@@ -33,6 +33,10 @@ DIGITAL = "digital"
 LOST = -32768
 
 
+#: A channel's detail when it is set up on the instrument and not known here.
+AS_SET = "N/A"
+
+
 @dataclass(frozen=True)
 class Channel:
     """One input of an instrument."""
@@ -47,6 +51,7 @@ class Channel:
     #: up now: 5.0 on a range of ±5 V. Zero where there is no such limit.
     full_scale: float = 0.0
     #: How it is set up, in a line, to be read beside its name: "1 V/div, 10x, DC".
+    #: AS_SET where that is the instrument's own business: a scope read as it is.
     detail: str = ""
     #: The group its settings are listed under, so that choosing the channel
     #: can show them: "Channel A". Empty where it has none.

@@ -11,7 +11,7 @@ import pytest
 
 from pyscopegui.backends import rigol1000z as rigol
 from pyscopegui.backends import visa as visa_library
-from pyscopegui.backends.base import Block
+from pyscopegui.backends.base import AS_SET, Block
 from pyscopegui.core.triggers import (
     BETWEEN,
     EDGE,
@@ -446,6 +446,16 @@ def test_a_limit_is_said_beside_the_channel(app):
 
     instrument = backends.create("rigol1000z", None, {"limit_1": True})
     assert instrument.channels()[0].detail == "1 V/div, 10x, DC, 20 MHz"
+
+
+def test_read_as_it_is_a_channel_is_said_to_be_set_on_the_scope(app):
+    from types import SimpleNamespace
+
+    from pyscopegui import backends
+
+    instrument = backends.create("rigol1000z", None, {"control": rigol.AS_IS})
+    instrument._scope = SimpleNamespace(shown=["CH2"], units={"CH2": "V"})
+    assert [(c.key, c.detail) for c in instrument.channels()] == [("CH2", AS_SET)]
 
 
 # --- the scope ------------------------------------------------------------------------------

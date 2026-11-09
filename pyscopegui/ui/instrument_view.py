@@ -68,6 +68,9 @@ WRITE_TIP = (
 RESTARTS = "A change starts a run again, from an empty plot."
 #: What a group's heading starts with when it is one channel's settings.
 CHANNEL = "Channel "
+#: In the Channel box when none of a channel's settings has a say: a scope
+#: read as it is, set up at the bench.
+SET_ON_SCOPE = "Configured on scope"
 #: A channel's tick for whether it is read, shown on the line with its tab.
 ENABLED = "Enabled"
 #: The group that says how an instrument is reached, where Open is.
@@ -216,6 +219,10 @@ class InstrumentView(QWidget):
         self.tabs: QTabBar | None = None
         self._pages: QStackedWidget | None = None
         self._ticks: QStackedWidget | None = None
+        #: The channels' tabs with the settings under them, and what is said
+        #: instead while none of them has a say.
+        self._channel_pages: QWidget | None = None
+        self._set_on_scope: QLabel | None = None
         #: Channel group -> which tab is its.
         self._tab_of: dict[str, int] = {}
         #: The channel last looked at, kept when the settings are shown again.
@@ -419,6 +426,7 @@ class InstrumentView(QWidget):
         self._settings, self._forms, self._rows, self._beside = settings, {}, {}, {}
         self._unnamed = []
         self.tabs, self._pages, self._ticks, self._tab_of = None, None, None, {}
+        self._channel_pages = self._set_on_scope = None
 
     def _form(self, group: str) -> QFormLayout:
         """Somewhere to list a group's settings: a box of its own, or for a
@@ -440,12 +448,19 @@ class InstrumentView(QWidget):
             self._pages = QStackedWidget()
             self._ticks = QStackedWidget()
             self.tabs.currentChanged.connect(self._on_tab)
+            self._channel_pages = QWidget()
+            under = QVBoxLayout(self._channel_pages)
+            under.setContentsMargins(0, 0, 0, 0)
             line = QHBoxLayout()
             line.addWidget(self.tabs)
             line.addStretch()
             line.addWidget(self._ticks)
-            column.addLayout(line)
-            column.addWidget(self._pages)
+            under.addLayout(line)
+            under.addWidget(self._pages)
+            column.addWidget(self._channel_pages)
+            self._set_on_scope = QLabel(SET_ON_SCOPE)
+            self._set_on_scope.hide()
+            column.addWidget(self._set_on_scope)
             self._layout.addWidget(box)
         page = QWidget()
         form = QFormLayout(page)
@@ -538,6 +553,13 @@ class InstrumentView(QWidget):
                 if (label := self._beside[setting.key]) is not None:
                     label.setVisible(shown)
                     label.setEnabled(on)
+        # With no channel setting that has a say, the box says why rather
+        # than showing tabs over nothing.
+        if self._set_on_scope is not None:
+            channels = [s.key for s in self._settings if s.group.startswith(CHANNEL)]
+            nothing = all(key in hidden for key in channels)
+            self._channel_pages.setVisible(not nothing)
+            self._set_on_scope.setVisible(nothing)
 
     def _control(
         self, setting: Setting, value

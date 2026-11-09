@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox
 from pyscopegui import backends
 from pyscopegui.backends import picoscope2000 as pico
 from pyscopegui.backends.base import Setting
-from pyscopegui.ui.instrument_view import NOTHING, InstrumentView
+from pyscopegui.ui.instrument_view import NOTHING, SET_ON_SCOPE, InstrumentView
 
 SETTINGS = (
     Setting("range", "Range", "5V", choices=(("1V", "±1 V"), ("5V", "±5 V")), group="Channel A"),
@@ -519,6 +519,19 @@ def test_each_channels_enabled_is_on_the_line_with_the_channels_tabs(app):
     _form, field = view._rows["scale_3"]
     assert view.controls["offset_3"].parent() is field
     assert view.controls["scale_3"].minimumWidth() == view.controls["coupling_3"].minimumWidth()
+
+
+@pytest.mark.parametrize("name, key", [("rigol1000z", "control"), ("tektronix2000", "read")])
+def test_read_as_it_is_the_channel_box_says_it_is_configured_on_the_scope(app, name, key):
+    module = __import__(f"pyscopegui.backends.{name}", fromlist=["SETTINGS"])
+    view = InstrumentView()
+    view.show_settings(module.SETTINGS, {})
+    assert view._set_on_scope.text() == SET_ON_SCOPE
+    assert view._set_on_scope.isHidden() and not view._channel_pages.isHidden()
+    choose(view, key, module.AS_IS)
+    assert not view._set_on_scope.isHidden() and view._channel_pages.isHidden()
+    choose(view, key, module.SET_UP)
+    assert view._set_on_scope.isHidden() and not view._channel_pages.isHidden()
 
 
 def test_a_current_probes_sensitivity_is_beside_it_said_by_its_unit(app):

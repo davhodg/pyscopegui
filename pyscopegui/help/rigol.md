@@ -111,7 +111,8 @@ The channels read are the ones the scope is showing -- switch one on or off at t
 and the next reading has it or not -- each in the unit the scope has for it: amps for a
 channel it has set to a current probe, which then goes on [Y2](plot.md). Their scale,
 timebase, probe and trigger are the scope's own, so those settings, and **Enabled**, are not
-shown in the pane while it is read this way, and the trigger toolbar is greyed out: nought
+shown in the pane while it is read this way -- its Channel box says *Configured on scope*,
+and the channel list's Settings column *N/A* -- and the trigger toolbar is greyed out: nought
 on the time axis is wherever the scope triggered.
 
 The memory can be read only while the scope is stopped. A scope left running is stopped for
