@@ -9,6 +9,13 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Added
+
+- **Copy PNG**, beside *Export PNG* on the plot and under *File*: the same picture, on the
+  clipboard.
+- The Data pane's table has a right-click menu: *Copy*, *Copy without headings* to add rows
+  to a sheet that already has them, and *Select all*.
+
 ### Changed
 
 - A Rigol or Tektronix **read as it is** says so plainly: the Instrument pane's Channel box

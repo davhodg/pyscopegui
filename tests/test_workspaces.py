@@ -232,6 +232,7 @@ def test_the_workspace_menu_is_in_the_file_menu_above_exit(win):
         "Export CSV...",
         "Export CSV between cursors...",
         "Export PNG...",
+        "Copy PNG",
         "Run script...",
         "Recent scripts",
         "Workspace",

@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPalette
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QGuiApplication, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
@@ -158,6 +158,10 @@ BETWEEN_TIP = (
     "cursors, wherever they are. With two cursors chosen."
 )
 PICTURE_TIP = "Save a picture of this plot and its channel list, as they look now."
+COPY_PICTURE_TIP = (
+    "Put a picture of this plot and its channel list on the clipboard, as\n"
+    "Export PNG saves it: to paste straight into a document or an email."
+)
 #: Where the last export went, kept so the next one starts there.
 EXPORT_FOLDER = "export.folder"
 PICK_TIP = "How the channel is set up. Click it to change that in the Instrument pane."
@@ -599,6 +603,7 @@ class ScopeView(QWidget):
         self.between_action.setToolTip(BETWEEN_TIP)
         self.between_action.setEnabled(False)
         self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
+        self.export_menu.addAction("Copy PNG", self.copy_png).setToolTip(COPY_PICTURE_TIP)
         self.export_button.setMenu(self.export_menu)
         bar.addStretch()
         bar.addWidget(QLabel("Cursors:"))
@@ -1717,16 +1722,27 @@ class ScopeView(QWidget):
                 )
         return written
 
-    def export_png(self, path: Path) -> bool:
-        """Save a picture of the pane as it looks now: the plot, and the channel
-        list that says what is on it. Says where it went, or that it did not."""
-        self.redraw()  # so that what is saved is what there is now
-        if path.suffix.lower() != ".png":
-            path = path.with_name(path.name + ".png")
+    def picture(self) -> QPixmap:
+        """A picture of the pane as it looks now: the plot, and the channel list
+        that says what is on it."""
+        self.redraw()  # so that what is pictured is what there is now
         # What it says it is doing was written a moment ago, and is given its
         # room only when the pane is next laid out: now, not after the picture.
         QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
-        picture = self.grab()
+        return self.grab()
+
+    def copy_png(self) -> None:
+        """Put the picture Export PNG saves on the clipboard instead."""
+        picture = self.picture()
+        QGuiApplication.clipboard().setPixmap(picture)
+        self._say(f"Copied a picture of the plot, {picture.width()} by {picture.height()}.")
+
+    def export_png(self, path: Path) -> bool:
+        """Save a picture of the pane as it looks now. Says where it went, or
+        that it did not."""
+        if path.suffix.lower() != ".png":
+            path = path.with_name(path.name + ".png")
+        picture = self.picture()
         if not picture.save(str(path), "PNG"):
             self._say(f"The picture could not be saved to {path}.", problem=True)
             return False

@@ -412,6 +412,10 @@ class MainWindow(QMainWindow):
         )
         picture_action = file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture())
         picture_action.setToolTip("Save a picture of the first plot, as it looks now.")
+        copy_action = file_menu.addAction("Copy PNG", lambda: self.scope.copy_png())
+        copy_action.setToolTip(
+            "Put a picture of the first plot on the clipboard, as Export PNG saves it."
+        )
         file_menu.setToolTipsVisible(True)
         file_menu.addSeparator()
         quit_action = file_menu.addAction("Exit", self.close)

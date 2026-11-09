@@ -39,8 +39,9 @@ same.
 
 The arrow on the **Export CSV...** button has **Export PNG...**, which is under *File* as
 well. It saves a picture of the plot and its channel list as they look at that moment, at
-the size they are on the screen: for a report, or to send to somebody. Pressing the button
-itself still writes CSV.
+the size they are on the screen: for a report, or to send to somebody. **Copy PNG**, beside
+it and under *File*, puts the same picture on the clipboard instead, to paste straight into
+a document or an email. Pressing the button itself still writes CSV.
 
 ## The channel list
 
@@ -212,7 +213,9 @@ together, so each row is one moment, where two instruments' samples are taken at
 their own. A gap -- a sample that was lost -- is an empty cell.
 
 Select rows and press **Ctrl+C** to copy them, with a heading, a tab between the columns: they
-paste into a spreadsheet as they are. For a whole capture, [Export CSV](#exporting-to-csv) is
+paste into a spreadsheet as they are. Right-click the table for **Copy without headings**, to
+add rows under ones already in a sheet, and **Select all** (Ctrl+A) for every row.
+For a whole capture, [Export CSV](#exporting-to-csv) is
 quicker. A stretch of more than ten million samples is shown as its first ten million: zoom in,
 or use the cursors, to see the rest.
 

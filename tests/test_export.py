@@ -269,6 +269,7 @@ def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window,
         "Export CSV...",
         "Export CSV between cursors...",
         "Export PNG...",
+        "Copy PNG",
     ]
     file_menu = window.menuBar().actions()[0].menu()
     assert "Export PNG..." in [action.text() for action in file_menu.actions()]
@@ -299,6 +300,19 @@ def test_a_picture_of_the_plot_is_saved_as_png(window, tmp_path):
     assert not picture.isNull() and picture.width() > 200 and picture.height() > 100
     assert "Saved a picture of the plot" in window.log.toPlainText()
     assert "shot.png" in window.log.toPlainText()
+
+
+def test_copy_png_puts_the_same_picture_on_the_clipboard(window, app):
+    from PySide6.QtGui import QGuiApplication
+
+    window.set_mode("auto")
+    feed(window)
+    QGuiApplication.clipboard().clear()
+    copy = next(a for a in window.scope.export_menu.actions() if a.text() == "Copy PNG")
+    copy.trigger()
+    picture = QGuiApplication.clipboard().image()
+    assert not picture.isNull() and picture.width() > 200 and picture.height() > 100
+    assert "Copied a picture of the plot" in window.log.toPlainText()
 
 
 def test_a_picture_is_named_png_whatever_was_typed(window, tmp_path):

@@ -4,7 +4,7 @@
 
 import numpy as np
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QApplication, QHeaderView
 
 from pyscopegui.backends.base import DIGITAL, Channel
@@ -136,6 +136,27 @@ def test_ctrl_c_copies_the_rows_selected(pane):
     assert lines[0].startswith("Sample\tTime (s)\tA: sine (V)")
     assert lines[1].split("\t")[0] == str(window.data.samples.first)
     assert len(lines) == 2
+
+
+def test_rows_copy_without_headings_for_an_existing_sheet(pane):
+    table = pane.data.table
+    table.selectRow(2)
+    table.selectionModel().select(
+        table.model().index(4, 0),
+        QItemSelectionModel.Select | QItemSelectionModel.Rows,
+    )
+    pane.data.copy(headed=False)
+    lines = QApplication.clipboard().text().splitlines()
+    first = pane.data.samples.first
+    assert [line.split("\t")[0] for line in lines] == [str(first + 2), str(first + 4)]
+
+
+def test_select_all_then_copy_has_every_row(pane):
+    pane.data.table.selectAll()
+    pane.data.copy()
+    lines = QApplication.clipboard().text().splitlines()
+    assert lines[0].startswith("Sample\t")
+    assert len(lines) == pane.data.samples.count + 1
 
 
 def test_a_stretch_longer_than_the_table_takes_is_cut_short_and_says_so(pane, monkeypatch):

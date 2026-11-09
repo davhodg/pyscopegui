@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -58,7 +59,8 @@ TINT = 70
 DATA_TIP = (
     "The samples of one instrument, a row for each: between the cursors\n"
     "when there are two, and what is in view when there are not. Select rows\n"
-    "and press Ctrl+C to copy them, to paste into a spreadsheet."
+    "and press Ctrl+C to copy them, to paste into a spreadsheet; right-click\n"
+    "to copy them without the headings, or to select every row."
 )
 
 
@@ -157,10 +159,11 @@ class Samples(QAbstractTableModel):
             return str(int(value))
         return "" if math.isnan(value) else ANALOG_FORMAT % value
 
-    def rows_as_text(self, rows: list[int]) -> str:
-        """These rows, headed, a tab between the columns: what a spreadsheet pastes."""
+    def rows_as_text(self, rows, headed: bool = True) -> str:
+        """These rows, a tab between the columns and headed unless not: what a
+        spreadsheet pastes."""
         columns = range(self.columnCount())
-        lines = ["\t".join(self.headerData(c, Qt.Horizontal) for c in columns)]
+        lines = ["\t".join(self.headerData(c, Qt.Horizontal) for c in columns)] if headed else []
         lines += ["\t".join(self.text(self.first + r, c) for c in columns) for r in rows]
         return "\n".join(lines) + "\n"
 
@@ -191,8 +194,10 @@ class DataView(QWidget):
         copy = QAction("Copy", self.table)
         copy.setShortcut(QKeySequence.Copy)
         copy.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-        copy.triggered.connect(self.copy)
+        copy.triggered.connect(lambda: self.copy())
         self.table.addAction(copy)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._menu)
         ctx = scope._ctx
         #: Every column as wide as the longest it gets: they are numbers.
         self.widths = ColumnWidths(
@@ -311,9 +316,33 @@ class DataView(QWidget):
         self.widths.set_fixed(widest)
 
     # --- copied -------------------------------------------------------------------------
-    def copy(self) -> None:
-        """The rows selected, onto the clipboard: a header, then a row of each."""
-        rows = sorted({index.row() for index in self.table.selectionModel().selectedIndexes()})
-        if not rows:
-            return
-        QApplication.clipboard().setText(self.samples.rows_as_text(rows[:MOST_COPIED]))
+    def selected_rows(self) -> list[int]:
+        """The rows selected, in order: read from the stretches selected rather
+        than cell by cell, which for every row of millions takes a while."""
+        rows: set[int] = set()
+        for stretch in self.table.selectionModel().selection():
+            room = MOST_COPIED - len(rows)
+            rows.update(range(stretch.top(), min(stretch.bottom() + 1, stretch.top() + room)))
+            if len(rows) >= MOST_COPIED:
+                break
+        return sorted(rows)
+
+    def copy(self, headed: bool = True) -> None:
+        """The rows selected onto the clipboard: the headings unless not, then a line for each."""
+        rows = self.selected_rows()
+        if rows:
+            QApplication.clipboard().setText(self.samples.rows_as_text(rows, headed))
+
+    def _menu(self, at) -> None:
+        menu = QMenu(self)
+        chosen = self.table.selectionModel().hasSelection()
+        copy = menu.addAction("Copy", lambda: self.copy())
+        copy.setShortcut(QKeySequence.Copy)
+        copy.setEnabled(chosen)
+        bare = menu.addAction("Copy without headings", lambda: self.copy(headed=False))
+        bare.setEnabled(chosen)
+        menu.addSeparator()
+        every = menu.addAction("Select all", self.table.selectAll)
+        every.setShortcut(QKeySequence.SelectAll)
+        every.setEnabled(bool(self.samples.count))
+        menu.exec(self.table.viewport().mapToGlobal(at))
