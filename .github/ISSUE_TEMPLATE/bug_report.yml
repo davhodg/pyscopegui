@@ -6,10 +6,7 @@ body:
     id: what-happened
     attributes:
       label: What happened
-      description: What you did, what you expected, and what happened instead.
-      placeholder: |
-        Ran a PicoScope 2204A at 1 MS/s with a 1 kHz sine on channel A. Expected
-        a period of 1 ms on the plot; it shows 2 ms.
+      description: What you did, what you expected to happen, and what happened instead. Quote any message pyscopegui showed word for word.
     validations:
       required: true
 
@@ -17,10 +14,7 @@ body:
     id: steps
     attributes:
       label: How to make it happen again
-      placeholder: |
-        1.
-        2.
-        3.
+      description: The steps from starting pyscopegui to the problem, one per line, in order. Say if it happens every time or only sometimes.
 
   - type: textarea
     id: diagnostics
