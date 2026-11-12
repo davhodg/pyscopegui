@@ -195,7 +195,10 @@ a line for each bus: what it is decoded from and how, and how much has been read
 - **Add...** decodes another: choose the channel, then what it carries.
 - **Remove** stops decoding the bus chosen, and forgets what it read.
 
-Below, a row for each thing read, every bus's together in the order they came:
+Below, a row for each thing read that started in view on the plot -- or between the two
+[cursors](plot.md), when there are two -- every bus's together in the order they came. Zoom
+in on a moment and the list is what was read there; zoom out, and it is everything held. The
+line above the list says which, how long a stretch that is, and how many were read in it:
 
 | Column | What it is |
 |--------|------------|
@@ -216,8 +219,11 @@ it was put.
 To have the plot wait for something in particular -- a frame with an ID, a NACK, a line of
 text -- use a **Protocol** [trigger](instruments.md) on the bus.
 
-What was read stays in the list for as long as the samples it was read from are held: as the
-history moves on, the oldest goes with it. Each sweep of a Rigol or a Tektronix is decoded on
+What was read is kept for as long as the samples it was read from are held: as the
+history moves on, the oldest goes with it. Past a point it goes sooner whatever the history,
+so that a busy bus cannot fill the computer's memory: half a million frames or messages, or
+64 million words of a parallel bus -- about half a minute of an ADC clocked at 1 MHz with a
+word on each edge. Each sweep of a Rigol or a Tektronix is decoded on
 its own, and what is read from it takes the place of the last sweep's. Samples lost part way
 through something, or a capture ending part way through it, is said as its problem.
 

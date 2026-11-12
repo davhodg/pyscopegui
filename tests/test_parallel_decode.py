@@ -130,6 +130,22 @@ def test_a_pause_ends_a_transfer_and_a_bus_that_never_pauses_is_cut_up():
     assert [len(t.words) for t in found] == [MOST_WORDS, MOST_WORDS, 5]
 
 
+def test_a_long_run_is_the_same_whole_or_in_blocks_with_its_channels_and_times():
+    many = [w & 0xFFF for w in range(MOST_WORDS * 3 + 7)]
+    streams = [n % 2 for n in range(len(many))]
+    samples = encode(many, 12, per_word=4, streams=streams)
+
+    def read(pieces):
+        found = decode(samples, 12, pieces=pieces, use=("CLK", "SEL"), mux=SELECT)
+        return [(t.start, t.end, t.words, t.streams) for t in found]
+
+    whole = read(1)
+    assert [len(words) for _s, _e, words, _st in whole] == [MOST_WORDS] * 3 + [7]
+    assert [w for _s, _e, words, _st in whole for w in words] == many
+    assert [s for *_rest, st in whole for s in st] == streams
+    assert read(5) == read(13) == whole
+
+
 def test_samples_lost_end_a_transfer_and_say_so():
     samples = encode([1, 2, 3, 4], 4, per_word=4)
     decoder = ParallelDecoder(4)

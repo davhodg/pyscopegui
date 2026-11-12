@@ -11,14 +11,19 @@ into view. One read wrong -- a stuff error, a parity error, a word cut short --
 is a row of its own, said in red: what a bus did is the point, the bad as much
 as the good.
 
-The list follows the newest as they come, unless it has been scrolled up to
-read; then it stays where it was put.
+The list is what started in view on the plot, or between its two cursors when
+there are two, as the Data pane's rows are: zoom in to a moment and the list is
+what was read there, however much the history holds. A row is made only when it
+is drawn, so a stretch of hundreds of thousands costs no more than a few. The
+list follows the newest as they come, unless it has been scrolled up to read;
+then it stays where it was put.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
@@ -50,7 +55,7 @@ from pyscopegui.core.decoding import (
 from pyscopegui.ui import fonts
 from pyscopegui.ui.can_dialog import bitrate_text
 from pyscopegui.ui.column_widths import ColumnWidths
-from pyscopegui.ui.scope_view import ScopeView
+from pyscopegui.ui.scope_view import ScopeView, time_text
 
 #: How often the list is read again while the pane is on screen, in milliseconds.
 REFRESH_MS = 250
@@ -71,9 +76,12 @@ REMOVE_TIP = "Stop decoding the bus chosen above, and forget what it read."
 #: The most buses shown at once in the list above the table; more scroll.
 BUSES_SHOWN = 4
 DECODED_TIP = (
-    "Everything read off the channels decoded. Click a row to put the first\n"
-    "cursor on it. Select rows and press Ctrl+C to copy them."
+    "What was read off the channels decoded, in view on the plot or between\n"
+    "its two cursors. Click a row to put the first cursor on it. Select rows\n"
+    "and press Ctrl+C to copy them."
 )
+#: The most rows made and kept at once, as they are drawn.
+ROWS_HELD = 512
 
 
 @dataclass(frozen=True)
@@ -145,16 +153,83 @@ def texts(row: Row) -> list[str]:
     return [f"{row.seconds:.6f}", row.bus, identifier, kind, data, ack, item.error]
 
 
+@dataclass(frozen=True)
+class Stretch:
+    """What one bus read in the stretch listed: those it keeps, by number, from
+    ``lo`` up to but not including ``hi``."""
+
+    decoding: Decoding
+    bus: str
+    origin: float
+    lo: int
+    hi: int
+
+    def seconds(self) -> np.ndarray:
+        """When each started, on the plot's axis."""
+        return self.decoding.items.starts(self.lo, self.hi) / self.decoding.rate - self.origin
+
+
+class Listed:
+    """The rows listed: every bus's, in the order they started, each made only
+    when it is asked for. The order is worked out once, as numbers."""
+
+    def __init__(self, stretches: list[Stretch] | None = None) -> None:
+        self.stretches = [s for s in stretches or [] if s.hi > s.lo]
+        each = [s.seconds() for s in self.stretches]
+        self.seconds = np.concatenate(each) if each else np.zeros(0)
+        #: For more than one bus: whose each row is, and which of its.
+        self._whose: np.ndarray | None = None
+        self._which: np.ndarray | None = None
+        if len(self.stretches) > 1:
+            order = np.argsort(self.seconds, kind="stable")
+            self.seconds = self.seconds[order]
+            whose = np.repeat(np.arange(len(each)), [len(s) for s in each])
+            which = np.concatenate([np.arange(s.lo, s.hi) for s in self.stretches])
+            self._whose, self._which = whose[order], which[order]
+        self._made: dict[int, Row] = {}
+
+    def __len__(self) -> int:
+        return len(self.seconds)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+    def __iter__(self):
+        return (self[n] for n in range(len(self)))
+
+    def __getitem__(self, number: int) -> Row:
+        if number < 0:
+            number += len(self)
+        if not 0 <= number < len(self):
+            raise IndexError("no such row")
+        if (row := self._made.get(number)) is not None:
+            return row
+        if self._whose is None:
+            stretch, which = self.stretches[0], self.stretches[0].lo + number
+        else:
+            stretch, which = self.stretches[self._whose[number]], int(self._which[number])
+        item = stretch.decoding.items[which]
+        row = Row(float(self.seconds[number]), stretch.bus, stretch.decoding, item)
+        if len(self._made) >= ROWS_HELD:
+            self._made.clear()
+        self._made[number] = row
+        return row
+
+    def near(self, seconds: float) -> int:
+        """The first row that started at or after this time."""
+        return int(np.searchsorted(self.seconds, seconds))
+
+
 class Items(QAbstractTableModel):
     """What was read, a row for each."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.rows: list[Row] = []
+        self.rows = Listed()
         self._font = fonts.mono()
         self._right = int(Qt.AlignRight | Qt.AlignVCenter)
 
-    def show(self, rows: list[Row]) -> None:
+    def show(self, rows: Listed) -> None:
         self.beginResetModel()
         self.rows = rows
         self.endResetModel()
@@ -328,41 +403,42 @@ class DecodedView(QWidget):
             return
         decodings = self._decodings()
         self._list_buses(decodings)
-        self.over.setVisible(not decodings)
         if not decodings:
             self.over.setText(NOTHING_DECODED)
             if self.items.rows:
-                self.items.show([])
+                self.items.show(Listed())
             self._shown = ()
             return
         # A paused bus is kept, but not listed.
         decodings = [(u, n, d) for u, n, d in decodings if not d.paused]
-        shown = tuple(
-            (id(d), len(d.items), d.items[0].start if d.items else -1) for _u, _n, d in decodings
-        )
-        if shown == self._shown:
-            return
-        self._shown = shown
-        rows = []
+        t_from, t_to, cursors = self.scope.span()
+        stretches = []
         for unit_name, name, decoding in decodings:
             origin = self.scope.origin_of(unit_name)
             rate = decoding.rate
+            lo, hi = decoding.items.between(
+                int(np.floor((t_from + origin) * rate)), int(np.ceil((t_to + origin) * rate))
+            )
             bus = f"{PROTOCOLS[decoding.setup.protocol]} {name}"
-            rows += [Row(i.start / rate - origin, bus, decoding, i) for i in decoding.items]
-        rows.sort(key=lambda row: row.seconds)
+            stretches.append(Stretch(decoding, bus, origin, lo, hi))
+        shown = tuple((id(s.decoding), s.decoding.items.version, s.lo, s.hi) for s in stretches)
+        where = "Between the cursors" if cursors else "In view"
+        listed = sum(s.hi - s.lo for s in stretches)
+        self.over.setText(f"{where}: {time_text(t_to - t_from)}, {listed:,} read")
+        if shown == self._shown:
+            return
+        self._shown = shown
+        rows = Listed(stretches)
         bar = self.table.verticalScrollBar()
         following = bar.value() >= bar.maximum()
         top = self.table.rowAt(0)
-        kept = self.items.rows[top].item if 0 <= top < len(self.items.rows) else None
+        kept = self.items.rows[top].seconds if 0 <= top < len(self.items.rows) else None
         self.items.show(rows)
         if following:
             self.table.scrollToBottom()
-        elif kept is not None:
-            for number, row in enumerate(rows):
-                if row.item is kept:
-                    at = self.items.index(number, 0)
-                    self.table.scrollTo(at, QAbstractItemView.PositionAtTop)
-                    break
+        elif kept is not None and rows:
+            at = self.items.index(min(rows.near(kept), len(rows) - 1), 0)
+            self.table.scrollTo(at, QAbstractItemView.PositionAtTop)
 
     def _summary(self, name: str, decoding: Decoding) -> str:
         setup = decoding.setup
@@ -398,7 +474,13 @@ class DecodedView(QWidget):
             self.scope.go_to(self.items.rows[number].seconds)
 
     def copy(self) -> None:
-        rows = sorted({index.row() for index in self.table.selectionModel().selectedIndexes()})
+        rows = sorted(
+            {
+                row
+                for stretch in self.table.selectionModel().selection()
+                for row in range(stretch.top(), stretch.bottom() + 1)
+            }
+        )
         if not rows:
             return
         lines = ["\t".join(HEADINGS)]

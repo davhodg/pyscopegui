@@ -275,15 +275,23 @@ class ParallelDecoder:
 
     # --- words into transfers -------------------------------------------------------------
     def _add(self, first: int, at: np.ndarray, words: np.ndarray, streams: np.ndarray) -> list:
-        """Put words into the transfer open, closing it whenever it is full."""
+        """Put words into the transfer open, closing it whenever it is full: as
+        many at a time as fit, since a bus clocked at a megahertz has two
+        million words a second to put somewhere."""
         found: list[Transfer] = []
-        for n in range(len(at)):
+        count = len(at)
+        places, values = at.tolist(), words.tolist()
+        selects = streams.tolist() if self.mux == SELECT else None
+        n = 0
+        while n < count:
             if self._open is None:
-                self._open = Transfer(first + int(at[n]))
-            self._open.words.append(int(words[n]))
-            if self.mux == SELECT:
-                self._open.streams.append(int(streams[n]))
-            self._last_read = first + int(at[n])
+                self._open = Transfer(first + places[n])
+            take = min(MOST_WORDS - len(self._open.words), count - n)
+            self._open.words += values[n : n + take]
+            if selects is not None:
+                self._open.streams += selects[n : n + take]
+            n += take
+            self._last_read = first + places[n - 1]
             if len(self._open.words) >= MOST_WORDS:
                 found += self._close(self._last_read + 1)
         return found

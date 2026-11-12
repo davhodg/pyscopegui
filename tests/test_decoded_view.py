@@ -142,6 +142,52 @@ def test_the_pane_lists_the_frames_and_says_what_is_decoded(held):
     assert texts[2] in ("0C8", "18FEF100", "321") and texts[5] == "yes" and texts[6] == ""
 
 
+def test_the_list_is_what_started_in_view_or_between_the_cursors(held):
+    window = held
+    decoding = decoded(window)
+    window.panes.show("decoded")
+    scope = window.scope
+    scope.time.setCurrentText("Manual")
+    scope.analog.setXRange(-10, 10, padding=0)
+    window.decoded.refresh()
+    everything = [row.seconds for row in window.decoded.items.rows]
+    assert len(everything) == len(decoding.frames) > 4
+    assert window.decoded.over.text().startswith("In view:")
+    # Zoomed in round the middle frames: only those.
+    middle = everything[len(everything) // 2 - 1 : len(everything) // 2 + 1]
+    scope.analog.setXRange(middle[0] - 1e-6, middle[-1] + 1e-6, padding=0)
+    window.decoded.refresh()
+    assert [row.seconds for row in window.decoded.items.rows] == pytest.approx(middle)
+    assert f"{len(middle)} read" in window.decoded.over.text()
+    # Two cursors round the first frame: the cursors say, not the view.
+    scope.cursors.setCurrentIndex(2)
+    scope.set_cursor(0, everything[0] - 1e-6)
+    scope.set_cursor(1, everything[0] + 1e-6)
+    window.decoded.refresh()
+    assert [row.seconds for row in window.decoded.items.rows] == pytest.approx(everything[:1])
+    assert window.decoded.over.text().startswith("Between the cursors:")
+
+
+def test_two_buses_rows_are_in_the_order_they_started():
+    from types import SimpleNamespace
+
+    from pyscopegui.core.found import Found
+    from pyscopegui.ui.decoded_view import Listed, Stretch
+
+    def bus(starts):
+        kept = Found()
+        kept.extend([SimpleNamespace(start=s, error="") for s in starts])
+        return SimpleNamespace(items=kept, rate=10.0)
+
+    a, b = bus([0, 30, 60]), bus([10, 20, 70])
+    rows = Listed([Stretch(a, "A", 0.0, 0, 3), Stretch(b, "B", 1.0, 0, 3)])
+    # B's nought is a second later: its 10, 20 and 70 are at 0, 1 and 6 s.
+    assert [r.bus for r in rows] == ["A", "B", "B", "A", "A", "B"]
+    assert [r.seconds for r in rows] == pytest.approx([0, 0, 1, 3, 6, 6])
+    assert [r.item.start for r in rows] == [0, 10, 20, 30, 60, 70]
+    assert rows.near(3.0) == 3 and rows[-1].item.start == 70
+
+
 def test_clicking_a_frame_puts_the_cursor_on_it(held):
     window = held
     decoded(window)

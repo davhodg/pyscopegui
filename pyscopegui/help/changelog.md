@@ -21,6 +21,18 @@ since the last version, and comes out in the next one.
 - A Rigol or Tektronix **read as it is** says so plainly: the Instrument pane's Channel box
   shows *Configured on scope* rather than empty tabs, and the channel list's Settings column
   *N/A*.
+- The **Decoded buses** pane lists what was read in view on the plot, or between the two
+  cursors, as the Data pane does, rather than everything held: zoom in on a moment to see what
+  was read there.
+
+### Fixed
+
+- A **parallel bus** clocked at a megahertz could not be kept up with: its words are now put
+  into transfers, and drawn as channels, about three times faster.
+- What a bus read is kept for as long as its samples, as the manual says, and not only the
+  last 100,000: about 1.6 s of an ADC clocked at 1 MHz. A parallel bus's words are kept as
+  compactly as the samples, so ten seconds of that ADC is some 130 MB rather than over a
+  gigabyte.
 
 ## [0.3.1] - 2026-11-08
 

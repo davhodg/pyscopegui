@@ -22,7 +22,6 @@ is used as it is.
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -30,6 +29,7 @@ import numpy as np
 
 from pyscopegui.backends.base import ANALOG, Block, Channel
 from pyscopegui.core.can_decode import CanDecoder, guess_bitrate, levels
+from pyscopegui.core.found import Found, Transfers
 from pyscopegui.core.i2c_decode import I2cDecoder
 from pyscopegui.core.parallel_decode import (
     EDGES,
@@ -50,8 +50,6 @@ PROTOCOLS = {CAN: "CAN", UART: "UART", SPI: "SPI", I2C: "I²C", PARALLEL: "Paral
 SAVED_KEY = "decode"
 #: And under this, the keys of those of its buses that are paused.
 PAUSED_KEY = "decode_paused"
-#: The most found kept for one decoding. Past it the oldest go.
-MOST_ITEMS = 100_000
 #: Either side of a threshold that a signal has to go to change level, in volts.
 HYSTERESIS = 0.1
 #: Where an analog channel carrying logic divides low from high, unless it is
@@ -87,7 +85,9 @@ def high(samples: np.ndarray, threshold: float, before: bool) -> tuple[np.ndarra
     """High or not for each sample, and the level it ended at: a logic channel
     as it is, an analog one at the threshold with hysteresis. ``before`` is the
     level before the first sample."""
-    if samples.dtype.kind in "ub":
+    if samples.dtype == bool:
+        found = samples
+    elif samples.dtype.kind == "u":
         found = samples >= 1
     else:
         found = levels(samples, threshold - HYSTERESIS, threshold + HYSTERESIS, start=before)
@@ -510,8 +510,9 @@ class Decoding:
 
     def __init__(self, setup: Setup) -> None:
         self.setup = setup
-        #: What has been found, oldest first: frames, messages or transfers.
-        self.items: deque = deque(maxlen=MOST_ITEMS)
+        #: What has been found, oldest first: frames, messages or transfers,
+        #: kept for as long as the samples they were read from.
+        self.items: Found | Transfers = self._kept()
         #: The rate the items' sample numbers are at.
         self.rate = 1.0
         #: What is wrong, where nothing can be decoded: too few samples a bit.
@@ -539,6 +540,10 @@ class Decoding:
         self.problem = ""
         self._high: dict[str, bool] = {}
         self._restart()
+
+    def _kept(self) -> Found | Transfers:
+        """Where what is found is kept."""
+        return Found()
 
     def _restart(self) -> None:
         """Make the decoder again: from the next block, for a new run or rate."""
@@ -573,18 +578,17 @@ class Decoding:
 
     def forget_before(self, first: int) -> None:
         """Let go of what starts before this sample: no longer held."""
-        while self.items and self.items[0].start < first:
-            self.items.popleft()
+        self.items.forget_before(first)
 
     def errors(self) -> int:
-        return sum(1 for item in self.items if item.error)
+        return self.items.errors()
 
 
 class CanDecoding(Decoding):
     """A channel decoded as CAN."""
 
     @property
-    def frames(self) -> deque:
+    def frames(self) -> Found:
         return self.items
 
     def _restart(self) -> None:
@@ -762,11 +766,12 @@ class WordChannels:
                 # No word of its own here: what it was holds on.
                 out[setup.channel_key(name)] = np.full(count, self._held[name], np.float32)
                 continue
-            # The word read latest at or before each sample, or the one held from before.
-            latest = np.searchsorted(where, np.arange(count), side="right") - 1
-            samples = np.where(latest >= 0, got[np.clip(latest, 0, None)], self._held[name])
+            # The word read latest at or before each sample, or the one held from
+            # before: each held from where it was read to where the next one was.
+            held = np.concatenate(([self._held[name]], got)).astype(np.float32)
+            lengths = np.diff(np.concatenate(([0], where, [count])))
             self._held[name] = float(got[-1])
-            out[setup.channel_key(name)] = samples.astype(np.float32)
+            out[setup.channel_key(name)] = np.repeat(held, lengths)
         return out
 
 
@@ -775,6 +780,10 @@ class ParallelDecoding(Decoding):
 
     #: Without a clock and a settle time said, the lines hold this many samples for a word.
     SETTLE = 2
+
+    def _kept(self) -> Transfers:
+        # Two million words a second, from an ADC clocked at a megahertz: as arrays.
+        return Transfers(self.setup.width, bool(self.setup.mux))
 
     def _restart(self) -> None:
         setup = self.setup
