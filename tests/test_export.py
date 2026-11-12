@@ -231,6 +231,73 @@ def test_between_the_cursors_is_what_is_written_wherever_the_view_is(window, tmp
     assert times[-1] == pytest.approx(later, abs=2e-5)
 
 
+def clipboard_rows():
+    from PySide6.QtGui import QGuiApplication
+
+    return [line.split("\t") for line in QGuiApplication.clipboard().text().splitlines()]
+
+
+def test_copy_csv_puts_what_export_writes_on_the_clipboard_a_tab_between_columns(window):
+    window.set_mode("auto")
+    feed(window)
+    window.scope.window_s.setValue(0.01)
+    window.scope._on_shown("demo:B", False)
+    copied = window.scope.copy_csv()
+    rows = clipboard_rows()
+    assert rows[0] == ["time (s)", "A: sine (V)", "D0", "D1", "D2", "D3", "CAN"]
+    assert copied == len(rows) - 1 and 999 <= copied <= 1002
+    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    assert float(rows[1][0]) == pytest.approx(low, abs=2e-5)
+    assert float(rows[-1][0]) == pytest.approx(high, abs=2e-5)
+    assert "Copied" in window.log.toPlainText() and "to paste into a spreadsheet" in (
+        window.log.toPlainText()
+    )
+
+
+def test_copy_csv_between_the_cursors_wants_two_and_takes_what_is_between(window):
+    window.set_mode("auto")
+    feed(window)
+    window.scope.window_s.setValue(0.01)
+    window.scope.cursors.setCurrentIndex(1)
+    assert not window.scope.copy_between_action.isEnabled()
+    assert window.scope.copy_csv(between_cursors=True) == 0
+    window.scope.cursors.setCurrentIndex(2)
+    assert window.scope.copy_between_action.isEnabled()
+    window.scope.redraw()
+    low, high = window.scope.analog.getViewBox().viewRange()[0]
+    earlier, later = low + 0.4 * (high - low), low + 0.6 * (high - low)
+    window.scope.set_cursor(0, later)
+    window.scope.set_cursor(1, earlier)
+    assert 199 <= window.scope.copy_csv(between_cursors=True) <= 202
+    times = [float(row[0]) for row in clipboard_rows()[1:]]
+    assert times[0] == pytest.approx(earlier, abs=2e-5)
+    assert times[-1] == pytest.approx(later, abs=2e-5)
+
+
+def test_copy_csv_stops_at_its_most_and_says_so(window, monkeypatch):
+    from pyscopegui.ui import scope_view
+
+    monkeypatch.setattr(scope_view, "MOST_COPIED", 50)
+    window.set_mode("auto")
+    feed(window)
+    window.scope.window_s.setValue(0.01)
+    assert window.scope.copy_csv() == 50
+    assert len(clipboard_rows()) == 51
+    assert "the first 50 of" in window.log.toPlainText()
+
+
+def test_table_text_is_headed_and_tab_separated():
+    held = {
+        "A": record("A", [0.5, 1.5, 2.5, 3.5]),
+        "B\tx": record("B", [0, 1, 1, 0], kind="digital"),
+    }
+    text, rows, there = export.table_text(held, 0.0, 0.0, 1.0, most=3)
+    lines = [line.split("\t") for line in text.splitlines()]
+    assert lines[0] == ["time (s)", "A (V)", "B x"]
+    assert (rows, there) == (3, 4) and len(lines) == 4
+    assert [float(v) for v in lines[2][1:]] == [1.5, 1.0]
+
+
 def test_between_the_cursors_wants_two(window, tmp_path):
     window.set_mode("auto")
     feed(window)
@@ -265,9 +332,11 @@ def test_the_export_button_writes_csv_and_its_arrow_offers_a_picture_too(window,
     monkeypatch.setattr(type(window.scope), "ask_export", lambda self: asked.append("csv"))
     button = window.scope.export_button
     assert button.text() == "Export CSV..."
-    assert [action.text() for action in button.menu().actions()] == [
+    assert [action.text() for action in button.menu().actions() if not action.isSeparator()] == [
         "Export CSV...",
+        "Copy CSV",
         "Export CSV between cursors...",
+        "Copy CSV between cursors",
         "Export PNG...",
         "Copy PNG",
     ]
@@ -286,7 +355,8 @@ def test_pressing_the_export_button_itself_is_still_csv(window, tmp_path, monkey
 
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(fake))
     window.scope.export_button.click()
-    window.scope.export_button.menu().actions()[2].trigger()
+    picture = next(a for a in window.scope.export_button.menu().actions() if "PNG" in a.text())
+    picture.trigger()
     assert asked == [("Export CSV", "capture.csv"), ("Export PNG", "capture.png")]
 
 

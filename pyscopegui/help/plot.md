@@ -31,6 +31,14 @@ To write everything that is held and not only what is in view, choose **All** be
 button's arrow, and under *File* -- writes only what is between them, wherever the plot has
 been moved since. The [Event Log](event-log.md) says how many samples went where.
 
+**Copy CSV** and **Copy CSV between cursors**, on the same arrow and under *File*, put the
+same thing on the clipboard instead of in a file, headed, to paste straight into a
+spreadsheet. A tab separates the columns rather than a comma, since that is what a
+spreadsheet splits into columns when it is pasted. With several instruments, each one's
+table is under its name, a blank line between them. No more than a million rows of an
+instrument are copied -- about as many as a spreadsheet holds -- and the Event Log says when
+there were more: zoom in, use the cursors, or Export CSV.
+
 A large file is written while the instruments go on running, with a bar showing how far it
 has got and **Cancel**, which leaves no part-written file behind. Saving a capture is the
 same.

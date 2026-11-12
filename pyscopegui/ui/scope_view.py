@@ -157,6 +157,18 @@ BETWEEN_TIP = (
     "Write as CSV every sample of the channels that are ticked between the two\n"
     "cursors, wherever they are. With two cursors chosen."
 )
+COPY_TIP = (
+    "Put what Export CSV writes on the clipboard instead: every sample of the\n"
+    "channels that are ticked, in view, headed, a tab between the columns, to\n"
+    "paste straight into a spreadsheet. No more than a million rows."
+)
+COPY_BETWEEN_TIP = (
+    "Put every sample of the channels that are ticked between the two cursors\n"
+    "on the clipboard, headed, to paste into a spreadsheet. With two cursors chosen."
+)
+#: The most rows Copy CSV puts on the clipboard, for each instrument: about
+#: as many as a spreadsheet has.
+MOST_COPIED = 1_000_000
 PICTURE_TIP = "Save a picture of this plot and its channel list, as they look now."
 COPY_PICTURE_TIP = (
     "Put a picture of this plot and its channel list on the clipboard, as\n"
@@ -597,11 +609,18 @@ class ScopeView(QWidget):
         self.export_menu = QMenu(self.export_button)
         self.export_menu.setToolTipsVisible(True)
         self.export_menu.addAction("Export CSV...", self.ask_export).setToolTip(EXPORT_TIP)
+        self.export_menu.addAction("Copy CSV", self.copy_csv).setToolTip(COPY_TIP)
         self.between_action = self.export_menu.addAction(
             "Export CSV between cursors...", lambda: self.ask_export(between_cursors=True)
         )
         self.between_action.setToolTip(BETWEEN_TIP)
         self.between_action.setEnabled(False)
+        self.copy_between_action = self.export_menu.addAction(
+            "Copy CSV between cursors", lambda: self.copy_csv(between_cursors=True)
+        )
+        self.copy_between_action.setToolTip(COPY_BETWEEN_TIP)
+        self.copy_between_action.setEnabled(False)
+        self.export_menu.addSeparator()
         self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
         self.export_menu.addAction("Copy PNG", self.copy_png).setToolTip(COPY_PICTURE_TIP)
         self.export_button.setMenu(self.export_menu)
@@ -655,6 +674,7 @@ class ScopeView(QWidget):
         # After what was chosen last time is put back, which is not a choice.
         self.cursors.currentIndexChanged.connect(self._on_cursor_count)
         self.between_action.setEnabled(self.cursor_count() == 2)
+        self.copy_between_action.setEnabled(self.cursor_count() == 2)
         # activated as well: choosing what is chosen already brings them back.
         self.cursors.activated.connect(lambda _index: self.bring_cursors())
         self.channel_list.set_cursors(self.cursor_count())
@@ -1240,6 +1260,7 @@ class ScopeView(QWidget):
 
     def _on_cursor_count(self, *_args) -> None:
         self.between_action.setEnabled(self.cursor_count() == 2)
+        self.copy_between_action.setEnabled(self.cursor_count() == 2)
         self.cursors_moved.emit()
         self.channel_list.set_cursors(self.cursor_count())
         self._show_cursors()
@@ -1751,18 +1772,15 @@ class ScopeView(QWidget):
         )
         return True
 
-    def export_csv(self, path: Path, between_cursors: bool = False) -> list[export.Written]:
-        """Write the channels that are ticked, in the stretch of time in view --
-        or between the two cursors -- one file for each instrument. Says what
-        was written, or why not.
-
-        What is to be written is copied as it is held, and written out on a
-        thread of its own with a progress bar, while the instruments go on running."""
-        self.redraw()  # so that what is written is what is on the screen now
+    def _exported(self, between_cursors: bool, doing: str):
+        """What Export CSV and Copy CSV are of: the stretch of time, and each
+        instrument's ticked channels by what to call them. None, said, where
+        there is nothing."""
+        self.redraw()  # so that what is taken is what is on the screen now
         if between_cursors:
             if self.cursor_count() != 2:
-                self._say("Choose two cursors to export what is between them.", problem=True)
-                return []
+                self._say(f"Choose two cursors to {doing} what is between them.", problem=True)
+                return None
             t_from, t_to = sorted(self._cursor_at)
         else:
             (t_from, t_to), _y = self.analog.getViewBox().viewRange()
@@ -1773,8 +1791,61 @@ class ScopeView(QWidget):
                 said = self.session.name_of(unit, record.channel, whose=False)
                 wanted.setdefault(unit.name, {})[said] = record
         if not wanted:
-            self._say("There is nothing on the plot to export.", problem=True)
+            self._say(f"There is nothing on the plot to {doing}.", problem=True)
+            return None
+        return t_from, t_to, wanted
+
+    def copy_csv(self, between_cursors: bool = False) -> int:
+        """Put what Export CSV writes on the clipboard, a tab between the columns
+        rather than a comma: what a spreadsheet splits into columns when it is
+        pasted. Each instrument's under its name, where there is more than one.
+        How many rows were copied."""
+        found = self._exported(between_cursors, "copy")
+        if found is None:
+            return 0
+        t_from, t_to, wanted = found
+        units = {unit.name: unit for unit in self.session.shown()}
+        parts, copied, short = [], 0, []
+        for name, records in wanted.items():
+            unit = units[name]
+            timing = self._timings.get(name)
+            origin = timing.origin if timing is not None else 0.0
+            text, rows, there = export.table_text(records, origin, t_from, t_to, MOST_COPIED)
+            if not rows:
+                continue
+            called = unit.short or name
+            parts.append(f"{called}\n{text}" if len(wanted) > 1 else text)
+            copied += rows
+            if rows < there:
+                short.append(f"{called}: the first {rows:,} of {there:,}")
+        if not parts:
+            self._say("There are no samples in that stretch of time to copy.", problem=True)
+            return 0
+        QGuiApplication.clipboard().setText("\n".join(parts))
+        channels = sum(len(records) for records in wanted.values())
+        self._say(
+            f"Copied {copied:,} samples of {channels} "
+            f"{'channel' if channels == 1 else 'channels'}, to paste into a spreadsheet."
+        )
+        if short:
+            self._say(
+                f"Too many to copy them all -- {'; '.join(short)}: zoom in, use the "
+                "cursors, or Export CSV.",
+                problem=True,
+            )
+        return copied
+
+    def export_csv(self, path: Path, between_cursors: bool = False) -> list[export.Written]:
+        """Write the channels that are ticked, in the stretch of time in view --
+        or between the two cursors -- one file for each instrument. Says what
+        was written, or why not.
+
+        What is to be written is copied as it is held, and written out on a
+        thread of its own with a progress bar, while the instruments go on running."""
+        found = self._exported(between_cursors, "export")
+        if found is None:
             return []
+        t_from, t_to, wanted = found
         units = {unit.name: unit for unit in self.session.shown()}
         files = export.paths_for(path, [units[name].short or name for name in wanted])
         jobs = []

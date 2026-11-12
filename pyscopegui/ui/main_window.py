@@ -400,6 +400,10 @@ class MainWindow(QMainWindow):
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
         )
+        copy_csv = file_menu.addAction("Copy CSV", lambda: self.scope.copy_csv())
+        copy_csv.setToolTip(
+            "Put what Export CSV writes on the clipboard, to paste into a spreadsheet."
+        )
         between_action = file_menu.addAction(
             "Export CSV between cursors...", lambda: self.scope.ask_export(between_cursors=True)
         )
@@ -407,8 +411,18 @@ class MainWindow(QMainWindow):
             "Write what is between the first plot's two cursors as CSV: one file for each\n"
             "instrument. With two cursors chosen."
         )
+        copy_between = file_menu.addAction(
+            "Copy CSV between cursors", lambda: self.scope.copy_csv(between_cursors=True)
+        )
+        copy_between.setToolTip(
+            "Put what is between the first plot's two cursors on the clipboard, to paste\n"
+            "into a spreadsheet. With two cursors chosen."
+        )
         file_menu.aboutToShow.connect(
-            lambda: between_action.setEnabled(self.scope.cursor_count() == 2)
+            lambda: [
+                action.setEnabled(self.scope.cursor_count() == 2)
+                for action in (between_action, copy_between)
+            ]
         )
         picture_action = file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture())
         picture_action.setToolTip("Save a picture of the first plot, as it looks now.")

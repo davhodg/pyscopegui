@@ -13,6 +13,7 @@ where there is one.
 
 from __future__ import annotations
 
+import io
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -75,6 +76,38 @@ def numbers(records: list[Record], origin: float, t_from: float, t_to: float) ->
     within the block that was arriving as this was asked for."""
     spans = [record.numbers(t_from + origin, t_to + origin) for record in records]
     return max(start for start, _stop in spans), min(stop for _start, stop in spans)
+
+
+def table_text(
+    records: dict[str, Record], origin: float, t_from: float, t_to: float, most: int
+) -> tuple[str, int, int]:
+    """These channels of one instrument between two times, as Export CSV writes
+    them but a tab between the columns: what a spreadsheet splits into columns
+    when it is pasted. No more than ``most`` rows, the first of them. The text,
+    the rows in it, and the rows there were."""
+    held = {name: record for name, record in records.items() if record.count}
+    if not held:
+        return "", 0, 0
+    rate = next(iter(held.values())).rate
+    first, last = numbers(list(held.values()), origin, t_from, t_to)
+    if last <= first:
+        return "", 0, 0
+    stop = min(last, first + most)
+    columns = [(heading(record, name).replace("\t", " "), record) for name, record in held.items()]
+    formats = [time_format(rate)] + [
+        ANALOG_FORMAT if record.channel.kind == ANALOG else DIGITAL_FORMAT
+        for _heading, record in columns
+    ]
+    out = io.StringIO()
+    out.write("\t".join(["time (s)"] + [said for said, _record in columns]) + "\n")
+    for start in range(first, stop, CHUNK):
+        end = min(start + CHUNK, stop)
+        rows = np.empty((end - start, len(columns) + 1), dtype=np.float64)
+        rows[:, 0] = np.arange(start, end) / rate - origin
+        for index, (_said, record) in enumerate(columns, start=1):
+            rows[:, index] = record.values(start, end)
+        np.savetxt(out, rows, fmt=formats, delimiter="\t")
+    return out.getvalue(), stop - first, last - first
 
 
 def write_csv(
