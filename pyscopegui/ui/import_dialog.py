@@ -42,6 +42,7 @@ from pyscopegui.core.capture_file import (
     guess_layout,
     rows,
 )
+from pyscopegui.ui import icons
 from pyscopegui.ui.column_widths import ColumnWidths
 
 ROLES = {TIME: "Time", ANALOG_ROLE: "Analog", LOGIC: "Logic"}
@@ -100,7 +101,9 @@ class ImportDialog(QDialog):
         self.problem.setStyleSheet("color: #d08000;")
 
         self.columns.itemChanged.connect(lambda _item: self._check())
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
+        self.buttons = icons.on_buttons(
+            QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
+        )
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 

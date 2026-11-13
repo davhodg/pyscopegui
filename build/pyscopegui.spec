@@ -104,6 +104,8 @@ DATA = [
     (str(PROJECT / "pyscopegui" / "help"), "pyscopegui/help"),
     (str(PROJECT / "LICENSE"), "."),
     (str(PROJECT / "NOTICE"), "."),
+    # The MIT licence the icons are under, which NOTICE points to.
+    (str(PROJECT / "LICENSES"), "LICENSES"),
     (str(PROJECT / "THIRD-PARTY-NOTICES.txt"), "."),
     (str(PROJECT / "README.md"), "."),
     # The packages' own records, which About reads to say which version of

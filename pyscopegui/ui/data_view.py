@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 from pyscopegui.backends.base import ANALOG
 from pyscopegui.core.capture import Record
 from pyscopegui.core.export import ANALOG_FORMAT, time_format
-from pyscopegui.ui import fonts
+from pyscopegui.ui import fonts, icons
 from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.scope_view import CURSOR_COLOURS, ScopeView, time_text
 
@@ -336,13 +336,15 @@ class DataView(QWidget):
     def _menu(self, at) -> None:
         menu = QMenu(self)
         chosen = self.table.selectionModel().hasSelection()
-        copy = menu.addAction("Copy", lambda: self.copy())
+        copy = icons.beside(menu.addAction("Copy", lambda: self.copy()), icons.COPY)
         copy.setShortcut(QKeySequence.Copy)
         copy.setEnabled(chosen)
-        bare = menu.addAction("Copy without headings", lambda: self.copy(headed=False))
+        bare = icons.beside(
+            menu.addAction("Copy without headings", lambda: self.copy(headed=False)), icons.COPY
+        )
         bare.setEnabled(chosen)
         menu.addSeparator()
-        every = menu.addAction("Select all", self.table.selectAll)
+        every = icons.beside(menu.addAction("Select all", self.table.selectAll), icons.SELECT_ALL)
         every.setShortcut(QKeySequence.SelectAll)
         every.setEnabled(bool(self.samples.count))
         menu.exec(self.table.viewport().mapToGlobal(at))

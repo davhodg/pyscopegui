@@ -66,7 +66,7 @@ from pyscopegui.core.maths import Maths
 from pyscopegui.core.measure import Measured, measure_held
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.core.triggers import PROTOCOL, RUNT, WINDOW
-from pyscopegui.ui import fonts
+from pyscopegui.ui import fonts, icons
 from pyscopegui.ui.can_dialog import CanDialog
 from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.decode_dialog import I2cDialog, ParallelDialog, SpiDialog, UartDialog
@@ -295,7 +295,7 @@ class ChannelList(QTreeWidget):
             return
         key = item.data(NAME, Qt.UserRole)
         menu = QMenu(self)
-        menu.addAction("Rename...", lambda: self.rename_asked.emit(key))
+        icons.beside(menu.addAction("Rename...", lambda: self.rename_asked.emit(key)), icons.RENAME)
         if key in self.axes:
             other = Y1 if self.axes[key] == Y2 else Y2
             menu.addAction(
@@ -303,19 +303,31 @@ class ChannelList(QTreeWidget):
             ).setToolTip("Draw it against the other voltage axis, with a scale of its own")
         menu.addSeparator()
         menu.addAction("Colour...", lambda: self.colour_asked.emit(key, "choose"))
-        back = menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, ""))
+        back = icons.beside(
+            menu.addAction("Its own colour", lambda: self.colour_asked.emit(key, "")), icons.RESET
+        )
         back.setEnabled(bool(item.data(NAME, Qt.UserRole + 1)))
         menu.addSeparator()
-        menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key))
+        icons.beside(
+            menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key)), icons.CALCULATE
+        )
         if ":maths:" in key or key.startswith("maths:"):
-            menu.addAction("Remove this maths channel", lambda: self.maths_removed.emit(key))
+            icons.beside(
+                menu.addAction("Remove this maths channel", lambda: self.maths_removed.emit(key)),
+                icons.REMOVE,
+            )
         menu.addSeparator()
         if (protocol := self.decoded.get(key)) is not None:
-            menu.addAction(
-                f"{PROTOCOLS[protocol]} decoding...",
-                lambda: self.decode_asked.emit(key, protocol),
+            icons.beside(
+                menu.addAction(
+                    f"{PROTOCOLS[protocol]} decoding...",
+                    lambda: self.decode_asked.emit(key, protocol),
+                ),
+                icons.SETTINGS,
             )
-            menu.addAction("Stop decoding", lambda: self.decode_removed.emit(key))
+            icons.beside(
+                menu.addAction("Stop decoding", lambda: self.decode_removed.emit(key)), icons.STOP
+            )
         decode = menu.addMenu("Decode as")
         for each, said in PROTOCOLS.items():
             decode.addAction(f"{said}...", lambda p=each: self.decode_asked.emit(key, p))
@@ -329,10 +341,18 @@ class ChannelList(QTreeWidget):
             menu.addAction("Maths channel: needs an analog channel").setEnabled(False)
         elif len(self.makers) == 1:
             key = self.makers[0][0]
-            menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key))
+            icons.beside(
+                menu.addAction("Maths channel...", lambda: self.maths_asked.emit(key)),
+                icons.CALCULATE,
+            )
         else:
             for key, name in self.makers:
-                menu.addAction(f"Maths channel, {name}...", lambda k=key: self.maths_asked.emit(k))
+                icons.beside(
+                    menu.addAction(
+                        f"Maths channel, {name}...", lambda k=key: self.maths_asked.emit(k)
+                    ),
+                    icons.CALCULATE,
+                )
         menu.exec(self.viewport().mapToGlobal(at))
 
     def set_cursors(self, count: int) -> None:
@@ -561,7 +581,7 @@ class ScopeView(QWidget):
         # Its right-click menu can stop it fitting too, with no drag to say so.
         for index, box in enumerate(self._y_boxes):
             box.sigStateChanged.connect(lambda *_a, i=index: self._on_y_state(i))
-        clear = QPushButton("Clear history")
+        clear = icons.beside(QPushButton("Clear history"), icons.CLEAR)
         clear.setToolTip("Throw away the samples collected so far, for every channel")
         clear.clicked.connect(self.session.clear)
         bar = QHBoxLayout()
@@ -601,28 +621,40 @@ class ScopeView(QWidget):
                 line.sigPositionChanged.connect(lambda moved, n=number: self._on_cursor(n, moved))
         # Pressing it writes CSV, which is what it is mostly for; its arrow
         # has the other thing a plot can be saved as.
-        self.export_button = QToolButton()
+        self.export_button = icons.beside(QToolButton(), icons.EXPORT)
         self.export_button.setText("Export CSV...")
+        self.export_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.export_button.setToolTip(EXPORT_TIP)
         self.export_button.setPopupMode(QToolButton.MenuButtonPopup)
         self.export_button.clicked.connect(self.ask_export)
         self.export_menu = QMenu(self.export_button)
         self.export_menu.setToolTipsVisible(True)
-        self.export_menu.addAction("Export CSV...", self.ask_export).setToolTip(EXPORT_TIP)
-        self.export_menu.addAction("Copy CSV", self.copy_csv).setToolTip(COPY_TIP)
-        self.between_action = self.export_menu.addAction(
-            "Export CSV between cursors...", lambda: self.ask_export(between_cursors=True)
+        menu = self.export_menu
+        icons.beside(menu.addAction("Export CSV...", self.ask_export), icons.EXPORT).setToolTip(
+            EXPORT_TIP
+        )
+        icons.beside(menu.addAction("Copy CSV", self.copy_csv), icons.COPY).setToolTip(COPY_TIP)
+        self.between_action = icons.beside(
+            menu.addAction(
+                "Export CSV between cursors...", lambda: self.ask_export(between_cursors=True)
+            ),
+            icons.EXPORT,
         )
         self.between_action.setToolTip(BETWEEN_TIP)
         self.between_action.setEnabled(False)
-        self.copy_between_action = self.export_menu.addAction(
-            "Copy CSV between cursors", lambda: self.copy_csv(between_cursors=True)
+        self.copy_between_action = icons.beside(
+            menu.addAction("Copy CSV between cursors", lambda: self.copy_csv(between_cursors=True)),
+            icons.COPY,
         )
         self.copy_between_action.setToolTip(COPY_BETWEEN_TIP)
         self.copy_between_action.setEnabled(False)
         self.export_menu.addSeparator()
-        self.export_menu.addAction("Export PNG...", self.ask_picture).setToolTip(PICTURE_TIP)
-        self.export_menu.addAction("Copy PNG", self.copy_png).setToolTip(COPY_PICTURE_TIP)
+        icons.beside(menu.addAction("Export PNG...", self.ask_picture), icons.EXPORT).setToolTip(
+            PICTURE_TIP
+        )
+        icons.beside(menu.addAction("Copy PNG", self.copy_png), icons.COPY).setToolTip(
+            COPY_PICTURE_TIP
+        )
         self.export_button.setMenu(self.export_menu)
         bar.addStretch()
         bar.addWidget(QLabel("Cursors:"))

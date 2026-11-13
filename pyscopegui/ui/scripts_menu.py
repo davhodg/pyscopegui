@@ -22,7 +22,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QFileDialog, QMenu, QWidget
 
-from pyscopegui.ui import messages
+from pyscopegui.ui import icons, messages
 from pyscopegui.ui.console_view import SCRIPT_FOLDER
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ class ScriptsMenu(QObject):
 
     def install(self, file_menu: QMenu, before=None) -> None:
         """Put the two entries in the File menu, above ``before`` if that is given."""
-        run = QAction("Run script...", file_menu)
+        run = icons.beside(QAction("Run script...", file_menu), icons.START)
         run.triggered.connect(lambda _checked=False: self.run_dialog())
         run.setToolTip(RUN_TIP)
         if before is not None:

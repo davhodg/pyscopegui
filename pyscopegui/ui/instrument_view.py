@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.backends.base import Setting
+from pyscopegui.ui import icons
 from pyscopegui.ui.spin import SequenceSpin
 
 NOTHING = "This instrument has nothing to set."
@@ -176,10 +177,10 @@ class InstrumentView(QWidget):
         self.open.clicked.connect(self._on_open_pressed)
         #: For an instrument that holds its settings itself: its into the pane,
         #: and the pane's onto it. Beside Open, and only once it is open.
-        self.read = QPushButton("Read")
+        self.read = icons.beside(QPushButton("Read"), icons.READ)
         self.read.setToolTip(READ_TIP)
         self.read.clicked.connect(self.read_requested)
-        self.write = QPushButton("Write")
+        self.write = icons.beside(QPushButton("Write"), icons.WRITE)
         self.write.setToolTip(WRITE_TIP)
         self.write.clicked.connect(self.write_requested)
         #: What Read and Write are about, said once in front of them rather than
@@ -271,6 +272,7 @@ class InstrumentView(QWidget):
 
     def _show_open(self) -> None:
         self.open.setText("Close" if self._open else "Open")
+        icons.beside(self.open, icons.DISCONNECT if self._open else icons.CONNECT)
         self.open.setToolTip(CLOSE_TIP if self._open else OPEN_TIP)
         for shown in (self.settings_said, self.read, self.write):
             shown.setVisible(self._keeps and self._open and not self.open.isHidden())

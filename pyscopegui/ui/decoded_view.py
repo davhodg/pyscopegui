@@ -52,7 +52,7 @@ from pyscopegui.core.decoding import (
     UART,
     Decoding,
 )
-from pyscopegui.ui import fonts
+from pyscopegui.ui import fonts, icons
 from pyscopegui.ui.can_dialog import bitrate_text
 from pyscopegui.ui.column_widths import ColumnWidths
 from pyscopegui.ui.scope_view import ScopeView, time_text
@@ -269,13 +269,14 @@ class DecodedView(QWidget):
         self.buses.setToolTip(BUSES_TIP)
         self.buses.itemChanged.connect(self._on_ticked)
         self.buses.currentRowChanged.connect(lambda _row: self._show_usable())
-        self.add = QToolButton()
+        self.add = icons.beside(QToolButton(), icons.ADD)
         self.add.setText("Add...")
+        self.add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.add.setToolTip(ADD_TIP)
         self.add.setPopupMode(QToolButton.InstantPopup)
         self.add.setMenu(QMenu(self.add))
         self.add.menu().aboutToShow.connect(self._fill_add)
-        self.remove = QPushButton("Remove")
+        self.remove = icons.beside(QPushButton("Remove"), icons.REMOVE)
         self.remove.setToolTip(REMOVE_TIP)
         self.remove.clicked.connect(self._remove)
         self.items = Items(self)

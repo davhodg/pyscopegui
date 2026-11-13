@@ -134,7 +134,9 @@ pyscopegui is Apache-2.0 and is a pure-Python application on top of these packag
 | [python-can](https://github.com/hardbyte/python-can) | Decoded CAN frames sent on by UDP multicast, to pycangui and others | LGPL-3.0 (used under LGPL) |
 | [msgpack](https://github.com/msgpack/msgpack-python) | Packing those frames, on Windows, as python-can's UDP multicast bus does | Apache-2.0 |
 
-Only LGPL Qt modules are used (QtCore, QtGui, QtWidgets). pyscopegui depends on **PySide6-Essentials** rather than the full PySide6, so the GPL-only add-on modules (Qt Charts, Qt Data Visualization and the rest) are never installed.
+The icons beside the words on buttons and menu items are Microsoft's [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons), MIT, shipped with pyscopegui as files rather than a package -- the same ones pycangui uses.
+
+Only LGPL Qt modules are used (QtCore, QtGui, QtWidgets, QtSvg). pyscopegui depends on **PySide6-Essentials** rather than the full PySide6, so the GPL-only add-on modules (Qt Charts, Qt Data Visualization and the rest) are never installed.
 
 ## Contributing
 

@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.core.context import Context
-from pyscopegui.ui import fonts
+from pyscopegui.ui import clear_menu, fonts, icons
 
 #: Where the last script was run from, so the next is looked for there.
 SCRIPT_FOLDER = "console.folder"
@@ -117,7 +117,7 @@ class ConsoleView(QWidget):
         self.console = _Console(namespace)
         mono = fonts.mono()
 
-        self.output = QPlainTextEdit()
+        self.output = clear_menu.add(QPlainTextEdit())
         self.output.setReadOnly(True)
         self.output.setFont(mono)
         self.output.setMaximumBlockCount(5000)
@@ -128,13 +128,13 @@ class ConsoleView(QWidget):
         self.input = _HistoryLineEdit()
         self.input.setFont(mono)
         self.input.returnPressed.connect(self._on_enter)
-        run_button = QPushButton("Run script...")
+        run_button = icons.beside(QPushButton("Run script..."), icons.START)
         run_button.setToolTip(
             "Run a Python file here, with the same names this console has:\n"
             "add, open, set, run, single, data, export_csv and the rest."
         )
         run_button.clicked.connect(self._run_script_dialog)
-        clear = QPushButton("Clear")
+        clear = icons.beside(QPushButton("Clear"), icons.CLEAR)
         clear.clicked.connect(self.output.clear)
 
         row = QHBoxLayout()

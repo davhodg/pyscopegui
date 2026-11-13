@@ -15,12 +15,13 @@ for by a button of its own.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QMenu, QToolBar, QToolButton
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtWidgets import QButtonGroup, QMenu, QStyle, QToolBar, QToolButton
 
 from pyscopegui import backends
 from pyscopegui.core.acquire import AUTO, MODES, NORMAL, SINGLE, STOP
 from pyscopegui.core.context import Context
+from pyscopegui.ui import icons
 
 ADD_TIP = (
     "Add an instrument to the Instrument pane, where it is opened and set up.\n"
@@ -70,10 +71,16 @@ class InstrumentBar(QToolBar):
         super().__init__("Instrument")
         self.setObjectName("instrument")  # saveState identifies toolbars by objectName
         self.setMovable(False)
+        # The small size buttons and menus have, rather than a toolbar's 24 px:
+        # the icons go beside words here, and a big one dwarfs its word.
+        side = self.style().pixelMetric(QStyle.PM_SmallIconSize)
+        small = QSize(side, side)
         self._ctx = ctx
 
-        self.add = QToolButton()
+        self.add = icons.beside(QToolButton(), icons.ADD)
         self.add.setText("Add instrument")
+        self.add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.add.setIconSize(small)
         self.add.setToolTip(ADD_TIP)
         # The button is its list: a press of either part of it opens that.
         self.add.setPopupMode(QToolButton.MenuButtonPopup)
@@ -100,8 +107,10 @@ class InstrumentBar(QToolBar):
             self._group.addButton(button)
             self.modes[mode] = button
 
-        self.read = QToolButton()
+        self.read = icons.beside(QToolButton(), icons.READ)
         self.read.setText("Read")
+        self.read.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.read.setIconSize(small)
         self.read.setToolTip(READ_TIP)
         self.read.clicked.connect(self.read_requested)
 

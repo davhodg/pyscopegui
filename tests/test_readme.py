@@ -44,7 +44,12 @@ def test_the_python_badge_is_the_floor_the_project_declares():
 
 
 def test_the_licence_badge_is_the_licence():
-    assert badge("license").replace("--", "-") == PROJECT["license"]
+    """The badge names pyscopegui's licence, the first term of the expression.
+    The MIT after it is the icons', from Microsoft's Fluent set: more permissive,
+    so leaving it off the badge understates nothing anybody could rely on."""
+    main, *rest = PROJECT["license"].split(" AND ")
+    assert badge("license").replace("--", "-") == main
+    assert rest == ["MIT"]
 
 
 def test_the_platform_badge_names_the_systems_the_classifiers_do():

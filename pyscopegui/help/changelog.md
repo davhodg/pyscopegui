@@ -13,6 +13,11 @@ since the last version, and comes out in the next one.
 
 - **Copy PNG**, beside *Export PNG* on the plot and under *File*: the same picture, on the
   clipboard.
+- **Icons** beside the words on common buttons and menu items -- Open, Save, Copy, Clear and
+  the like -- the same as pycangui's: Microsoft's Fluent UI System Icons (MIT), shipped with
+  pyscopegui. *Tools > Settings > Show icons* turns them off.
+- **Clear** on the right-click of the Python Console and Instrument traffic, as the Event Log
+  has.
 - **Copy CSV** and **Copy CSV between cursors**, beside *Export CSV*: what it writes, headed,
   on the clipboard, a tab between the columns to paste straight into a spreadsheet.
 - The Data pane's table has a right-click menu: *Copy*, *Copy without headings* to add rows

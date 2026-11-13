@@ -81,4 +81,7 @@ def test_pyscopegui_code_is_apache_and_names_its_holder():
 def test_the_licence_named_is_shipped_and_declared():
     assert (ROOT / "LICENSE").is_file()
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["project"]["license"] == "Apache-2.0"
+    # MIT for the icons, which NOTICE credits and LICENSES/MIT.txt carries.
+    assert pyproject["project"]["license"] == "Apache-2.0 AND MIT"
+    assert (ROOT / "LICENSES" / "MIT.txt").is_file()
+    assert "Fluent UI System Icons" in (ROOT / "NOTICE").read_text(encoding="utf-8")

@@ -59,6 +59,7 @@ from pyscopegui.core.triggers import (
     parse_data,
     parse_id,
 )
+from pyscopegui.ui import icons
 
 #: A time as it is said, to seconds.
 #: Said of what an instrument that triggers itself cannot do itself.
@@ -222,7 +223,7 @@ class TriggerDialog(QDialog):
                 self.nth.setToolTip(CANNOT_TIP)
         self.problem = QLabel()
         self.problem.setStyleSheet("color: #d08000;")
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)

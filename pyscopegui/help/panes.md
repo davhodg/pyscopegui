@@ -94,3 +94,13 @@ follow it too. Which look Qt draws it in depends on the system:
 The style in use is shown greyed out at the bottom of the *Theme* menu, and in the menu's
 tooltip, and *Help > Diagnostics...* gives it with the theme. The change is immediate, and
 the choice is kept for you on this computer.
+
+## Icons
+
+*Tools > Settings > Show icons* puts a standard icon beside the word on common buttons and
+menu items -- Open, Save, Copy, Clear and the like -- to find them at a glance. It is on to
+start with; untick it for the words alone. The words are there either way, and the choice is
+kept for you on this computer. Only what has a standard picture gets one: the run buttons,
+Single and Normal among them, stay words. The icons are Microsoft's Fluent UI System Icons,
+shipped with pyscopegui and the same as pycangui's, so they look the same on Windows, Linux
+and macOS, drawn in the theme's text colour.

@@ -48,7 +48,7 @@ from pyscopegui.core.updates import is_newer as version_is_newer
 from pyscopegui.core.worker import Worker
 from pyscopegui.help import manual_text
 from pyscopegui.ui import diagnostics as diagnostics_report
-from pyscopegui.ui import fonts, messages, theme
+from pyscopegui.ui import fonts, icons, messages, theme
 from pyscopegui.ui.diagnostics import DiagnosticsDialog
 
 
@@ -218,12 +218,12 @@ class ManualDialog(QDialog):
         self.view.setOpenLinks(False)  # every link is ours to resolve first
         self.view.anchorClicked.connect(self._follow)
 
-        self.back_button = QPushButton("Back")
+        self.back_button = icons.beside(QPushButton("Back"), icons.BACK)
         self.back_button.clicked.connect(self.back)
-        self.contents_button = QPushButton("Contents")
+        self.contents_button = icons.beside(QPushButton("Contents"), icons.HOME)
         self.contents_button.clicked.connect(lambda: self.show_page(help_pages.MANUAL))
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Close))
         buttons.rejected.connect(self.reject)
         buttons.addButton(self.back_button, QDialogButtonBox.ActionRole)
         buttons.addButton(self.contents_button, QDialogButtonBox.ActionRole)
@@ -286,7 +286,7 @@ class LicenceDialog(QDialog):
             view.setFont(fonts.mono())
             view.setLineWrapMode(QPlainTextEdit.NoWrap)
             tabs.addTab(view, entry.title)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Close))
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout = QVBoxLayout(self)
@@ -334,7 +334,7 @@ class AboutDialog(QDialog):
             f'<p>Apache License 2.0 &middot; <a href="{PROJECT_PAGE}">{PROJECT_PAGE}</a></p>'
         )
         link.setOpenExternalLinks(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Close))
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         for widget in (heading, details, link, buttons):
@@ -466,16 +466,20 @@ class HelpMenu(QObject):
         self.diagnostics: DiagnosticsDialog | None = None
 
         menu = window.menuBar().addMenu("&Help")
-        menu.addAction("Documentation", self._open_docs)
-        report = menu.addAction("Diagnostics...", self._show_diagnostics)
+        icons.beside(menu.addAction("Documentation", self._open_docs), icons.HELP)
+        report = icons.beside(
+            menu.addAction("Diagnostics...", self._show_diagnostics), icons.DIAGNOSTICS
+        )
         report.setToolTip(
             "The versions, the instrument and what it is sending, written to the\n"
             "Event Log and copied to the clipboard, ready for a bug report."
         )
         menu.addSeparator()
-        self.check_action = menu.addAction("Check for updates...", self._check_for_updates)
-        menu.addAction("Licences...", self._show_licences)
-        menu.addAction(f"About {APP_NAME}", self._show_about)
+        self.check_action = icons.beside(
+            menu.addAction("Check for updates...", self._check_for_updates), icons.UPDATES
+        )
+        icons.beside(menu.addAction("Licences...", self._show_licences), icons.LICENCE)
+        icons.beside(menu.addAction(f"About {APP_NAME}", self._show_about), icons.INFO)
         self.menu = menu
 
     def shutdown(self) -> None:

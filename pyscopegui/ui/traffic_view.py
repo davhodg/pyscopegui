@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.core.traffic import CALL, RECEIVED, SENT, Note, traffic
-from pyscopegui.ui import fonts
+from pyscopegui.ui import clear_menu, fonts, icons
 
 #: Lines kept on screen. Past it the oldest go.
 MOST_SHOWN = 10_000
@@ -88,13 +88,13 @@ class TrafficView(QWidget):
         self.who.addItem(EVERYONE)
         self.who.setToolTip("Which instrument's traffic is shown.")
         self.who.currentTextChanged.connect(lambda _text: self._show_all())
-        clear = QPushButton("Clear")
+        clear = icons.beside(QPushButton("Clear"), icons.CLEAR)
         clear.setToolTip("Throw away what is shown.")
         clear.clicked.connect(self.clear)
-        copy = QPushButton("Copy")
+        copy = icons.beside(QPushButton("Copy"), icons.COPY)
         copy.setToolTip("Copy what is shown, to paste somewhere else.")
         copy.clicked.connect(self.copy)
-        save = QPushButton("Save...")
+        save = icons.beside(QPushButton("Save..."), icons.SAVE_AS)
         save.setToolTip(SAVE_TIP)
         save.clicked.connect(self.ask_save)
         bar = QHBoxLayout()
@@ -105,7 +105,8 @@ class TrafficView(QWidget):
         for button in (clear, copy, save):
             bar.addWidget(button)
 
-        self.text = QPlainTextEdit()
+        # Clear here is the pane's, which forgets what is held as well.
+        self.text = clear_menu.add(QPlainTextEdit(), lambda: self.clear())
         self.text.setReadOnly(True)
         self.text.setFont(fonts.mono())
         self.text.setLineWrapMode(QPlainTextEdit.NoWrap)

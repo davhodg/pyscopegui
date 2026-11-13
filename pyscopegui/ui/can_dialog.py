@@ -28,6 +28,7 @@ from pyscopegui.core.decoding import (
     CanSetup,
 )
 from pyscopegui.core.sharing import GROUP, is_group
+from pyscopegui.ui import icons
 
 AUTOMATIC = "Found from the signal"
 SOURCE_TIP = (
@@ -141,7 +142,7 @@ class CanDialog(QDialog):
         form.addRow("Threshold:", self.threshold)
         form.addRow(self.share)
         form.addRow("Group:", self.group)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self.problem = QLabel()

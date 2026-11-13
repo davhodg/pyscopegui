@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from pyscopegui.core.maths import ONE, TWO, Maths
+from pyscopegui.ui import icons
 from pyscopegui.ui.trigger_dialog import parse_time, time_text
 
 #: What each operation is called in the list, the two-channel ones first.
@@ -92,7 +93,7 @@ class MathsDialog(QDialog):
         spans.setContentsMargins(0, 0, 0, 0)
         spans.addRow("Over:", self.span)
         self.problem = QLabel()
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)

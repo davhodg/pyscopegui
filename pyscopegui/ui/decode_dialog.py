@@ -35,6 +35,7 @@ from pyscopegui.core.decoding import (
 )
 from pyscopegui.core.parallel_decode import BOTH, FALLING, RISING, SELECT
 from pyscopegui.core.uart_decode import BAUDS, EVEN, NONE, ODD
+from pyscopegui.ui import icons
 
 #: For a line that is not there: SPI's chip select, one of its data lines.
 NO_LINE = "None"
@@ -80,7 +81,7 @@ class BusDialog(QDialog):
         self.threshold.setToolTip(THRESHOLD_TIP)
         self.problem = QLabel()
         self.problem.setStyleSheet("color: #d08000;")
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = icons.on_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)

@@ -39,7 +39,9 @@ REQUIRED_FILES = (
     "pyscopegui/help/manual.md",
     "LICENSE",
     "NOTICE",
+    "LICENSES/MIT.txt",
     "THIRD-PARTY-NOTICES.txt",
+    "pyscopegui/resources/icons/save_20_regular.svg",
 )
 
 SELFTEST_TIMEOUT_S = 120

@@ -73,7 +73,14 @@ def test_every_shipped_file_is_declared_for_the_frozen_build(path):
     """The installer takes a different route and has to be told separately."""
     spec = (PROJECT / "build" / "pyscopegui.spec").read_text(encoding="utf-8")
     folder = path.parent.relative_to(PROJECT).as_posix()
-    assert folder in spec.replace("\\", "/"), (
+    # A folder is copied with everything under it, so resources brings its
+    # icons: the file's own folder or one above it, short of the package's.
+    above = [
+        p.relative_to(PROJECT).as_posix()
+        for p in path.parents
+        if PROJECT in p.parents and len(p.relative_to(PROJECT).parts) > 1
+    ]
+    assert any(each in spec.replace("\\", "/") for each in above), (
         f"{path.relative_to(PROJECT)} would not be in the installer: add "
         f"{folder} to DATA in build/pyscopegui.spec"
     )

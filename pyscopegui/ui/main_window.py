@@ -53,7 +53,7 @@ from pyscopegui.core.excepthook import ExceptionLogger
 from pyscopegui.core.maths import Maths
 from pyscopegui.core.session import Session, Unit
 from pyscopegui.core.sharing import Sharer
-from pyscopegui.ui import column_widths, event_colours, messages, theme
+from pyscopegui.ui import clear_menu, column_widths, event_colours, icons, messages, theme
 from pyscopegui.ui.console_view import SCRIPT_FOLDER, ConsoleView
 from pyscopegui.ui.data_view import DataView
 from pyscopegui.ui.decoded_view import DecodedView
@@ -289,8 +289,7 @@ class MainWindow(QMainWindow):
         # Everything is kept, however long the session: the line that matters
         # is often the first of a thousand. Clear, on the right-click, empties it.
         self.log.setMaximumBlockCount(0)
-        self.log.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.log.customContextMenuRequested.connect(self._log_menu)
+        clear_menu.add(self.log)
         #: Every line said to the user arrives here with a level, and this is
         #: the only thing that writes to the pane. Warnings and errors open it
         #: if it has been closed; notes do not.
@@ -385,34 +384,49 @@ class MainWindow(QMainWindow):
 
         # --- menus & layout persistence --------------------------------------
         file_menu = self.menuBar().addMenu("&File")
-        open_action = file_menu.addAction("Open capture...", self.ask_open_capture)
+        open_action = icons.beside(
+            file_menu.addAction("Open capture...", self.ask_open_capture), icons.OPEN
+        )
         open_action.setToolTip(
             "Open a capture saved here, or a CSV -- Export CSV's, or any other --\n"
             "and show it beside the instruments, as one of them."
         )
-        save_action = file_menu.addAction("Save capture...", self.ask_save_capture)
+        save_action = icons.beside(
+            file_menu.addAction("Save capture...", self.ask_save_capture), icons.SAVE_AS
+        )
         save_action.setToolTip(
             "Save everything held, of every instrument on the first plot, to open again\n"
             "later exactly as it is: one file for each instrument."
         )
         file_menu.addSeparator()
-        export_action = file_menu.addAction("Export CSV...", lambda: self.scope.ask_export())
+        export_action = icons.beside(
+            file_menu.addAction("Export CSV...", lambda: self.scope.ask_export()), icons.EXPORT
+        )
         export_action.setToolTip(
             "Write what the first plot shows as CSV: one file for each instrument."
         )
-        copy_csv = file_menu.addAction("Copy CSV", lambda: self.scope.copy_csv())
+        copy_csv = icons.beside(
+            file_menu.addAction("Copy CSV", lambda: self.scope.copy_csv()), icons.COPY
+        )
         copy_csv.setToolTip(
             "Put what Export CSV writes on the clipboard, to paste into a spreadsheet."
         )
-        between_action = file_menu.addAction(
-            "Export CSV between cursors...", lambda: self.scope.ask_export(between_cursors=True)
+        between_action = icons.beside(
+            file_menu.addAction(
+                "Export CSV between cursors...",
+                lambda: self.scope.ask_export(between_cursors=True),
+            ),
+            icons.EXPORT,
         )
         between_action.setToolTip(
             "Write what is between the first plot's two cursors as CSV: one file for each\n"
             "instrument. With two cursors chosen."
         )
-        copy_between = file_menu.addAction(
-            "Copy CSV between cursors", lambda: self.scope.copy_csv(between_cursors=True)
+        copy_between = icons.beside(
+            file_menu.addAction(
+                "Copy CSV between cursors", lambda: self.scope.copy_csv(between_cursors=True)
+            ),
+            icons.COPY,
         )
         copy_between.setToolTip(
             "Put what is between the first plot's two cursors on the clipboard, to paste\n"
@@ -424,15 +438,19 @@ class MainWindow(QMainWindow):
                 for action in (between_action, copy_between)
             ]
         )
-        picture_action = file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture())
+        picture_action = icons.beside(
+            file_menu.addAction("Export PNG...", lambda: self.scope.ask_picture()), icons.EXPORT
+        )
         picture_action.setToolTip("Save a picture of the first plot, as it looks now.")
-        copy_action = file_menu.addAction("Copy PNG", lambda: self.scope.copy_png())
+        copy_action = icons.beside(
+            file_menu.addAction("Copy PNG", lambda: self.scope.copy_png()), icons.COPY
+        )
         copy_action.setToolTip(
             "Put a picture of the first plot on the clipboard, as Export PNG saves it."
         )
         file_menu.setToolTipsVisible(True)
         file_menu.addSeparator()
-        quit_action = file_menu.addAction("Exit", self.close)
+        quit_action = icons.beside(file_menu.addAction("Exit", self.close), icons.EXIT)
         quit_action.setMenuRole(QAction.QuitRole)
         quit_action.setShortcut(QKeySequence.Quit)
         #: A script run in the console, and the last few that were.
@@ -460,11 +478,37 @@ class MainWindow(QMainWindow):
 
         tools_menu = self.menuBar().addMenu("&Tools")
         tools_menu.setToolTipsVisible(True)
-        self.settings_menu = settings_menu = QMenu("Settings", tools_menu)
+        self.settings_menu = settings_menu = icons.beside(
+            QMenu("Settings", tools_menu), icons.SETTINGS
+        )
         settings_menu.setToolTipsVisible(True)
         tools_menu.addMenu(settings_menu)
         self.theme_menu = theme.menu(self)
         settings_menu.addMenu(self.theme_menu)
+        # As in pycangui: on, and kept with the computer rather than a workspace.
+        self.icons_action = QAction(icons.TITLE, settings_menu)
+        self.icons_action.setCheckable(True)
+        self.icons_action.setChecked(icons.shown())
+        self.icons_action.setToolTip(icons.TIP)
+        self.icons_action.toggled.connect(icons.set_shown)
+        icons.on_standard_menus(QApplication.instance())  # Qt's own text menus too
+        settings_menu.addAction(self.icons_action)
+        # As in pycangui: on, and kept with the computer rather than a workspace.
+        self.icons_action = QAction(icons.TITLE, settings_menu)
+        self.icons_action.setCheckable(True)
+        self.icons_action.setChecked(icons.shown())
+        self.icons_action.setToolTip(icons.TIP)
+        self.icons_action.toggled.connect(icons.set_shown)
+        icons.on_standard_menus(QApplication.instance())  # Qt's own text menus too
+        settings_menu.addAction(self.icons_action)
+        # As in pycangui: on, and kept with the computer rather than a workspace.
+        self.icons_action = QAction(icons.TITLE, settings_menu)
+        self.icons_action.setCheckable(True)
+        self.icons_action.setChecked(icons.shown())
+        self.icons_action.setToolTip(icons.TIP)
+        self.icons_action.toggled.connect(icons.set_shown)
+        icons.on_standard_menus(QApplication.instance())  # Qt's own text menus too
+        settings_menu.addAction(self.icons_action)
         self.history_menu = self._history_menu()
         settings_menu.addMenu(self.history_menu)
         self.memory_menu = self._memory_menu()
@@ -517,17 +561,22 @@ class MainWindow(QMainWindow):
         # Together, as in pycangui: "put something back the way it was" is one
         # thing to go looking for.
         tools_menu.addSeparator()
-        self.reset_menu = tools_menu.addMenu("Reset")
+        self.reset_menu = icons.beside(tools_menu.addMenu("Reset"), icons.RESET)
         self.reset_menu.setToolTipsVisible(True)
         self.reset_menu.addAction(self.reset_layout_action)
-        forget = self.reset_menu.addAction("Forget remembered folders", self._forget_folders)
+        forget = icons.beside(
+            self.reset_menu.addAction("Forget remembered folders", self._forget_folders),
+            icons.CLEAR,
+        )
         forget.setToolTip(
             "A file dialog opens where that sort of file was last used -- a capture\n"
             "where the last capture was, an export where the last export went, a\n"
             f"script where the last script was. This puts them back to {APP_NAME}'s own."
         )
         self.reset_menu.addSeparator()
-        everything = self.reset_menu.addAction("Reset everything...", self._reset_everything)
+        everything = icons.beside(
+            self.reset_menu.addAction("Reset everything...", self._reset_everything), icons.RESET
+        )
         everything.setToolTip(
             "Which is a new workspace, rather than anything undone in place --\n"
             "so the one you are in now is still there to go back to."
@@ -1736,8 +1785,11 @@ class MainWindow(QMainWindow):
         answer.setWindowTitle("Reset everything")
         answer.setIcon(QMessageBox.Information)
         answer.setText(RESET_EVERYTHING)
-        fresh = answer.addButton("New workspace...", QMessageBox.AcceptRole)
+        fresh = icons.beside(
+            answer.addButton("New workspace...", QMessageBox.AcceptRole), icons.NEW
+        )
         answer.addButton(QMessageBox.Cancel)
+        icons.on_buttons(answer)
         answer.exec()
         if answer.clickedButton() is fresh:
             self.workspace_menu.new_empty()
@@ -2017,13 +2069,6 @@ class MainWindow(QMainWindow):
             if on
             else "Event Log lines are written without the time."
         )
-
-    def _log_menu(self, at) -> None:
-        menu = self.log.createStandardContextMenu()
-        menu.addSeparator()
-        menu.addAction("Clear", self.log.clear)
-        menu.exec(self.log.viewport().mapToGlobal(at))
-        menu.deleteLater()
 
     def _surface_log(self) -> None:
         """Open the Event Log, because something in it needs reading.
