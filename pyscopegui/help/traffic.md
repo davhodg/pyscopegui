@@ -17,7 +17,8 @@ the instruments pay nothing for it. pyscopegui starts with it as it was left: op
 recording if it was open, put away if it was put away.
 
 What is shown stays until **Clear**, or until pyscopegui is closed. The newest ten thousand
-lines are kept on screen.
+lines are kept on screen. A right-click in it offers the same as the button row, as the Event
+Log and the Python Console do: Copy, *Save all...* and *Clear all*.
 
 ## Reading it
 

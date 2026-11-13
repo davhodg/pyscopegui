@@ -116,7 +116,7 @@ OLD_UDP_NETWORK_KEY = "udp/local_network"
 #: something about a workspace.
 LOG_TIMES_KEY = "event_log/times"
 #: The folders file dialogs remember, each in the workspace: Tools > Reset forgets them.
-REMEMBERED_FOLDERS = (CAPTURE_FOLDER, EXPORT_FOLDER, SCRIPT_FOLDER)
+REMEMBERED_FOLDERS = (CAPTURE_FOLDER, EXPORT_FOLDER, SCRIPT_FOLDER, clear_menu.TEXT_FOLDER)
 RESET_EVERYTHING = (
     "There is no reset that undoes everything in place, and that is on purpose: "
     "a new workspace is the clean slate. It starts with pyscopegui's own settings "
@@ -289,7 +289,6 @@ class MainWindow(QMainWindow):
         # Everything is kept, however long the session: the line that matters
         # is often the first of a thousand. Clear, on the right-click, empties it.
         self.log.setMaximumBlockCount(0)
-        clear_menu.add(self.log)
         #: Every line said to the user arrives here with a level, and this is
         #: the only thing that writes to the pane. Warnings and errors open it
         #: if it has been closed; notes do not.
@@ -302,6 +301,8 @@ class MainWindow(QMainWindow):
         self.events.posted.connect(self._on_event)
 
         self.ctx = Context(events=self.events)
+        # Once there are settings: Save all remembers its folder in them.
+        clear_menu.add(self.log, self.ctx, "Event Log")
         #: Started with pythonw, which has no console, so a traceback from a
         #: Qt slot would otherwise go nowhere at all -- see the module.
         self.exceptions = ExceptionLogger(self.events.post)
@@ -571,7 +572,8 @@ class MainWindow(QMainWindow):
         forget.setToolTip(
             "A file dialog opens where that sort of file was last used -- a capture\n"
             "where the last capture was, an export where the last export went, a\n"
-            f"script where the last script was. This puts them back to {APP_NAME}'s own."
+            "script where the last script was, a pane's text where the last was saved.\n"
+            f"This puts them back to {APP_NAME}'s own."
         )
         self.reset_menu.addSeparator()
         everything = icons.beside(
@@ -880,6 +882,18 @@ class MainWindow(QMainWindow):
         said = self.events.good if code == 0 else self.events.error
         said(f"{path.name} finished: exit code {code}")
         return code
+
+    def _console_view(self) -> ConsoleView:
+        """A Python Console, with commands of its own: its Stop stops its scripts."""
+        scripting = Scripting(self)
+        return ConsoleView(scripting.names(), self.ctx, scripting)
+
+    def script_running(self) -> bool:
+        """Whether a Python Console is running something."""
+        return any(
+            getattr(self.panes.view(name), "running", False)
+            for name in self.panes.instances("console")
+        )
 
     def run_script_in_console(self, path: str) -> None:
         """File > Run script... and Recent scripts: in the console, shown, so
@@ -1556,7 +1570,7 @@ class MainWindow(QMainWindow):
                 "traffic",
                 "Instrument traffic",
                 Qt.BottomDockWidgetArea,
-                lambda _n: TrafficView(),
+                lambda _n: TrafficView(self.ctx),
                 floating_first=True,
             )
         )
@@ -1591,7 +1605,7 @@ class MainWindow(QMainWindow):
                 "console",
                 "Python Console",
                 Qt.BottomDockWidgetArea,
-                lambda _n: ConsoleView(Scripting(self).names(), self.ctx),
+                lambda _n: self._console_view(),
                 floating_first=True,
             )
         )
@@ -1854,6 +1868,17 @@ class MainWindow(QMainWindow):
         self._show_open()
 
     def closeEvent(self, event) -> None:
+        # Not while a script is running: it is part way through something, on
+        # this window's own thread, and would be left wherever it had got to.
+        if self.script_running():
+            messages.warning(
+                self,
+                "A script is running",
+                "A script is running in the Python Console. Press Stop there, which "
+                f"stops it at the command it is in, then close {APP_NAME}.",
+            )
+            event.ignore()
+            return
         QSettings().setValue("geometry", self.saveGeometry())
         self.sharer.close()
         # Saved before they are closed: closing one puts its pane away, and

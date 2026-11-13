@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from pyscopegui.core.context import Context
 from pyscopegui.core.traffic import CALL, RECEIVED, SENT, Note, traffic
 from pyscopegui.ui import clear_menu, fonts, icons
 
@@ -73,7 +74,7 @@ class Entry:
 
 
 class TrafficView(QWidget):
-    def __init__(self) -> None:
+    def __init__(self, ctx: Context | None = None) -> None:
         super().__init__()
         #: Everything shown, for every instrument, newest last.
         self._entries: deque[Entry] = deque(maxlen=MOST_SHOWN)
@@ -105,8 +106,10 @@ class TrafficView(QWidget):
         for button in (clear, copy, save):
             bar.addWidget(button)
 
-        # Clear here is the pane's, which forgets what is held as well.
-        self.text = clear_menu.add(QPlainTextEdit(), lambda: self.clear())
+        # Clear all here is the pane's, which forgets what is held as well.
+        self.text = clear_menu.add(
+            QPlainTextEdit(), ctx, "Instrument traffic", clear=lambda: self.clear()
+        )
         self.text.setReadOnly(True)
         self.text.setFont(fonts.mono())
         self.text.setLineWrapMode(QPlainTextEdit.NoWrap)

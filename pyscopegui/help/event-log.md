@@ -22,7 +22,9 @@ kept when the log is copied. Off to begin with; it is kept with this computer ra
 the workspace, like the theme.
 
 Everything is kept for the whole session -- the line that matters is often the first of a
-thousand -- until **Clear**, on the pane's right-click, empties it.
+thousand -- until *Clear all*, on the pane's right-click, empties it. *Save all...*, there too,
+writes the whole log to a text file, offered with the date and time in its name; Copy takes
+only what is selected.
 
 A warning or an error opens the pane if it has been closed; a plain note does not, and
 neither does good news. So closing the pane means "stop chattering at me" rather than "hide

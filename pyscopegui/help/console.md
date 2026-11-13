@@ -8,9 +8,25 @@ done over and over -- set something, capture, read a number, write it down -- ty
 rather than clicked twenty times.
 
 Open it from the **View** menu. It opens behind the [Event Log](event-log.md). It behaves
-as the `python` prompt does: Up and Down go through what was typed, a block carries on with
-`...`, and a mistake is shown as Python shows it. **Run script...** runs a `.py` file with the
-same names.
+as the `python` prompt does: a block carries on with `...`, Up and Down go back through what
+was typed, and a mistake is shown as Python shows it.
+
+The box typed into takes several lines too. **Shift+Enter** starts another, indented as the
+one before and further after a colon, and several lines pasted at once arrive as they are.
+**Enter** then runs them all together, each value shown as the prompt shows it, and **Tab**
+indents. Within several lines Up and Down move between them, and go back through what was
+typed only from the first line or the last. What is printed is shown as it is printed, so a
+script that captures ten times says so one capture at a time.
+
+**Run script...** runs a `.py` file with the same names. **Stop** stops what is running at
+the command it is in, or the next one it calls: a `wait()`, or a `single()` or `read()`
+waiting for a capture -- which is stopped too -- ends at once. A loop of Python's own that
+calls none of the commands runs on until it finishes. Nothing else is typed or run while
+something is, and pyscopegui will not close until it has stopped.
+
+A right-click in what the console has printed offers *Save all...*, to write it to a text
+file, and *Clear all*, as the [Event Log](event-log.md) and
+[Instrument traffic](traffic.md) do.
 
 *File > Run script...* does the same from the File menu, and shows the console first, so that
 what the script prints and any traceback can be read. *File > Recent scripts* lists the last

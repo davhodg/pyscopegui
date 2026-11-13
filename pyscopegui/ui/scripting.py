@@ -13,11 +13,17 @@ holding it still: the samples it is waiting for have to arrive through it.
 
 These are what scripts are written against, so they are few, and each says
 what went wrong in words rather than leaving a script to find out later.
+
+The console's Stop stops a script at the next command it calls, or at once
+where it is waiting in one: each command looks first, and every wait looks
+each time round. A run the script was waiting for -- ``single``, ``read`` --
+is stopped with it. A loop of Python's own that calls none of them goes on.
 """
 
 from __future__ import annotations
 
 import time
+from functools import wraps
 from pathlib import Path
 
 import numpy as np
@@ -36,11 +42,41 @@ class ScriptError(Exception):
     """Something a script asked for that cannot be done, in words."""
 
 
+class ScriptStoppedError(Exception):
+    """Stop was pressed: the script ends here, at the command it was in."""
+
+
 class Scripting:
     """The commands, bound to one window."""
 
     def __init__(self, window) -> None:
         self._window = window
+        #: Stop was pressed, and the script has not stopped yet.
+        self._stopping = False
+
+    # --- stopping ---------------------------------------------------------------------------
+    def started(self) -> None:
+        """A script, or what was typed, is about to run: not stopped."""
+        self._stopping = False
+
+    def halt(self) -> None:
+        """Stop the script at the command it is in, or the next it calls: Stop."""
+        self._stopping = True
+
+    def _check(self) -> None:
+        if self._stopping:
+            raise ScriptStoppedError("Stopped.")
+
+    def _checked(self, command):
+        """A command that stops the script first, if Stop was pressed: as given
+        to the console, with its own name and help."""
+
+        @wraps(command)
+        def checked(*args, **kwargs):
+            self._check()
+            return command(*args, **kwargs)
+
+        return checked
 
     def names(self) -> dict:
         """Everything a console or a script starts with."""
@@ -50,7 +86,7 @@ class Scripting:
             "ctx": window.ctx,
             "session": window.session,
             **{
-                name: getattr(self, name)
+                name: self._checked(getattr(self, name))
                 for name in (
                     "add",
                     "choose",
@@ -85,11 +121,19 @@ class Scripting:
         """
         self._until(lambda: False, seconds)
 
-    def _until(self, done, seconds: float) -> bool:
-        """Keep the window going until ``done()``, or until this long has gone. Whether it was."""
+    def _until(self, done, seconds: float, stopping=None) -> bool:
+        """Keep the window going until ``done()``, or until this long has gone. Whether it was.
+
+        Stop, pressed while it waits, ends the script here: ``stopping`` first,
+        to put back what the wait was for -- a run the script began.
+        """
         deadline = time.monotonic() + seconds
         while True:
             QApplication.processEvents()
+            if self._stopping:
+                if stopping is not None:
+                    stopping()
+                self._check()
             if done():
                 return True
             if time.monotonic() >= deadline:
@@ -192,7 +236,11 @@ class Scripting:
         """
         window = self._window
         window.set_mode(SINGLE)
-        done = self._until(lambda: not any(u.running for u in window._in_use()), timeout)
+        done = self._until(
+            lambda: not any(u.running for u in window._in_use()),
+            timeout,
+            stopping=lambda: window.set_mode(STOP),
+        )
         if not done:
             window.set_mode(STOP)
         return done
@@ -206,7 +254,9 @@ class Scripting:
                 f"{backends.title(unit.name)} is not read as it is: run or single it instead."
             )
         window.read_once()
-        return self._until(lambda: not unit.running, timeout)
+        return self._until(
+            lambda: not unit.running, timeout, stopping=lambda: window.set_mode(STOP)
+        )
 
     def trigger(
         self,

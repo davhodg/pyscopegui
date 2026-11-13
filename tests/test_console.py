@@ -82,7 +82,7 @@ def test_a_script_that_exits_does_not_close_anything(console, tmp_path, window):
     script = tmp_path / "exit.py"
     script.write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
     console.run_file(script)
-    assert "SystemExit ignored" in console.text() and window.isVisible()
+    assert "ends the script and nothing more" in console.text() and window.isVisible()
 
 
 # --- the commands ------------------------------------------------------------------------------
@@ -243,3 +243,125 @@ def test_rename_gives_a_channel_a_name_and_back(names, window):
 def test_rename_says_which_channels_there_are(names):
     with pytest.raises(ScriptError, match="No channel 'Nowhere'"):
         names["rename"]("Nowhere", "x")
+
+
+# --- several lines typed, and Stop ----------------------------------------------------------
+def press(console, key, shift=False):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+
+    modifiers = Qt.ShiftModifier if shift else Qt.NoModifier
+    console.input.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, key, modifiers))
+
+
+def test_shift_enter_is_another_line_indented_after_a_colon(console):
+    from PySide6.QtCore import Qt
+
+    console.input.setText("for n in range(2):")
+    press(console, Qt.Key_Return, shift=True)
+    assert console.input.text() == "for n in range(2):\n    "
+    console.input.insertPlainText("print(n)")
+    press(console, Qt.Key_Return, shift=True)
+    assert console.input.text().endswith("print(n)\n    "), "as the line before"
+    press(console, Qt.Key_Tab)
+    assert console.input.text().endswith("\n        ")
+
+
+def test_several_lines_run_together_each_value_shown(console):
+    said = typed(console, "a = 2\na * 3\nfor n in range(2):\n    print('n', n)")
+    assert ">>> a = 2\n... a * 3\n" in said
+    assert "6\n" in said and "n 0\nn 1\n" in said
+    assert console.prompt.text() == ">>>" and console.input.text() == ""
+
+
+def test_several_lines_finish_a_block_begun_a_line_at_a_time(console):
+    typed(console, "if True:")
+    said = typed(console, "    x = 5\n    print(x * 2)\n")
+    assert "10\n" in said
+
+
+def test_up_goes_back_through_what_was_typed_only_from_the_first_line(console):
+    from PySide6.QtCore import Qt
+
+    typed(console, "x = 1\ny = 2")
+    console.input.setText("draft")
+    press(console, Qt.Key_Up)
+    assert console.input.text() == "x = 1\ny = 2"
+    press(console, Qt.Key_Up)  # on its last line: within it, not back again
+    assert console.input.text() == "x = 1\ny = 2"
+
+
+def test_stop_ends_a_wait_and_says_so(console):
+    from PySide6.QtCore import QTimer
+
+    seen = []
+
+    def during():
+        seen.append((console.stop_button.isEnabled(), console.input.isEnabled()))
+        seen.append("printed so far" in console.text())
+        console.stop_button.click()
+
+    QTimer.singleShot(100, during)
+    started = time.monotonic()
+    said = typed(console, "print('printed so far')\nwait(10)\nprint('not reached')")
+    assert time.monotonic() - started < 5
+    assert seen == [(True, False), True], "Stop on, typing off, and what was printed shown"
+    assert "Stopped." in said and said.count("not reached") == 1, "typed, and not printed"
+    assert not console.stop_button.isEnabled() and console.input.isEnabled()
+
+
+def test_stop_ends_a_script_at_the_next_command_it_calls(console, tmp_path):
+    from PySide6.QtCore import QTimer
+
+    script = tmp_path / "loop.py"
+    script.write_text(
+        "for n in range(1000):\n    print('pass', n)\n    wait(0.05)\n", encoding="utf-8"
+    )
+    QTimer.singleShot(150, console.stop)
+    console.run_file(script)
+    assert "Stopped." in console.text() and "pass 999" not in console.text()
+    assert "loop.py has finished" in console.text()
+
+
+def test_stopping_a_wait_for_a_capture_stops_the_run_too(window):
+    from pyscopegui.ui.scripting import Scripting, ScriptStoppedError
+
+    scripting = Scripting(window)
+    put_back = []
+    scripting.halt()
+    with pytest.raises(ScriptStoppedError):
+        scripting._until(lambda: False, 5.0, stopping=lambda: put_back.append(True))
+    assert put_back == [True]
+    scripting.started()
+    assert scripting._until(lambda: True, 1.0)
+
+
+def test_nothing_more_is_run_while_something_is(console, tmp_path, window):
+    from PySide6.QtCore import QTimer
+
+    script = tmp_path / "other.py"
+    script.write_text("print('other ran')\n", encoding="utf-8")
+    QTimer.singleShot(100, lambda: console.run_file(script))
+    QTimer.singleShot(250, console.stop)
+    typed(console, "wait(10)")
+    assert "other ran" not in console.text()
+    assert "other.py was not run" in window.log.toPlainText()
+
+
+def test_the_window_will_not_close_while_a_script_runs(console, window, monkeypatch):
+    from PySide6.QtCore import QTimer
+
+    from pyscopegui.ui import messages
+
+    warned = []
+    monkeypatch.setattr(messages, "warning", lambda *args, **kwargs: warned.append(args[1]))
+    still_open = []
+
+    def try_to_close():
+        window.close()
+        still_open.append(window.isVisible())
+        console.stop()
+
+    QTimer.singleShot(100, try_to_close)
+    typed(console, "wait(10)")
+    assert still_open == [True] and warned == ["A script is running"]

@@ -9,6 +9,21 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+### Added
+
+- The **Python Console** takes several lines at once, as pyflashgui's does: **Shift+Enter**
+  for another, indented after a colon, or several pasted; **Enter** runs them together.
+- **Stop** in the Python Console: a script, or what was typed, stops at the command it is in
+  -- a `wait()`, or a capture it is waiting for, which is stopped too -- or the next it calls.
+- *Save all...* on the right-click of the Event Log, the Python Console and Instrument
+  traffic, to write the whole pane to a text file.
+
+### Changed
+
+- The Python Console shows what is printed as it is printed, rather than when the line or the
+  script has finished, and has no Clear button: *Clear all* is on its right-click, as in the
+  Event Log and Instrument traffic, which share the menu with pyflashgui.
+
 ## [0.3.2] - 2026-11-13
 
 ### Added
