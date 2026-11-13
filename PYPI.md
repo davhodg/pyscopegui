@@ -59,10 +59,10 @@ sudo apt install libxcb-cursor0
 - **Probes**: 1x to 1000x, differential, or a current probe read in amps.
 - **Python Console**: Python inside the window, with commands to drive the scopes and read their samples, and scripts run from a file, or from the command line with `pyscopegui --run script.py`, which closes with the script's exit code.
 - **Workspaces**: one for each bench or setup, each with its own instruments, settings and panes, chosen under *File > Workspace*.
-- **Export to CSV**, all of it or between the cursors, and **save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments -- a `.pyscp`, which can be double-clicked; and CSV files from other tools opened the same way.
+- **Export to CSV**, all of it or between the cursors, or copy it to paste into a spreadsheet, and **save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments -- a `.pyscp`, which can be double-clicked; and CSV files from other tools opened the same way.
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered.
-- **Light and dark** themes.
+- **Light and dark** themes, and the same standard icons beside the words as pycangui.
 
 The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md) covers each of these, and is also under **Help > Documentation** in the application.
 
