@@ -9,6 +9,8 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-13
+
 ### Added
 
 - **Copy PNG**, beside *Export PNG* on the plot and under *File*: the same picture, on the
@@ -421,7 +423,8 @@ The first version.
 - Installing with pip, from a source folder with a launcher that sets itself up, or with a
   Windows installer.
 
-[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/davhodg/pyscopegui/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/davhodg/pyscopegui/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/davhodg/pyscopegui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/davhodg/pyscopegui/compare/v0.1.0...v0.2.0
