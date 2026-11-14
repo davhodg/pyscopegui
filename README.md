@@ -15,7 +15,7 @@ Oscilloscopes and logic analysers in one view: analog and logic channels from se
 
 For a bench with more than one scope: the channels of each, side by side on one plot. pyscopegui reads the scopes live, triggers on any channel, measures between cursors, decodes CAN, UART, SPI, I²C and parallel buses, and keeps the last seconds or minutes of everything to go back over, export to CSV, or save and open again later. Every scope is set up the same way -- volts a division, probe, coupling.
 
-**Works with** the PicoScope  2000 series (including the MSO variants), the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series, and a built-in demo that needs no hardware.
+**Works with** the PicoScope 2000 series (including the MSO variants), the Rigol DS1000Z series and the Tektronix TDS/TPS 2000 series.
 
 ![pyscopegui with a Rigol and a PicoScope open together: the same 1 kHz sine on a channel of each, drawn on one time axis around each scope's own trigger, with the Instrument pane, the channel list and the Event Log](pyscopegui/help/main-window.png)
 
@@ -44,7 +44,6 @@ Full details are in [the manual](pyscopegui/help/manual.md), which is also under
 
 ## Instruments
 
-- **Demo signals**: two analog and four digital channels, with no hardware.
 - **PicoScope 2000 series**, both ranges of them. The 2202, 2203, 2204, 2204A, 2205 and 2205A: both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. The 2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the MSO models: two or four channels and an MSO's sixteen logic inputs, streamed at up to 31.25 MS/s, or read in blocks of up to a million samples at the scope's full rate.
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory, with its own trigger types: either edge, pulse width, runt, window, timeout and pattern; or read as it is, set up and triggered at the bench, with nothing on it changed. The logic inputs and signal generator that some models have are not used yet. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
 - **Tektronix TDS/TPS 2000 series** (TDS200, TDS1000, TDS2000 and TPS2000 over a serial port; the TDS1000B, TDS2000B and TDS2000C over USB): two or four channels, a sweep at a time around the scope's own trigger, or what is on its screen read off with nothing on the scope changed. Suited to taking a capture off the scope rather than watching one live.
@@ -104,15 +103,7 @@ sudo apt install libxcb-cursor0
 
 pyscopegui names any that are missing as it starts.
 
-**Where your own files are kept** is the same whichever way it was installed: `%APPDATA%\pyscopegui` on Windows and `~/.config/pyscopegui` on Linux. Upgrading and uninstalling leave that folder alone.
-
-## Uninstalling
-
-- **The Windows installer:** *Settings > Apps* (or *Add or remove programs*), or *Uninstall pyscopegui* in its Start menu folder. It takes away its shortcuts too.
-- **pip:** `pip uninstall pyscopegui`, and any shortcut *Tools > Settings* added, as for a clone.
-- **A Git clone:** delete the folder. If *Tools > Settings* was used to add a shortcut, take that away as well: the shortcuts are `%APPDATA%\Microsoft\Windows\Start Menu\Programs\pyscopegui.lnk` and `pyscopegui.lnk` on the desktop (on Linux, `~/.local/share/applications/pyscopegui.desktop`).
-
-Your own files -- settings and the pane arrangement -- are never removed by uninstalling. To remove them too, delete the folder named above under *Where your own files are kept*.
+**Where your own files are kept** is the same whichever way it was installed: `%APPDATA%\pyscopegui` on Windows and `~/.config/pyscopegui` on Linux. Upgrading and uninstalling leave that folder alone. How to uninstall each way is in [the manual](pyscopegui/help/files.md#uninstalling).
 
 ## Supported systems
 

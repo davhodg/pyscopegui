@@ -91,3 +91,18 @@ A second instrument of the same kind is named with a number, and has an entry of
 
 The samples. What is on the plot is held in memory while pyscopegui is open, and is gone
 when it closes or when the instrument is started again.
+
+## Uninstalling
+
+- **The Windows installer:** *Settings > Apps* (or *Add or remove programs*), or *Uninstall
+  pyscopegui* in its Start menu folder. It takes away its shortcuts too.
+- **pip:** `pip uninstall pyscopegui`, and any shortcut *Tools > Settings* added, as for a
+  clone.
+- **A Git clone:** delete the folder. If *Tools > Settings* was used to add a shortcut, take
+  that away as well: the shortcuts are
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\pyscopegui.lnk` and `pyscopegui.lnk`
+  on the desktop (on Linux, `~/.local/share/applications/pyscopegui.desktop`).
+
+Your own files -- the workspaces, with their settings and pane arrangements -- are never
+removed by uninstalling. To remove them too, delete the `pyscopegui` folder that holds the
+workspaces, named at the top of this page.
