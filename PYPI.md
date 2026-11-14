@@ -62,7 +62,6 @@ sudo apt install libxcb-cursor0
 - **Export to CSV**, all of it or between the cursors, or copy it to paste into a spreadsheet, and **save and open captures**: everything held kept in a file and opened again exactly as it was, beside the live instruments -- a `.pyscp`, which can be double-clicked; and CSV files from other tools opened the same way.
 - **Deep captures stay quick**: the last ten seconds of every channel are held, or up to ten minutes, and what is drawn is cut down to a lowest and a highest per column of the screen, so a spike narrower than a pixel is still drawn.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered.
-- **Light and dark** themes, and the same standard icons beside the words as pycangui.
 
 The [manual](https://github.com/davhodg/pyscopegui/blob/master/pyscopegui/help/manual.md) covers each of these, and is also under **Help > Documentation** in the application.
 

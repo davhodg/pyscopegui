@@ -34,26 +34,21 @@ For a bench with more than one scope: the channels of each, side by side on one 
 - **Workspaces**: one for each bench or setup, each with its own instruments, settings and panes, chosen under *File > Workspace*.
 - **Export to CSV**: every sample of what the plot shows, or of what is between the cursors, with time measured from the trigger, one file for each instrument -- or copied, headed, to paste straight into a spreadsheet. A picture of the plot saved as PNG or copied.
 - **Save and open captures**: everything held kept in a file and opened again exactly as it was, showing what was shown, beside the live instruments -- a `.pyscp`, which can be double-clicked; and CSV files -- pyscopegui's own, or another tool's, with lines to skip and columns to choose -- opened the same way.
-- **Instrument** pane: the settings of whichever instrument is chosen, built from what its back end says it has. A scope's channels are set one at a time, and how every channel is set is read beside its name in the plot's list: click one there to change it. A Rigol or Tektronix with knobs of its own is checked against the pane: what it has otherwise is marked, **Read** takes its settings and **Write** sends the pane's, and a change is marked until the scope has it.
-- **The same settings on every scope**: volts a division, probe, coupling and offset.
+- **Instrument** pane: the settings of whichever instrument is chosen, and on a Rigol or Tektronix, **Read** and **Write** to take the scope's own settings or send the pane's.
 - **Panes** that dock, float, detach into windows of their own and pin on top, with the arrangement remembered. More than one plot can be open at once.
-- **Event Log**: everything the application has to say, with warnings and errors in their own colours; and **Instrument traffic**, every command sent to an instrument and every answer, while it is open.
-- **Light and dark** themes, and the same standard icons beside the words as pycangui.
+- **Event Log**: everything the application has to say, warnings and errors in their own colours.
+- **Instrument traffic**: every command sent to an instrument and every answer.
 
 Full details are in [the manual](pyscopegui/help/manual.md), which is also under **Help > Documentation** in the application. What each version added, changed and fixed is in [the changelog](pyscopegui/help/changelog.md), which is part of the manual too.
 
 ## Instruments
 
-- **PicoScope 2000 series**, both ranges of them. The 2202, 2203, 2204, 2204A, 2205 and 2205A: both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. The 2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the MSO models: two or four channels and an MSO's sixteen logic inputs, streamed at up to 31.25 MS/s, or read in blocks of up to a million samples at the scope's full rate.
+- **PicoScope 2000 series**, both ranges of them, and the scope's signal generator. The 2202, 2203, 2204, 2204A, 2205 and 2205A: both channels, streamed continuously at up to 1 MS/s, or read in short blocks at up to 100 MS/s around the scope's own trigger. The 2206 to 2208 in their A and B forms, the four-channel 2405A to 2408B, and the MSO models: two or four channels and an MSO's sixteen logic inputs, streamed at up to 31.25 MS/s, or read in blocks of up to a million samples at the scope's full rate.
 - **Rigol DS1000Z series** (DS1054Z, DS1074Z, DS1104Z, and the Plus, -S and MSO models), over the network or USB: the four analog channels, a sweep at a time around the scope's own trigger, read from its screen or its whole memory, with its own trigger types: either edge, pulse width, runt, window, timeout and pattern; or read as it is, set up and triggered at the bench, with nothing on it changed. The logic inputs and signal generator that some models have are not used yet. Over the network nothing of Rigol's needs installing; USB needs a VISA library, which Rigol's own software installs.
 - **Tektronix TDS/TPS 2000 series** (TDS200, TDS1000, TDS2000 and TPS2000 over a serial port; the TDS1000B, TDS2000B and TDS2000C over USB): two or four channels, a sweep at a time around the scope's own trigger, or what is on its screen read off with nothing on the scope changed. Suited to taking a capture off the scope rather than watching one live.
 - **pycangui signals**: the signals [pycangui](https://github.com/davhodg/pycangui) decodes from a CAN bus with its database, sent over UDP multicast on this computer or the local network, as channels in their own units, lined up with the scopes by the time of each frame, and triggered on like any other.
 
 Pico's library is not bundled. Install the PicoSDK from [picotech.com/downloads](https://www.picotech.com/downloads). If Pico's own PicoScope 7 is running, close it first, since only one program can have the scope open.
-
-The **Instrument** pane sets the scope up: sample rate, and each channel's scale in volts a division, probe, coupling and whether it is read at all. The scope is opened once and kept open, so starting, stopping and changing a setting are quick.
-
-The pane also drives the scope's **signal generator** output: off, sine, square or triangle, with frequency, peak-to-peak amplitude and offset. It is off until you choose a waveform, and changes take effect while the scope runs, with a short gap in the plot while it is set.
 
 ## Installing
 
@@ -89,11 +84,7 @@ There are three options:
 
    For a shortcut, *Tools > Settings > Add shortcut to Start menu* (the applications menu on Linux) and, on Windows, *Add shortcut to desktop*. The entry starts the launcher, so a start from it after a pull still picks up new libraries. A pip installation has the same two, and its shortcut starts the Python it is installed in.
 
-   The first run sets itself up: it creates a *virtual environment* -- a folder called `.venv` holding its own copy of Python and only the libraries pyscopegui needs, so nothing else on the machine is touched -- and downloads a couple of hundred megabytes into it. That takes a few minutes once; every later start is immediate, and deleting `.venv` undoes the whole thing. If `uv` is installed it is used instead of pip.
-
-   **On Windows** the launcher makes `.venv` from Python 3.15, 3.14, 3.13 or 3.12 when the `py` launcher has one of them, newest first, even if a newer Python -- a preview, say -- is the one on the PATH: those are the versions every library pyscopegui runs on has a ready-made download for.
-
-   **If the Python `.venv` was made with is uninstalled** -- or replaced by a newer version -- the launcher says so, and offers to delete `.venv` and set it up again with the Python installed now. Workspaces and settings are not in `.venv`, and are kept. A setup that fails does not leave a half-made `.venv` behind.
+   The first run sets itself up: it creates a *virtual environment* -- a folder called `.venv` holding its own copy of Python and only the libraries pyscopegui needs, so nothing else on the machine is touched -- and downloads a couple of hundred megabytes into it. That takes a few minutes once; every later start is immediate, and deleting `.venv` undoes the whole thing. If `uv` is installed it is used instead of pip. [CONTRIBUTING.md](CONTRIBUTING.md#the-launcher) says which Python it chooses, and what it does when that Python goes.
 
 **On Linux**, however pyscopegui is installed, Qt needs a system library to draw the window, and Debian, Ubuntu, Linux Mint and the like often leave it out:
 

@@ -64,6 +64,17 @@ uv pip install --python .venv\Scripts\python.exe -e .[dev]
 Without the launcher, `python -m venv .venv` first and then the pip line. On Linux the folder is
 `.venv/bin` rather than `.venv\Scripts`.
 
+### The launcher
+
+**On Windows** the launcher makes `.venv` from Python 3.15, 3.14, 3.13 or 3.12 when the `py`
+launcher has one of them, newest first, even if a newer Python -- a preview, say -- is the one on
+the PATH: those are the versions every library pyscopegui runs on has a ready-made download for.
+
+**If the Python `.venv` was made with is uninstalled** -- or replaced by a newer version -- the
+launcher says so, and offers to delete `.venv` and set it up again with the Python installed now.
+Workspaces and settings are not in `.venv`, and are kept. A setup that fails does not leave a
+half-made `.venv` behind.
+
 ## Tests and style
 
 ```
