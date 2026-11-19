@@ -2,5 +2,5 @@
 # SPDX-FileCopyrightText: 2026 davhodg
 """pyscopegui — oscilloscopes and logic analysers in one view, on one time axis."""
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 APP_NAME = "pyscopegui"  # single place to change the display name

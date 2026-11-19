@@ -9,6 +9,14 @@ since the last version, and comes out in the next one.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-19
+
+### Changed
+
+- Questions and ideas are asked as issues, with a *Question or idea* form, rather than in
+  GitHub Discussions, which are to close: the links to them are gone from the PyPI page and
+  the project's links.
+
 ## [0.3.3] - 2026-11-19
 
 ### Added
@@ -440,7 +448,8 @@ The first version.
 - Installing with pip, from a source folder with a launcher that sets itself up, or with a
   Windows installer.
 
-[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/davhodg/pyscopegui/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/davhodg/pyscopegui/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/davhodg/pyscopegui/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/davhodg/pyscopegui/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/davhodg/pyscopegui/compare/v0.3.0...v0.3.1
