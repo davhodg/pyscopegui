@@ -1,0 +1,26 @@
+name: Question or idea
+description: Help using pyscopegui, or an idea not yet ready to be a feature request.
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question or idea
+      description: What you are trying to do, and what is unclear or what you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have tried
+      description: The manual page you looked at, what you did, and what happened.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        If it is about an instrument, paste the diagnostics report here. In pyscopegui, *Help > Diagnostics...* opens it and copies it to the clipboard.
+        The report includes a scope's network address, and the Event Log in it names a scope's serial number as it opens; remove either if you would rather.
+      render: text

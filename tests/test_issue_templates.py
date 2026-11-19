@@ -21,7 +21,7 @@ def read(name: str) -> str:
 
 
 def test_each_form_has_what_github_needs():
-    for name in ("bug_report.yml", "feature_request.yml"):
+    for name in ("bug_report.yml", "feature_request.yml", "question.yml"):
         text = read(name)
         assert text.startswith("name: "), name
         assert "\ndescription: " in text and "\nbody:\n" in text, name
@@ -42,6 +42,7 @@ def test_the_menu_entries_the_forms_name_exist(window):
     entries = [action.text() for action in window.help_menu.menu.actions()]
     assert "Diagnostics..." in entries
     assert "*Help > Diagnostics...*" in read("bug_report.yml")
+    assert "*Help > Diagnostics...*" in read("question.yml")
     assert any(entry.startswith("About ") for entry in entries)
     assert "*Help > About pyscopegui*" in (ROOT / "SECURITY.md").read_text(encoding="utf-8")
 
@@ -81,7 +82,16 @@ def test_every_instrument_can_be_named_in_a_bug_report():
     assert "Another" in form
 
 
-def test_questions_are_sent_to_discussions():
-    discussions = "https://github.com/davhodg/pyscopegui/discussions"
-    assert discussions in read("config.yml")
-    assert discussions in (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+def test_questions_are_issues_not_discussions():
+    """Discussions are closed, so nothing may still send people there."""
+    assert 'labels: ["question"]' in read("question.yml")
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "*Question or idea*" in " ".join(contributing.split())
+    for document in (
+        TEMPLATES / "config.yml",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "README.md",
+        ROOT / "PYPI.md",
+        ROOT / "pyproject.toml",
+    ):
+        assert "/discussions" not in document.read_text(encoding="utf-8"), document.name
